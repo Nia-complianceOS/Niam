@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CONTINUUM — Continuous Compliance for AI-Native Software</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #08080d;
+    --bg-elevated: #0d0e16;
+    --card: rgba(255,255,255,0.035);
+    --card-hover: rgba(255,255,255,0.055);
+    --border: rgba(255,255,255,0.09);
+    --border-soft: rgba(255,255,255,0.05);
+    --text: #f2f2f7;
+    --text-dim: #9494ab;
+    --text-faint: #5e5e72;
+    --blue: #5b8cff;
+    --purple: #a56bff;
+    --grad: linear-gradient(135deg, #5b8cff 0%, #a56bff 100%);
+    --green: #33d17a;
+    --amber: #f5a623;
+    --red: #f0555a;
+    --radius: 16px;
+    --radius-sm: 10px;
+    font-family: 'Inter', sans-serif;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{
+    background: var(--bg);
+    color: var(--text);
+    height: 100%;
+    overflow: hidden;
+  }
+  body{
+    background-image:
+      radial-gradient(ellipse 900px 500px at 15% -10%, rgba(91,140,255,0.14), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 90% 0%, rgba(165,107,255,0.10), transparent 60%);
+  }
+  ::selection{ background: rgba(91,140,255,0.35); }
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb{ background: rgba(255,255,255,0.08); border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover{ background: rgba(255,255,255,0.15); }
+
+  a, button { font-family: inherit; }
+  button{ cursor:pointer; border:none; background:none; color:inherit; font-size:inherit; }
+
+  .app{ display:flex; height:100vh; width:100vw; }
+
+  /* ---------------- SIDEBAR ---------------- */
+  .sidebar{
+    width: 240px;
+    flex-shrink:0;
+    background: rgba(255,255,255,0.015);
+    border-right: 1px solid var(--border-soft);
+    display:flex; flex-direction:column;
+    padding: 22px 14px;
+  }
+  .logo{
+    display:flex; align-items:center; gap:10px;
+    padding: 4px 8px 26px 8px;
+  }
+  .logo-mark{
+    width:26px; height:26px; border-radius:7px;
+    background: var(--grad);
+    position:relative;
+    flex-shrink:0;
+  }
+  .logo-mark::after{
+    content:"";
+    position:absolute; inset:6px;
+    border-radius:3px;
+    background: var(--bg);
+    opacity:0.9;
+  }
+  .logo-text{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:700;
+    font-size:15.5px;
+    letter-spacing:0.4px;
+  }
+  .nav{ display:flex; flex-direction:column; gap:2px; flex:1; }
+  .nav-item{
+    display:flex; align-items:center; gap:11px;
+    padding: 9px 12px;
+    border-radius: 9px;
+    color: var(--text-dim);
+    font-size: 13.5px;
+    font-weight: 500;
+    transition: background .15s ease, color .15s ease;
+    text-align:left;
+    width:100%;
+  }
+  .nav-item svg{ width:16px; height:16px; opacity:0.85; flex-shrink:0; }
+  .nav-item:hover{ background: rgba(255,255,255,0.04); color: var(--text); }
+  .nav-item.active{
+    background: rgba(91,140,255,0.12);
+    color: #cddbff;
+  }
+  .nav-item.active svg{ opacity:1; }
+  .nav-divider{ height:1px; background:var(--border-soft); margin: 10px 4px; }
+  .nav-foot{
+    padding: 12px 10px 4px 10px;
+    display:flex; align-items:center; gap:9px;
+    border-top:1px solid var(--border-soft);
+    margin-top: 8px;
+  }
+  .avatar{
+    width:28px; height:28px; border-radius:50%;
+    background: linear-gradient(135deg,#3a3a52,#1c1c2b);
+    display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:600; color:#c9c9e0;
+    flex-shrink:0;
+  }
+  .nav-foot .who{ display:flex; flex-direction:column; line-height:1.25; }
+  .nav-foot .who b{ font-size:12.5px; font-weight:600; }
+  .nav-foot .who span{ font-size:11px; color:var(--text-faint); }
+
+  /* ---------------- MAIN ---------------- */
+  .main{
+    flex:1; overflow-y:auto; padding: 30px 40px 60px 40px;
+    position:relative;
+  }
+  .page{ display:none; animation: fadein .35s ease; max-width: 1280px; }
+  .page.active{ display:block; }
+  @keyframes fadein{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+
+  .page-head{ margin-bottom: 26px; }
+  .eyebrow{
+    font-size:11.5px; font-weight:600; color: var(--blue);
+    text-transform:uppercase; letter-spacing:1.2px; margin-bottom:8px;
+    display:flex; align-items:center; gap:7px;
+  }
+  .eyebrow .dot{ width:6px; height:6px; border-radius:50%; background: var(--green); box-shadow:0 0 8px var(--green); }
+  h1{
+    font-family:'Space Grotesk', sans-serif;
+    font-size: 28px; font-weight:600; letter-spacing:-0.4px;
+  }
+  .subtitle{ color: var(--text-dim); font-size:14px; margin-top:6px; max-width:560px; }
+
+  .glass{
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    backdrop-filter: blur(20px);
+  }
+
+  /* ---- stat cards ---- */
+  .stat-row{ display:grid; grid-template-columns: repeat(4,1fr); gap:14px; margin-bottom:16px; }
+  .stat-card{
+    padding:18px 20px; position:relative; overflow:hidden;
+    transition: border-color .2s ease, transform .2s ease;
+  }
+  .stat-card:hover{ border-color: rgba(255,255,255,0.16); transform: translateY(-2px); }
+  .stat-label{ font-size:12px; color:var(--text-dim); font-weight:500; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; }
+  .stat-value{ font-family:'Space Grotesk',sans-serif; font-size:30px; font-weight:600; letter-spacing:-0.5px; }
+  .stat-sub{ font-size:12px; color:var(--text-faint); margin-top:5px; }
+  .stat-sub.warn{ color: var(--amber); }
+  .stat-sub.good{ color: var(--green); }
+  .ring-wrap{ position:absolute; right:16px; top:14px; }
+  .badge-row{ display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
+  .reg-badge{
+    font-size:10.5px; font-weight:600; padding:3px 8px; border-radius:6px;
+    background: rgba(91,140,255,0.12); color:#a9c1ff; border:1px solid rgba(91,140,255,0.22);
+  }
+
+  /* ---- layout grid: timeline + activity ---- */
+  .grid-2{ display:grid; grid-template-columns: 1.15fr 1fr; gap:16px; margin-bottom:16px; align-items:start; }
+  .panel{ padding: 20px 22px; }
+  .panel-title{ font-family:'Space Grotesk',sans-serif; font-size:15px; font-weight:600; margin-bottom:4px; display:flex; align-items:center; justify-content:space-between; }
+  .panel-sub{ font-size:12px; color:var(--text-faint); margin-bottom:18px; }
+
+  /* timeline */
+  .tl{ position:relative; padding-left: 26px; }
+  .tl::before{ content:""; position:absolute; left:9px; top:6px; bottom:6px; width:1.5px; background: linear-gradient(var(--blue), var(--purple), var(--border-soft)); }
+  .tl-item{ position:relative; padding-bottom:22px; }
+  .tl-item:last-child{ padding-bottom:0; }
+  .tl-dot{
+    position:absolute; left:-26px; top:1px; width:19px; height:19px; border-radius:50%;
+    background: var(--bg-elevated); border:1.5px solid var(--border);
+    display:flex; align-items:center; justify-content:center; font-size:10px;
+  }
+  .tl-item.done .tl-dot{ border-color: var(--green); background: rgba(51,209,122,0.12); color:var(--green); }
+  .tl-item.active .tl-dot{ border-color: var(--blue); background: rgba(91,140,255,0.18); color:var(--blue); box-shadow:0 0 0 4px rgba(91,140,255,0.1); }
+  .tl-item.pending .tl-dot{ color: var(--text-faint); }
+  .tl-title{ font-size:13.5px; font-weight:600; }
+  .tl-item.pending .tl-title{ color: var(--text-dim); font-weight:500; }
+  .tl-meta{ font-size:11.5px; color: var(--text-faint); margin-top:2px; }
+  .tl-tag{
+    display:inline-block; margin-top:6px; font-size:10.5px; font-weight:600;
+    padding:2px 7px; border-radius:5px;
+  }
+  .tl-tag.warn{ background: rgba(245,166,35,0.12); color:var(--amber); }
+  .tl-tag.wait{ background: rgba(255,255,255,0.06); color:var(--text-dim); }
+
+  /* github activity */
+  .commit{
+    display:flex; align-items:center; gap:12px; padding:11px 10px; border-radius:10px;
+    cursor:pointer; transition: background .15s ease; border:1px solid transparent;
+    margin-bottom:4px;
+  }
+  .commit:hover{ background: rgba(255,255,255,0.035); }
+  .commit.selected{ background: rgba(91,140,255,0.09); border-color: rgba(91,140,255,0.25); }
+  .commit-icon{
+    width:30px; height:30px; border-radius:8px; background: rgba(255,255,255,0.05);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:13px;
+  }
+  .commit-body{ flex:1; min-width:0; }
+  .commit-msg{ font-size:13px; font-weight:500; font-family:'IBM Plex Mono', monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .commit-meta{ font-size:11px; color:var(--text-faint); margin-top:2px; }
+  .commit-status{ font-size:10.5px; font-weight:600; padding:3px 8px; border-radius:6px; white-space:nowrap; flex-shrink:0; }
+  .commit-status.impact{ background:rgba(245,166,35,0.12); color:var(--amber); }
+  .commit-status.clear{ background:rgba(51,209,122,0.1); color:var(--green); }
+
+  /* impact panel */
+  .impact-empty{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding: 46px 20px; color:var(--text-faint); gap:10px;
+  }
+  .impact-empty .ic{ font-size:26px; opacity:0.5; }
+  .impact-empty p{ font-size:12.5px; max-width:220px; line-height:1.5; }
+
+  .impact-section{ margin-bottom:16px; }
+  .impact-label{ font-size:11px; font-weight:600; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:8px; }
+  .vendor-chip{ display:flex; align-items:center; gap:8px; font-size:13.5px; font-weight:600; }
+  .vendor-dot{ width:8px; height:8px; border-radius:50%; background: var(--amber); }
+  .data-chips{ display:flex; flex-wrap:wrap; gap:6px; }
+  .chip{ font-size:11.5px; padding:4px 9px; border-radius:7px; background:rgba(255,255,255,0.05); border:1px solid var(--border-soft); font-family:'IBM Plex Mono', monospace; }
+  .doc-list{ display:flex; flex-direction:column; gap:6px; }
+  .doc-row{ display:flex; align-items:center; gap:8px; font-size:13px; }
+  .doc-row .x{ color: var(--red); font-size:11px; }
+  .ai-box{
+    background: rgba(91,140,255,0.06); border:1px solid rgba(91,140,255,0.18);
+    border-radius: var(--radius-sm); padding:12px 14px; font-size:12.5px; line-height:1.55; color:#d3daf5;
+  }
+  .ai-box b{ color:var(--blue); }
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:7px;
+    padding:10px 16px; border-radius: 10px; font-size:13px; font-weight:600;
+    transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
+  }
+  .btn-primary{ background: var(--grad); color:white; box-shadow: 0 4px 18px rgba(91,140,255,0.28); }
+  .btn-primary:hover{ transform: translateY(-1px); box-shadow: 0 6px 22px rgba(91,140,255,0.4); }
+  .btn-primary:disabled{ opacity:0.6; cursor:default; transform:none; }
+  .btn-ghost{ background: rgba(255,255,255,0.05); border:1px solid var(--border); color:var(--text); }
+  .btn-ghost:hover{ background: rgba(255,255,255,0.09); }
+  .btn-block{ width:100%; }
+
+  .loading-wrap{ display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 40px 10px; gap:16px; }
+  .spinner{
+    width:34px; height:34px; border-radius:50%;
+    border: 2.5px solid rgba(255,255,255,0.08); border-top-color: var(--blue);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+  .loading-text{ font-size:12.5px; color:var(--text-dim); font-family:'IBM Plex Mono',monospace; }
+
+  .fix-list{ display:flex; flex-direction:column; gap:10px; margin-bottom:16px; }
+  .fix-item{ display:flex; gap:10px; align-items:flex-start; padding:10px 12px; background: rgba(51,209,122,0.05); border:1px solid rgba(51,209,122,0.15); border-radius:10px; }
+  .fix-item .plus{ color: var(--green); font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:13px; }
+  .fix-item .ft{ font-size:12.5px; font-weight:600; }
+  .fix-item .fd{ font-size:12px; color:var(--text-dim); margin-top:2px; }
+  .btn-row{ display:flex; gap:10px; }
+
+  /* PR screen */
+  .pr-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:10px; }
+  .pr-status{ font-size:11.5px; font-weight:700; padding:5px 12px; border-radius:20px; background: rgba(91,140,255,0.14); color:#a9c1ff; border:1px solid rgba(91,140,255,0.3); }
+  .pr-meta-row{ display:flex; gap:22px; font-size:12.5px; color:var(--text-dim); margin-bottom:22px; flex-wrap:wrap; }
+  .pr-meta-row b{ color:var(--text); font-weight:600; }
+  .diff-file{ margin-bottom:16px; overflow:hidden; }
+  .diff-head{ padding:10px 16px; background: rgba(255,255,255,0.04); border-bottom:1px solid var(--border-soft); font-family:'IBM Plex Mono',monospace; font-size:12.5px; display:flex; justify-content:space-between; }
+  .diff-head .stats span{ font-weight:700; }
+  .diff-head .stats .add{ color:var(--green); }
+  .diff-body{ font-family:'IBM Plex Mono',monospace; font-size:12px; line-height:1.9; }
+  .diff-line{ padding:0 16px; white-space:pre; }
+  .diff-line.add{ background: rgba(51,209,122,0.08); color:#a8e6bd; }
+  .diff-line.ctx{ color: var(--text-faint); }
+  .diff-line .gutter{ display:inline-block; width:18px; color:var(--text-faint); user-select:none; }
+
+  /* ---- Compliance Graph ---- */
+  .graph-wrap{ position:relative; height: 560px; overflow:hidden; }
+  .graph-tooltip{
+    position:absolute; pointer-events:none; padding:12px 14px; min-width:190px;
+    background: rgba(13,14,22,0.95); border:1px solid var(--border); border-radius:12px;
+    backdrop-filter: blur(16px); font-size:12px; opacity:0; transition: opacity .15s ease;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.5); z-index:10;
+  }
+  .graph-tooltip.show{ opacity:1; }
+  .graph-tooltip h4{ font-family:'Space Grotesk',sans-serif; font-size:13px; margin-bottom:8px; color:var(--text); }
+  .graph-tooltip .row{ display:flex; justify-content:space-between; gap:14px; padding:3px 0; color:var(--text-dim); }
+  .graph-tooltip .row b{ color:var(--text); font-weight:500; }
+
+  /* ---- generic card grids ---- */
+  .card-grid{ display:grid; grid-template-columns: repeat(2, 1fr); gap:14px; }
+  .info-card{ padding:20px 22px; transition: border-color .2s ease, transform .2s ease; }
+  .info-card:hover{ border-color: rgba(255,255,255,0.16); transform: translateY(-2px); }
+  .info-card-top{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; }
+  .info-card-title{ font-family:'Space Grotesk',sans-serif; font-size:15.5px; font-weight:600; }
+  .pill{ font-size:10.5px; font-weight:700; padding:4px 10px; border-radius:20px; }
+  .pill.good{ background: rgba(51,209,122,0.12); color:var(--green); border:1px solid rgba(51,209,122,0.25); }
+  .pill.warn{ background: rgba(245,166,35,0.12); color:var(--amber); border:1px solid rgba(245,166,35,0.25); }
+  .pill.info{ background: rgba(91,140,255,0.12); color:#a9c1ff; border:1px solid rgba(91,140,255,0.25); }
+  .pill.muted{ background: rgba(255,255,255,0.06); color:var(--text-dim); border:1px solid var(--border-soft); }
+  .progress-track{ height:6px; border-radius:6px; background: rgba(255,255,255,0.06); overflow:hidden; margin-top:12px; }
+  .progress-fill{ height:100%; border-radius:6px; background: var(--grad); }
+
+  .accordion{ margin-bottom:12px; overflow:hidden; }
+  .accordion-head{ padding:18px 22px; display:flex; align-items:center; justify-content:between; justify-content:space-between; cursor:pointer; }
+  .accordion-head-left{ display:flex; align-items:center; gap:14px; }
+  .accordion-score{ font-family:'Space Grotesk',sans-serif; font-size:20px; font-weight:700; }
+  .accordion-name{ font-size:14.5px; font-weight:600; }
+  .chevron{ transition: transform .2s ease; color:var(--text-faint); }
+  .accordion.open .chevron{ transform: rotate(180deg); }
+  .accordion-body{ max-height:0; overflow:hidden; transition: max-height .3s ease; border-top: 1px solid var(--border-soft); }
+  .accordion.open .accordion-body{ max-height: 360px; }
+  .accordion-body-inner{ padding: 18px 22px; display:grid; grid-template-columns: repeat(3,1fr); gap:20px; }
+  .abi-label{ font-size:11px; font-weight:600; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:8px; }
+  .abi-list{ display:flex; flex-direction:column; gap:6px; font-size:12.5px; color: var(--text-dim); }
+
+  /* audit trail */
+  .audit-item{ display:flex; gap:16px; padding: 14px 4px; border-bottom:1px solid var(--border-soft); }
+  .audit-item:last-child{ border-bottom:none; }
+  .audit-time{ font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--text-faint); width:120px; flex-shrink:0; padding-top:2px; }
+  .audit-icon{ width:28px; height:28px; border-radius:8px; background: rgba(255,255,255,0.05); display:flex; align-items:center; justify-content:center; font-size:12px; flex-shrink:0; }
+  .audit-body{ flex:1; }
+  .audit-title{ font-size:13.5px; font-weight:600; }
+  .audit-desc{ font-size:12px; color:var(--text-dim); margin-top:2px; }
+  .audit-actor{ font-size:11px; color:var(--text-faint); margin-top:5px; }
+
+  /* repos / vendors / pr list / settings tables */
+  .table{ width:100%; border-collapse:collapse; }
+  .table th{ text-align:left; font-size:11px; font-weight:600; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.6px; padding: 12px 16px; border-bottom:1px solid var(--border-soft); }
+  .table td{ padding: 14px 16px; font-size:13px; border-bottom:1px solid var(--border-soft); }
+  .table tr:last-child td{ border-bottom:none; }
+  .table tr:hover td{ background: rgba(255,255,255,0.015); }
+  .tname{ font-weight:600; display:flex; align-items:center; gap:10px; }
+  .tavatar{ width:26px; height:26px; border-radius:7px; background: rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:center; font-size:12px; }
+
+  .settings-row{ display:flex; align-items:center; justify-content:space-between; padding:18px 4px; border-bottom:1px solid var(--border-soft); }
+  .settings-row:last-child{ border-bottom:none; }
+  .settings-label{ font-size:13.5px; font-weight:600; }
+  .settings-desc{ font-size:12px; color:var(--text-dim); margin-top:3px; max-width:420px; }
+  .toggle{ width:38px; height:22px; border-radius:20px; background: rgba(255,255,255,0.09); position:relative; flex-shrink:0; transition: background .2s ease; }
+  .toggle.on{ background: var(--grad); }
+  .toggle::after{ content:""; position:absolute; width:16px; height:16px; border-radius:50%; background:white; top:3px; left:3px; transition: transform .2s ease; }
+  .toggle.on::after{ transform: translateX(16px); }
+
+  .section-gap{ margin-bottom: 16px; }
+  .modal-overlay{
+    position:fixed; inset:0; background: rgba(4,4,8,0.7); backdrop-filter: blur(6px);
+    display:none; align-items:center; justify-content:center; z-index:50;
+  }
+  .modal-overlay.show{ display:flex; }
+  .modal-box{ width: 720px; max-width:92vw; max-height: 84vh; overflow-y:auto; padding: 28px 30px; }
+  .modal-close{ position:absolute; top:20px; right:20px; width:30px; height:30px; border-radius:8px; background: rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:center; }
+  .modal-close:hover{ background: rgba(255,255,255,0.1); }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="logo">
+      <div class="logo-mark"></div>
+      <div class="logo-text">CONTINUUM</div>
+    </div>
+    <nav class="nav" id="nav">
+      <button class="nav-item active" data-page="dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        Dashboard
+      </button>
+      <button class="nav-item" data-page="graph">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="6" r="2.4"/><circle cx="19" cy="6" r="2.4"/><circle cx="12" cy="13" r="2.4"/><circle cx="5" cy="20" r="2.4"/><circle cx="19" cy="20" r="2.4"/><path d="M6.9 7.3 10.3 11.4M17.1 7.3 13.7 11.4M6.9 18.7 10.3 14.6M17.1 18.7 13.7 14.6"/></svg>
+        Compliance Graph
+      </button>
+      <button class="nav-item" data-page="repos">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h11a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3V4Z"/><path d="M8 4v11h10"/></svg>
+        Repositories
+      </button>
+      <button class="nav-item" data-page="vendors">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        Vendors
+      </button>
+      <button class="nav-item" data-page="regulations">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 4 6v6c0 4.6 3.2 8.4 8 9 4.8-.6 8-4.4 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+        Regulations
+      </button>
+      <button class="nav-item" data-page="policies">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v4h4M9 12h6M9 16h6"/></svg>
+        Policies
+      </button>
+      <button class="nav-item" data-page="prs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="9" r="2.2"/><path d="M6 8.2V15.8M18 11.2V15a3 3 0 0 1-3 3H8.2"/></svg>
+        Pull Requests
+      </button>
+      <button class="nav-item" data-page="audit">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3v4H5v14h14V7h-4V3z"/><path d="M9 12h6M9 16h6"/></svg>
+        Audit Trail
+      </button>
+      <div class="nav-divider"></div>
+      <button class="nav-item" data-page="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1Z"/></svg>
+        Settings
+      </button>
+    </nav>
+    <div class="nav-foot">
+      <div class="avatar">NL</div>
+      <div class="who"><b>Nova Labs</b><span>Growth plan</span></div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- ============ DASHBOARD ============ -->
+    <div class="page active" id="page-dashboard">
+      <div class="page-head">
+        <div class="eyebrow"><span class="dot"></span> LIVE · SYNCED 4 MIN AGO</div>
+        <h1>Compliance Overview</h1>
+        <div class="subtitle">Your code changes every day. Your compliance should too.</div>
+      </div>
+
+      <div class="stat-row">
+        <div class="glass stat-card">
+          <div class="stat-label">Overall Compliance Score</div>
+          <div class="stat-value">73%</div>
+          <div class="stat-sub warn">↓ 4pts since last push</div>
+          <svg class="ring-wrap" width="42" height="42" viewBox="0 0 42 42">
+            <circle cx="21" cy="21" r="17" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4"/>
+            <circle cx="21" cy="21" r="17" fill="none" stroke="url(#ringGrad)" stroke-width="4" stroke-linecap="round"
+              stroke-dasharray="106.8" stroke-dashoffset="28.8" transform="rotate(-90 21 21)"/>
+            <defs><linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#5b8cff"/><stop offset="100%" stop-color="#a56bff"/></linearGradient></defs>
+          </svg>
+        </div>
+        <div class="glass stat-card">
+          <div class="stat-label">Compliance Drift</div>
+          <div class="stat-value">3 <span style="font-size:15px; color:var(--text-faint); font-weight:500;">Active</span></div>
+          <div class="stat-sub warn">Mixpanel, Segment, S3 bucket</div>
+        </div>
+        <div class="glass stat-card">
+          <div class="stat-label">Open Pull Requests</div>
+          <div class="stat-value">2</div>
+          <div class="stat-sub">1 awaiting legal review</div>
+        </div>
+        <div class="glass stat-card">
+          <div class="stat-label">Connected Vendors</div>
+          <div class="stat-value">6</div>
+          <div class="badge-row">
+            <span class="reg-badge">DPDP</span><span class="reg-badge">GDPR</span><span class="reg-badge">SOC2</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <!-- Timeline -->
+        <div class="glass panel">
+          <div class="panel-title">Compliance Timeline</div>
+          <div class="panel-sub">Tracing this week's most recent drift, live</div>
+          <div class="tl">
+            <div class="tl-item done">
+              <div class="tl-dot">✓</div>
+              <div class="tl-title">Developer pushed commit</div>
+              <div class="tl-meta">a3f92c1 · main · 2 hours ago</div>
+            </div>
+            <div class="tl-item done">
+              <div class="tl-dot">✓</div>
+              <div class="tl-title">Mixpanel added</div>
+              <div class="tl-meta">New analytics dependency detected in package.json</div>
+            </div>
+            <div class="tl-item done">
+              <div class="tl-dot">✓</div>
+              <div class="tl-title">Compliance drift detected</div>
+              <span class="tl-tag warn">3 documents affected</span>
+            </div>
+            <div class="tl-item active">
+              <div class="tl-dot">◐</div>
+              <div class="tl-title">Privacy Policy outdated</div>
+              <div class="tl-meta">Missing disclosure for new data collection</div>
+            </div>
+            <div class="tl-item pending">
+              <div class="tl-dot">4</div>
+              <div class="tl-title">AI generated update</div>
+            </div>
+            <div class="tl-item pending">
+              <div class="tl-dot">5</div>
+              <div class="tl-title">Pull request opened</div>
+            </div>
+            <div class="tl-item pending">
+              <div class="tl-dot">6</div>
+              <div class="tl-title">Waiting for legal review</div>
+              <span class="tl-tag wait">Not started</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- GitHub activity -->
+        <div class="glass panel">
+          <div class="panel-title">GitHub Activity</div>
+          <div class="panel-sub">nova-labs/checkout-service</div>
+          <div id="commitList"></div>
+        </div>
+      </div>
+
+      <!-- Compliance Impact -->
+      <div class="glass panel" id="impactPanel">
+        <div class="panel-title">Compliance Impact</div>
+        <div class="panel-sub" id="impactSub">Select a commit to see how it affects your compliance posture</div>
+        <div id="impactBody"></div>
+      </div>
+    </div>
+
+    <!-- ============ COMPLIANCE GRAPH ============ -->
+    <div class="page" id="page-graph">
+      <div class="page-head">
+        <div class="eyebrow"><span class="dot"></span> DATA FLOW MAP</div>
+        <h1>Compliance Graph</h1>
+        <div class="subtitle">Every system your data touches, and every regulation that covers it — traced end to end.</div>
+      </div>
+      <div class="glass graph-wrap" id="graphWrap"></div>
+    </div>
+
+    <!-- ============ REPOSITORIES ============ -->
+    <div class="page" id="page-repos">
+      <div class="page-head">
+        <div class="eyebrow"><span class="dot"></span> CONNECTED SOURCES</div>
+        <h1>Repositories</h1>
+        <div class="subtitle">CONTINUUM watches every push for new data flows, vendors, and regulatory drift.</div>
+      </div>
+      <div class="glass" style="padding:6px 0;">
+        <table class="table">
+          <thead><tr><th>Repository</th><th>Branch</th><th>Score</th><th>Last scanned</th><th>Status</th></tr></thead>
+          <tbody id="repoTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============ VENDORS ============ -->
+    <div class="page" id="page-vendors">
+      <div class="page-head">
+        <div class="eyebrow"><span class="dot"></span> THIRD-PARTY DATA FLOWS</div>
+        <h1>Vendors</h1>
+        <div class="subtitle">Every third party your product sends user data to, mapped to the policies that disclose it.</div>
+      </div>
+      <div class="glass" style="padding:6px 0;">
+        <table class="table">
+          <thead><tr><th>Vendor</th><th>Category</th><th>Data collected</th><th>Legal coverage</th><th>Status</th></tr></thead>
+          <tbody id="vendorTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============ REGULATIONS ============ -->
+    <div class="page" id="page-regulations">
+      <div class="page-head">
+        <div class="eyebrow"><span class="dot"></span> FRAMEWORKS</div>
+        <h1>Regulations</h1>
+        <div class="subtitle">Coverage across every framework your product is required to meet.</div>
+      </div>
+      <div id="regList"></div>
+    </div>
+
+    <!-- ============ POLICIES ============ -->
+    <div class="page" id="page-policies">
+      <div class="page-head">
+        <div class="eyebrow"><span class="dot"></span> LIVING DOCUMENTS</div>
+        <h1>Policies</h1>
+        <div class="subtitle">Legal documents that update automatically as your product changes.</div>
+      </div>
+      <div class="card-grid" id="policyGrid"></div>
+    </div>
+
+    <!-- ============ PULL REQUESTS ============ -->
+    <div class="page" id="page-prs">
+      <div class="page-head">
+        <div class="eyebrow"><span class="dot"></span> COMPLIANCE PRs</div>
+        <h1>Pull Requests</h1>
+        <div class="subtitle">Every fix CONTINUUM proposes, reviewed the same way you review code.</div>
+      </div>
+      <div class="glass" style="padding:6px 0;">
+        <table class="table">
+          <thead><tr><th>Title</th><th>Files</th><th>Opened by</th><th>Reviewer</th><th>Status</th></tr></thead>
+          <tbody id="prTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============ AUDIT TRAIL ============ -->
+    <div class="page" id="page-audit">
+      <div class="page-head">
+        <div class="eyebrow"><span class="dot"></span> IMMUTABLE LOG</div>
+        <h1>Audit Trail</h1>
+        <div class="subtitle">Every action, timestamped and traceable — built for the auditor, not just the engineer.</div>
+      </div>
+      <div class="glass panel" id="auditList"></div>
+    </div>
+
+    <!-- ============ SETTINGS ============ -->
+    <div class="page" id="page-settings">
+      <div class="page-head">
+        <div class="eyebrow"><span class="dot"></span> WORKSPACE</div>
+        <h1>Settings</h1>
+        <div class="subtitle">Nova Labs · Growth plan</div>
+      </div>
+      <div class="glass panel" style="margin-bottom:14px;">
+        <div class="panel-title" style="margin-bottom:10px;">General</div>
+        <div class="settings-row">
+          <div><div class="settings-label">Auto-generate compliance PRs</div><div class="settings-desc">When drift is detected, open a pull request automatically instead of waiting for manual trigger.</div></div>
+          <div class="toggle on"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-label">Require legal review before merge</div><div class="settings-desc">Block auto-merge until a member of the Legal Team approves.</div></div>
+          <div class="toggle on"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-label">Slack drift alerts</div><div class="settings-desc">Post to #compliance whenever a new vendor or data flow is detected.</div></div>
+          <div class="toggle"></div>
+        </div>
+      </div>
+      <div class="glass panel">
+        <div class="panel-title" style="margin-bottom:10px;">Regulatory scope</div>
+        <div class="settings-row">
+          <div><div class="settings-label">DPDP (India)</div><div class="settings-desc">Digital Personal Data Protection Act</div></div>
+          <div class="toggle on"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-label">GDPR (EU)</div><div class="settings-desc">General Data Protection Regulation</div></div>
+          <div class="toggle on"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-label">SOC 2</div><div class="settings-desc">Trust services criteria for security & availability</div></div>
+          <div class="toggle on"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-label">HIPAA</div><div class="settings-desc">Coming soon</div></div>
+          <div class="toggle"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- PR MODAL -->
+<div class="modal-overlay" id="prModal">
+  <div class="glass modal-box" style="position:relative;">
+    <button class="modal-close" onclick="closePR()">✕</button>
+    <div class="pr-head">
+      <div>
+        <div style="font-family:'Space Grotesk',sans-serif; font-size:19px; font-weight:600;">Compliance Update: Mixpanel Analytics</div>
+        <div style="font-size:12.5px; color:var(--text-faint); margin-top:4px; font-family:'IBM Plex Mono',monospace;">#248 · nova-labs/checkout-service</div>
+      </div>
+      <div class="pr-status">Ready for Review</div>
+    </div>
+    <div class="pr-meta-row">
+      <div>Reviewer <b>Legal Team</b></div>
+      <div>Opened by <b>continuum-bot</b></div>
+      <div>Files changed <b>3</b></div>
+      <div>Regulations <b>DPDP, GDPR</b></div>
+    </div>
+
+    <div class="diff-file glass">
+      <div class="diff-head"><span>privacy-policy.md</span><span class="stats"><span class="add">+14</span> −0</span></div>
+      <div class="diff-body">
+<div class="diff-line ctx"><span class="gutter">18</span>  ## Third-Party Analytics</div>
+<div class="diff-line add"><span class="gutter">+</span>  We use Mixpanel to understand product usage.</div>
+<div class="diff-line add"><span class="gutter">+</span>  Mixpanel collects IP address, device ID, and</div>
+<div class="diff-line add"><span class="gutter">+</span>  purchase events on your behalf.</div>
+<div class="diff-line add"><span class="gutter">+</span>  Data is retained for 12 months.</div>
+      </div>
+    </div>
+
+    <div class="diff-file glass">
+      <div class="diff-head"><span>cookie-policy.md</span><span class="stats"><span class="add">+9</span> −0</span></div>
+      <div class="diff-body">
+<div class="diff-line ctx"><span class="gutter">7</span>  ## Analytics Cookies</div>
+<div class="diff-line add"><span class="gutter">+</span>  Mixpanel sets cookies to track sessions and</div>
+<div class="diff-line add"><span class="gutter">+</span>  events. These load only after you accept</div>
+<div class="diff-line add"><span class="gutter">+</span>  the analytics category in the consent banner.</div>
+      </div>
+    </div>
+
+    <div class="diff-file glass">
+      <div class="diff-head"><span>vendor-register.md</span><span class="stats"><span class="add">+5</span> −0</span></div>
+      <div class="diff-body">
+<div class="diff-line ctx"><span class="gutter">22</span>  | Vendor | Purpose | Data | Retention |</div>
+<div class="diff-line add"><span class="gutter">+</span>  | Mixpanel | Product analytics | IP, Device ID, Purchase Events | 12mo |</div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="closePR()">Close</button>
+      <button class="btn btn-primary" onclick="mergePR()">Approve &amp; Merge</button>
+    </div>
+  </div>
+</div>
+
+<div class="graph-tooltip" id="graphTooltip"></div>
+
+<script>
+/* ---------------- NAV ---------------- */
+document.getElementById('nav').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.nav-item');
+  if(!btn) return;
+  document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-'+btn.dataset.page).classList.add('active');
+});
+
+/* ---------------- COMMITS / IMPACT ---------------- */
+const commits = [
+  {id:'a3f92c1', msg:'feat: add Mixpanel analytics', meta:'main · 2 hours ago · +142 −8', impact:true},
+  {id:'e11bd4a', msg:'fix: correct checkout total rounding', meta:'main · 5 hours ago · +9 −4', impact:false},
+  {id:'9c02f7e', msg:'chore: bump dependencies', meta:'main · yesterday · +3 −3', impact:false},
+  {id:'71adf3c', msg:'feat: add Google OAuth login', meta:'main · 2 days ago · +88 −0', impact:true},
+  {id:'2f6b9d1', msg:'refactor: extract cart service', meta:'main · 3 days ago · +210 −190', impact:false},
+];
+const commitList = document.getElementById('commitList');
+commits.forEach((c,i)=>{
+  const el = document.createElement('div');
+  el.className = 'commit' + (i===0 ? ' selected' : '');
+  el.dataset.id = c.id;
+  el.innerHTML = `
+    <div class="commit-icon">${c.impact ? '⚠️' : '🔀'}</div>
+    <div class="commit-body">
+      <div class="commit-msg">${c.msg}</div>
+      <div class="commit-meta">${c.id} · ${c.meta}</div>
+    </div>
+    <div class="commit-status ${c.impact ? 'impact' : 'clear'}">${c.impact ? 'Compliance Impact' : 'Clear'}</div>
+  `;
+  el.addEventListener('click', ()=> selectCommit(c.id));
+  commitList.appendChild(el);
+});
+
+const impactData = {
+  'a3f92c1': {
+    vendor:'Mixpanel', data:['IP Address','Device ID','Purchase Events'],
+    docs:['Privacy Policy','Cookie Policy','Vendor Register'],
+    regs:['DPDP','GDPR'],
+    rec:'Analytics tracking introduces a new third-party data flow. <b>Privacy policy</b> should disclose Mixpanel, and <b>cookie consent</b> should be requested before analytics loads.'
+  },
+  '71adf3c': {
+    vendor:'Google Identity Services', data:['Email Address','Full Name','Profile Photo'],
+    docs:['Privacy Policy','Vendor Register'],
+    regs:['DPDP','GDPR'],
+    rec:'OAuth login shares profile data with Google. <b>Privacy policy</b> should disclose the identity provider and the fields requested at sign-in.'
+  }
+};
+
+function selectCommit(id){
+  document.querySelectorAll('.commit').forEach(c=>c.classList.toggle('selected', c.dataset.id===id));
+  const body = document.getElementById('impactBody');
+  const sub = document.getElementById('impactSub');
+  const d = impactData[id];
+  if(!d){
+    sub.textContent = 'No new data flows or compliance impact detected in this commit.';
+    body.innerHTML = `<div class="impact-empty"><div class="ic">✓</div><p>This commit doesn't introduce any new vendors, data collection, or regulatory exposure.</p></div>`;
+    return;
+  }
+  sub.textContent = 'New third-party data flow detected — review before merge';
+  body.innerHTML = `
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:26px;">
+      <div>
+        <div class="impact-section">
+          <div class="impact-label">New Vendor</div>
+          <div class="vendor-chip"><span class="vendor-dot"></span>${d.vendor}</div>
+        </div>
+        <div class="impact-section">
+          <div class="impact-label">Data Collected</div>
+          <div class="data-chips">${d.data.map(x=>`<span class="chip">${x}</span>`).join('')}</div>
+        </div>
+        <div class="impact-section">
+          <div class="impact-label">Affected Documents</div>
+          <div class="doc-list">${d.docs.map(x=>`<div class="doc-row"><span class="x">✕</span>${x}</div>`).join('')}</div>
+        </div>
+        <div class="impact-section" style="margin-bottom:0;">
+          <div class="impact-label">Required Regulations</div>
+          <div class="badge-row">${d.regs.map(r=>`<span class="reg-badge">${r}</span>`).join('')}</div>
+        </div>
+      </div>
+      <div style="display:flex; flex-direction:column;">
+        <div class="impact-label">AI Recommendation</div>
+        <div class="ai-box" style="margin-bottom:16px;">${d.rec}</div>
+        <div id="fixArea" style="margin-top:auto;">
+          <button class="btn btn-primary btn-block" onclick="generateFix()">✨ Generate Fix</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+selectCommit('a3f92c1');
+
+function generateFix(){
+  const area = document.getElementById('fixArea');
+  area.innerHTML = `
+    <div class="loading-wrap">
+      <div class="spinner"></div>
+      <div class="loading-text">AI analyzing data flow & drafting updates…</div>
+    </div>
+  `;
+  setTimeout(()=>{
+    area.innerHTML = `
+      <div class="impact-label">Generated Updates</div>
+      <div class="fix-list">
+        <div class="fix-item"><span class="plus">＋</span><div><div class="ft">Privacy Policy</div><div class="fd">Added Mixpanel analytics disclosure</div></div></div>
+        <div class="fix-item"><span class="plus">＋</span><div><div class="ft">Cookie Policy</div><div class="fd">Added analytics cookie section</div></div></div>
+        <div class="fix-item"><span class="plus">＋</span><div><div class="ft">Vendor Register</div><div class="fd">Added Mixpanel entry</div></div></div>
+        <div class="fix-item"><span class="plus">＋</span><div><div class="ft">Retention</div><div class="fd">Suggested 12 month retention window</div></div></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-ghost btn-block" onclick="openPR()">Preview PR</button>
+        <button class="btn btn-primary btn-block" onclick="acceptFix(this)">Accept</button>
+      </div>
+    `;
+  }, 1400);
+}
+function acceptFix(btn){
+  btn.textContent = '✓ Accepted';
+  btn.disabled = true;
+}
+function openPR(){ document.getElementById('prModal').classList.add('show'); }
+function closePR(){ document.getElementById('prModal').classList.remove('show'); }
+function mergePR(){
+  const b = event.target;
+  b.textContent = '✓ Merged';
+  b.disabled = true;
+  setTimeout(closePR, 900);
+}
+
+/* ---------------- COMPLIANCE GRAPH ---------------- */
+const graphNodes = [
+  {id:'user', label:'User', x:70, y:280, data:'—', purpose:'Origin of data', retention:'—', legal:'—'},
+  {id:'signup', label:'Signup Form', x:230, y:180, data:'Email, Name, Password', purpose:'Account creation', retention:'Account lifetime', legal:'Covered'},
+  {id:'api', label:'Backend API', x:230, y:380, data:'Session tokens, requests', purpose:'Request processing', retention:'90 days (logs)', legal:'Covered'},
+  {id:'db', label:'Database', x:400, y:280, data:'Profile, order history', purpose:'Persistent storage', retention:'Account lifetime', legal:'Covered'},
+  {id:'aws', label:'AWS', x:560, y:150, data:'Encrypted backups', purpose:'Infrastructure hosting', retention:'30 day snapshots', legal:'Covered'},
+  {id:'openai', label:'OpenAI', x:560, y:410, data:'Support chat transcripts', purpose:'AI assistant', retention:'30 days', legal:'Covered'},
+  {id:'mixpanel', label:'Mixpanel', x:730, y:280, data:'IP, Device ID, Purchase Events', purpose:'Product analytics', retention:'12 months', legal:'⚠ Gap: disclosure missing'},
+  {id:'privacy', label:'Privacy Policy', x:900, y:150, data:'Discloses all flows above', purpose:'Legal disclosure', retention:'—', legal:'96% coverage'},
+  {id:'cookie', label:'Cookie Banner', x:900, y:410, data:'Consent state', purpose:'Consent capture', retention:'12 months', legal:'Missing analytics category'},
+  {id:'dpdp', label:'DPDP', x:1070, y:220, data:'India data principals', purpose:'Regulatory framework', retention:'—', legal:'93% mapped'},
+  {id:'gdpr', label:'GDPR', x:1070, y:340, data:'EU data subjects', purpose:'Regulatory framework', retention:'—', legal:'82% mapped'},
+];
+const graphEdges = [
+  ['user','signup'],['user','api'],['signup','db'],['api','db'],['db','aws'],['db','openai'],
+  ['db','mixpanel'],['mixpanel','privacy'],['mixpanel','cookie'],['privacy','dpdp'],['privacy','gdpr'],['cookie','gdpr'],['aws','dpdp'],['openai','gdpr']
+];
+function buildGraph(){
+  const wrap = document.getElementById('graphWrap');
+  const W = 1180, H = 560;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" style="display:block;">`;
+  svg += `<defs>
+    <linearGradient id="edgeGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#5b8cff" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#a56bff" stop-opacity="0.55"/>
+    </linearGradient>
+  </defs>`;
+  const nodeMap = {};
+  graphNodes.forEach(n=>nodeMap[n.id]=n);
+  graphEdges.forEach(([a,b],i)=>{
+    const n1=nodeMap[a], n2=nodeMap[b];
+    svg += `<path d="M${n1.x},${n1.y} C${(n1.x+n2.x)/2},${n1.y} ${(n1.x+n2.x)/2},${n2.y} ${n2.x},${n2.y}"
+      fill="none" stroke="url(#edgeGrad)" stroke-width="1.6" stroke-dasharray="5 6" >
+      <animate attributeName="stroke-dashoffset" from="0" to="-44" dur="${3+ (i%4)}s" repeatCount="indefinite"/>
+    </path>`;
+  });
+  graphNodes.forEach(n=>{
+    const isWarn = n.legal && n.legal.includes('⚠');
+    const isMissing = n.legal && n.legal.toLowerCase().includes('missing');
+    const ringColor = isWarn ? '#f5a623' : (isMissing ? '#f0555a' : '#5b8cff');
+    svg += `<g class="gnode" data-id="${n.id}" style="cursor:pointer;">
+      <circle cx="${n.x}" cy="${n.y}" r="26" fill="rgba(255,255,255,0.03)" stroke="${ringColor}" stroke-opacity="0.55" stroke-width="1.6"/>
+      <circle cx="${n.x}" cy="${n.y}" r="4" fill="${ringColor}"/>
+      <text x="${n.x}" y="${n.y+42}" text-anchor="middle" fill="#c9c9de" font-size="11.5" font-family="Inter, sans-serif" font-weight="500">${n.label}</text>
+    </g>`;
+  });
+  svg += `</svg>`;
+  wrap.innerHTML = svg;
+
+  const tooltip = document.getElementById('graphTooltip');
+  wrap.querySelectorAll('.gnode').forEach(g=>{
+    const n = nodeMap[g.dataset.id];
+    g.addEventListener('mousemove', (e)=>{
+      const rect = wrap.getBoundingClientRect();
+      tooltip.style.left = (e.clientX - rect.left + 18) + 'px';
+      tooltip.style.top = (e.clientY - rect.top - 10) + 'px';
+      tooltip.classList.add('show');
+      tooltip.innerHTML = `
+        <h4>${n.label}</h4>
+        <div class="row"><span>Collected Data</span><b>${n.data}</b></div>
+        <div class="row"><span>Purpose</span><b>${n.purpose}</b></div>
+        <div class="row"><span>Retention</span><b>${n.retention}</b></div>
+        <div class="row"><span>Legal Coverage</span><b>${n.legal}</b></div>
+      `;
+    });
+    g.addEventListener('mouseleave', ()=> tooltip.classList.remove('show'));
+  });
+}
+buildGraph();
+
+/* ---------------- POLICIES ---------------- */
+const policies = [
+  {name:'Privacy Policy', status:'96% Coverage', pill:'good', desc:'Discloses all data collection, vendors, and retention windows across the product.', progress:96},
+  {name:'Cookie Policy', status:'Missing Analytics', pill:'warn', desc:'Analytics cookies from Mixpanel are not yet disclosed in the consent categories.', progress:71},
+  {name:'Terms of Service', status:'Updated Today', pill:'info', desc:'Reflects the new AI assistant feature and updated liability clauses.', progress:100},
+  {name:'Retention Policy', status:'Needs Review', pill:'warn', desc:'Support chat transcripts exceed the documented 30 day retention window.', progress:64},
+];
+document.getElementById('policyGrid').innerHTML = policies.map(p=>`
+  <div class="glass info-card">
+    <div class="info-card-top">
+      <div class="info-card-title">${p.name}</div>
+      <span class="pill ${p.pill}">${p.status}</span>
+    </div>
+    <div style="font-size:13px; color:var(--text-dim); line-height:1.55;">${p.desc}</div>
+    <div class="progress-track"><div class="progress-fill" style="width:${p.progress}%"></div></div>
+  </div>
+`).join('');
+
+/* ---------------- REGULATIONS ---------------- */
+const regulations = [
+  {name:'DPDP', score:'93%', color:'#33d17a', missing:['Consent withdrawal flow logging','Data principal grievance redressal SLA'],
+   controls:['Purpose limitation','Consent capture','Data minimisation'], systems:['Signup Form','Database','AWS']},
+  {name:'GDPR', score:'82%', color:'#5b8cff', missing:['Right to erasure automation','DPA with Mixpanel not signed'],
+   controls:['Lawful basis mapping','Cross-border transfer safeguards'], systems:['Mixpanel','OpenAI','Cookie Banner']},
+  {name:'SOC 2', score:'75%', color:'#f5a623', missing:['Quarterly access review evidence','Incident response runbook'],
+   controls:['Access control','Change management','Monitoring & logging'], systems:['Backend API','AWS','Database']},
+  {name:'HIPAA', score:'Coming Soon', color:'#5e5e72', missing:[], controls:[], systems:[]},
+];
+document.getElementById('regList').innerHTML = regulations.map((r,i)=>`
+  <div class="glass accordion" id="reg-${i}">
+    <div class="accordion-head" onclick="toggleAccordion(${i})">
+      <div class="accordion-head-left">
+        <div class="accordion-score" style="color:${r.color}">${r.score}</div>
+        <div class="accordion-name">${r.name}</div>
+      </div>
+      <svg class="chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+    </div>
+    <div class="accordion-body">
+      ${r.missing.length ? `
+      <div class="accordion-body-inner">
+        <div><div class="abi-label">Missing Requirements</div><div class="abi-list">${r.missing.map(x=>`<div>· ${x}</div>`).join('')}</div></div>
+        <div><div class="abi-label">Mapped Controls</div><div class="abi-list">${r.controls.map(x=>`<div>· ${x}</div>`).join('')}</div></div>
+        <div><div class="abi-label">Affected Systems</div><div class="abi-list">${r.systems.map(x=>`<div>· ${x}</div>`).join('')}</div></div>
+      </div>` : `<div style="padding:22px; color:var(--text-faint); font-size:13px;">This framework hasn't been enabled for your workspace yet.</div>`}
+    </div>
+  </div>
+`).join('');
+function toggleAccordion(i){ document.getElementById('reg-'+i).classList.toggle('open'); }
+
+/* ---------------- REPOS / VENDORS / PRS TABLES ---------------- */
+document.getElementById('repoTable').innerHTML = [
+  {name:'checkout-service', icon:'🛒', branch:'main', score:'73%', scanned:'4 min ago', status:['Drift Detected','warn']},
+  {name:'auth-service', icon:'🔐', branch:'main', score:'91%', scanned:'1 hr ago', status:['Healthy','good']},
+  {name:'marketing-site', icon:'🌐', branch:'main', score:'88%', scanned:'3 hr ago', status:['Healthy','good']},
+  {name:'support-ai', icon:'🤖', branch:'main', score:'64%', scanned:'6 hr ago', status:['Retention Gap','warn']},
+].map(r=>`<tr>
+  <td class="tname"><span class="tavatar">${r.icon}</span>nova-labs/${r.name}</td>
+  <td>${r.branch}</td><td>${r.score}</td><td>${r.scanned}</td>
+  <td><span class="pill ${r.status[1]}">${r.status[0]}</span></td>
+</tr>`).join('');
+
+document.getElementById('vendorTable').innerHTML = [
+  {name:'Stripe', icon:'💳', cat:'Payments', data:'Card token, billing address', cov:'Covered', pill:'good'},
+  {name:'Mixpanel', icon:'📊', cat:'Analytics', data:'IP, Device ID, Purchase Events', cov:'Gap: not disclosed', pill:'warn'},
+  {name:'AWS', icon:'☁️', cat:'Infrastructure', data:'Encrypted backups', cov:'Covered', pill:'good'},
+  {name:'OpenAI', icon:'🧠', cat:'AI Assistant', data:'Support chat transcripts', cov:'Covered', pill:'good'},
+  {name:'SendGrid', icon:'✉️', cat:'Email', data:'Email address, name', cov:'Covered', pill:'good'},
+  {name:'Google Identity', icon:'🔑', cat:'Authentication', data:'Email, name, profile photo', cov:'Review pending', pill:'info'},
+].map(v=>`<tr>
+  <td class="tname"><span class="tavatar">${v.icon}</span>${v.name}</td>
+  <td>${v.cat}</td><td>${v.data}</td>
+  <td><span class="pill ${v.pill}">${v.cov}</span></td>
+  <td><span class="pill muted">Active</span></td>
+</tr>`).join('');
+
+document.getElementById('prTable').innerHTML = [
+  {title:'Compliance Update: Mixpanel Analytics', files:3, by:'continuum-bot', rev:'Legal Team', status:['Ready for Review','info']},
+  {title:'Compliance Update: Retention window fix', files:2, by:'continuum-bot', rev:'Legal Team', status:['Awaiting Author','warn']},
+  {title:'Compliance Update: Google OAuth disclosure', files:2, by:'continuum-bot', rev:'Priya S.', status:['Merged','good']},
+].map(p=>`<tr>
+  <td class="tname">${p.title}</td><td>${p.files} files</td><td>${p.by}</td><td>${p.rev}</td>
+  <td><span class="pill ${p.status[1]}">${p.status[0]}</span></td>
+</tr>`).join('');
+
+/* ---------------- AUDIT TRAIL ---------------- */
+const auditEvents = [
+  {time:'Today 14:22', icon:'🔀', title:'Commit detected', desc:'a3f92c1 — feat: add Mixpanel analytics', actor:'GitHub · nova-labs/checkout-service'},
+  {time:'Today 14:23', icon:'📄', title:'Policy updated', desc:'Privacy Policy drafted with Mixpanel disclosure', actor:'CONTINUUM AI'},
+  {time:'Today 14:23', icon:'🏷️', title:'Vendor added', desc:'Mixpanel added to vendor register', actor:'CONTINUUM AI'},
+  {time:'Today 14:24', icon:'🍪', title:'Consent changed', desc:'Analytics category added to cookie banner config', actor:'CONTINUUM AI'},
+  {time:'Today 14:24', icon:'🗄️', title:'Retention updated', desc:'12 month retention window suggested for Mixpanel data', actor:'CONTINUUM AI'},
+  {time:'Yesterday 09:10', icon:'✅', title:'Pull request merged', desc:'#241 — Compliance Update: Google OAuth disclosure', actor:'Priya S. (Legal Team)'},
+  {time:'Yesterday 09:02', icon:'🔀', title:'Commit detected', desc:'71adf3c — feat: add Google OAuth login', actor:'GitHub · nova-labs/checkout-service'},
+];
+document.getElementById('auditList').innerHTML = auditEvents.map(a=>`
+  <div class="audit-item">
+    <div class="audit-time">${a.time}</div>
+    <div class="audit-icon">${a.icon}</div>
+    <div class="audit-body">
+      <div class="audit-title">${a.title}</div>
+      <div class="audit-desc">${a.desc}</div>
+      <div class="audit-actor">${a.actor}</div>
+    </div>
+  </div>
+`).join('');
+</script>
+</body>
+</html>
