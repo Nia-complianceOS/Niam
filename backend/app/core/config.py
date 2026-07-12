@@ -5,16 +5,14 @@ class Settings(BaseSettings):
     APP_NAME: str = "NIA Backend"
     DEBUG: bool = True
 
-    DATABASE_URL: str = ""
-
     NEO4J_URI: str = ""
     NEO4J_USERNAME: str = ""
     NEO4J_PASSWORD: str = ""
+    NEO4J_DATABASE: str = "neo4j"
 
     GITHUB_TOKEN: str = ""
 
-    OPENAI_API_KEY: str = ""
-    ANTHROPIC_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
