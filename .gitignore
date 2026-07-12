@@ -1,11 +1,113 @@
-nia_env/
+# ==========================
+# Python
+# ==========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
 venv/
 .venv/
-__pycache__/
-*.pyc
+env/
+ENV/
+nia_env/
+
+# Environment variables
 .env
-.ipynb_checkpoints/
-node_modules/
-.DS_Store
+.env.*
+!.env.example
+
+# Python packaging
+build/
+dist/
 *.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Testing
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Type checking / linting
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# SQLite
+*.sqlite3
+*.db
+
+# ==========================
+# FastAPI / Uvicorn
+# ==========================
+uvicorn.log
+
+# ==========================
+# VS Code
+# ==========================
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# ==========================
+# JetBrains
+# ==========================
+.idea/
+
+# ==========================
+# Node / Frontend
+# ==========================
+node_modules/
+.npm/
+.next/
+dist/
+coverage/
+
+# ==========================
+# OS Files
+# ==========================
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ==========================
+# Git
+# ==========================
+*.orig
+*.rej
+
+# ==========================
+# Temporary files
+# ==========================
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# ==========================
+# Secrets
+# ==========================
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# ==========================
+# Miscellaneous
+# ==========================
+.cache/
