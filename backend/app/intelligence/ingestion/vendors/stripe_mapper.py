@@ -1,5 +1,5 @@
 """
-ingestion/vendors/mapper.py — maps raw vendor field names (Stripe today;
+ingestion/vendors/stripe_mapper.py — maps raw vendor field names (Stripe;
 same interface should work for Firebase/Mixpanel later) onto the shared
 DataType taxonomy, and shapes the result for graph_writer.write_vendor_fields().
 
