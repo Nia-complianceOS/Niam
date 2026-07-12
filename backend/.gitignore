@@ -1,24 +1,11 @@
-# Virtual Environment
+nia_env/
 venv/
-
-# Environment files
-.env
-.env.local
-.env.development
-.env.production
-.env.test
-.env.*
-
-# Keep only the template
-!.env.example
-
-# Python
+.venv/
 __pycache__/
-*.py[cod]
-.pytest_cache/
-
-# VS Code
-.vscode/
-
-# macOS
+*.pyc
+.env
+.ipynb_checkpoints/
+node_modules/
 .DS_Store
+*.egg-info/
+.pytest_cache/

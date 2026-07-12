@@ -1,33 +1,44 @@
-try:
-    from pydantic_settings import BaseSettings, SettingsConfigDict
-except ImportError:  # pragma: no cover - fallback for environments without pydantic-settings
-    from pydantic import BaseSettings, Extra
+"""
+Centralized app configuration.
 
-    SettingsConfigDict = dict
+Every module — backend services, API routes, and the Data & Graph
+Intelligence pipeline under app/intelligence/ — should read settings
+from here rather than calling os.getenv() directly. That keeps us to
+one source of truth for env vars and one place to change defaults.
+"""
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    APP_NAME: str = "NIA Backend"
-    DEBUG: bool = True
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    NEO4J_URI: str = ""
-    NEO4J_USERNAME: str = ""
-    NEO4J_PASSWORD: str = ""
-    NEO4J_DATABASE: str = "neo4j"
+    # App
+    app_env: str = "development"
+    api_v1_prefix: str = "/api/v1"
+    cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
-    GITHUB_TOKEN: str = ""
+    # Neo4j
+    neo4j_uri: str = ""
+    neo4j_user: str = ""
+    neo4j_password: str = ""
 
+    # GitHub
+    github_token: str = ""
+    github_webhook_secret: str = ""
+
+    # Anthropic (used by the intelligence module, not directly by backend routes)
     GEMINI_API_KEY: str = ""
 
-    if hasattr(BaseSettings, "model_config"):
-        model_config = SettingsConfigDict(
-            env_file=".env",
-            extra="ignore"
-        )
-    else:
-        class Config:
-            env_file = ".env"
-            extra = Extra.ignore
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
-settings = Settings()
+@lru_cache
+def get_settings() -> Settings:
+    """Cached settings instance — import and call this, don't instantiate Settings() directly."""
+    return Settings()
