@@ -1,4 +1,9 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+try:
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+except ImportError:  # pragma: no cover - fallback for environments without pydantic-settings
+    from pydantic import BaseSettings, Extra
+
+    SettingsConfigDict = dict
 
 
 class Settings(BaseSettings):
@@ -14,10 +19,15 @@ class Settings(BaseSettings):
 
     GEMINI_API_KEY: str = ""
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        extra="ignore"
-    )
+    if hasattr(BaseSettings, "model_config"):
+        model_config = SettingsConfigDict(
+            env_file=".env",
+            extra="ignore"
+        )
+    else:
+        class Config:
+            env_file = ".env"
+            extra = Extra.ignore
 
 
 settings = Settings()
