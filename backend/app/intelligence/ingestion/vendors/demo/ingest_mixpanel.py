@@ -11,7 +11,7 @@ import argparse
 import logging
 
 from ingestion.vendors.mixpanel import MixpanelIngestion
-from ingestion.vendors.mixpanel_mapper import map_fields_to_data_types
+from NIA.backend.app.intelligence.ingestion.vendors.demo.mixpanel_mapper import map_fields_to_data_types
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
