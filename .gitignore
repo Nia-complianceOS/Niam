@@ -1,3 +1,4 @@
+nia_env/
 # ==========================
 # Python
 # ==========================
@@ -8,6 +9,8 @@ __pycache__/
 # Virtual environments
 venv/
 .venv/
+__pycache__/
+*.pyc
 env/
 ENV/
 nia_env/
@@ -78,6 +81,8 @@ coverage/
 # OS Files
 # ==========================
 .DS_Store
+*.egg-info/
+.pytest_cache/
 Thumbs.db
 Desktop.ini
 
@@ -110,4 +115,4 @@ credentials/
 # ==========================
 # Miscellaneous
 # ==========================
-.cache/
+.cache/-
