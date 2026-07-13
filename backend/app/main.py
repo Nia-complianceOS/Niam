@@ -1,11 +1,9 @@
 """
 FastAPI entrypoint.
 
-Step 1 scope: app boots, CORS is open to the frontend dev server,
-and /health proves Neo4j is actually reachable (not just that the
-process started). Route modules (graph, gaps, webhook, PR service)
-get mounted under app/api/v1/ in later steps — this file just wires
-the app together.
+All actual routes live under app/api/v1/endpoints/, aggregated by
+app/api/v1/router.py. This file just builds the app, sets up CORS,
+manages the Neo4j driver lifecycle, and mounts that router.
 """
 
 from contextlib import asynccontextmanager
@@ -13,15 +11,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.v1.router import api_router
 from app.core.config import get_settings
-from app.db.database import close_driver, verify_connectivity
+from app.db.database import close_driver
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: nothing eager yet — Neo4j driver is lazy (created on first use).
+    # Startup: nothing eager -- Neo4j driver is lazy (created on first use).
     yield
     # Shutdown: release the driver cleanly.
     close_driver()
@@ -42,29 +41,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.get("/health", tags=["meta"])
-def health_check():
-    """
-    Liveness + Neo4j connectivity check. If neo4j_connected is false,
-    NEO4J_URI/USER/PASSWORD in .env are wrong or AuraDB isn't reachable —
-    check that before debugging anything downstream.
-    """
-    neo4j_ok = verify_connectivity()
-    return {
-        "status": "ok",
-        "environment": settings.app_env,
-        "neo4j_connected": neo4j_ok,
-    }
+app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 
 @app.get("/", tags=["meta"])
 def root():
-    return {"service": "continuum-api", "docs": "/docs"}
-
-
-# Route modules mount here as they're built, e.g.:
-# from app.api.v1 import graph, gaps, webhook
-# app.include_router(graph.router, prefix=settings.api_v1_prefix)
-# app.include_router(gaps.router, prefix=settings.api_v1_prefix)
-# app.include_router(webhook.router)  # webhook stays unprefixed: /webhook/github
+    return {"service": "continuum-api", "docs": "/docs", "api_prefix": settings.api_v1_prefix}
