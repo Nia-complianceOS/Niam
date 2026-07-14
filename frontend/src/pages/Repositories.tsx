@@ -1,30 +1,37 @@
-import { Table, TableHead, TableRow, TableCell } from '@/components/ui/Table'
-import { StatusBadge, Badge } from '@/components/ui/Badge'
-import type { Vendor } from '@/types/api'
+import { Card } from '@/components/ui/Card'
+import { Badge } from '@/components/ui/Badge'
+import { LoadingState, ErrorState, PageHeader } from '@/components/shared/PageStates'
+import { useRepos } from '@/hooks/useRepos'
 
-export function VendorsTable({ vendors }: { vendors: Vendor[] }) {
+export default function Repositories() {
+  const { data, loading, error } = useRepos()
+
+  if (loading) return <LoadingState label="Loading repositories…" />
+  if (error || !data) return <ErrorState message={error} />
+
   return (
-    <Table>
-      <TableHead columns={['Vendor', 'Category', 'Data collected', 'Legal coverage', 'Status']} />
-      <tbody>
-        {vendors.map((vendor) => (
-          <TableRow key={vendor.id}>
-            <TableCell>
-              <span className="font-semibold">{vendor.name}</span>
-            </TableCell>
-            <TableCell>{vendor.category}</TableCell>
-            <TableCell>{vendor.data_collected}</TableCell>
-            <TableCell>
-              <StatusBadge status={vendor.coverage_status}>{vendor.coverage_detail}</StatusBadge>
-            </TableCell>
-            <TableCell>
-              <Badge tone={vendor.connection_active ? 'muted' : 'gap'}>
-                {vendor.connection_active ? 'Active' : 'Disconnected'}
+    <div className="max-w-[1280px]">
+      <PageHeader
+        eyebrow="Code Inventory"
+        title="Repositories"
+        subtitle="Track the repos that feed your compliance signals and review activity."
+      />
+      <div className="grid gap-3">
+        {data.repositories.map((repo) => (
+          <Card key={repo.id} className="p-4 flex items-center justify-between gap-4">
+            <div>
+              <div className="font-semibold">{repo.full_name}</div>
+              <div className="text-sm text-text-dim">Branch {repo.branch} • Last scanned {repo.last_scanned_at}</div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Badge tone={repo.status === 'compliant' ? 'good' : repo.status === 'gap' ? 'gap' : 'muted'}>
+                {repo.status_detail}
               </Badge>
-            </TableCell>
-          </TableRow>
+              <div className="text-sm font-semibold">{repo.score}%</div>
+            </div>
+          </Card>
         ))}
-      </tbody>
-    </Table>
+      </div>
+    </div>
   )
 }
