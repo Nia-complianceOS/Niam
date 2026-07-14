@@ -1,12 +1,21 @@
-import { Card } from '@/components/ui/Card'
+import { RegulationsAccordion } from '@/components/regulations/RegulationsAccordion'
+import { LoadingState, ErrorState, PageHeader } from '@/components/shared/PageStates'
+import { useRegulations } from '@/hooks/useRegulations'
 
 export default function Regulations() {
+  const { data, loading, error } = useRegulations()
+
+  if (loading) return <LoadingState label="Loading regulations…" />
+  if (error || !data) return <ErrorState message={error} />
+
   return (
     <div className="max-w-[1280px]">
-      <Card className="p-6">
-        <h1 className="font-display text-[24px] font-semibold tracking-tight">Regulations</h1>
-        <p className="mt-2 text-sm text-text-dim">Regulatory coverage details will appear here.</p>
-      </Card>
+      <PageHeader
+        eyebrow="Frameworks"
+        title="Regulations"
+        subtitle="Coverage across every framework your product is required to meet."
+      />
+      <RegulationsAccordion regulations={data.regulations} />
     </div>
   )
 }

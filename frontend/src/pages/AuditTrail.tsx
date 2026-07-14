@@ -1,12 +1,21 @@
-import { Card } from '@/components/ui/Card'
+import { AuditEventList } from '@/components/audit/AuditEventList'
+import { LoadingState, ErrorState, PageHeader } from '@/components/shared/PageStates'
+import { useAuditTrail } from '@/hooks/useAuditTrail'
 
 export default function AuditTrail() {
+  const { data, loading, error } = useAuditTrail()
+
+  if (loading) return <LoadingState label="Loading audit trail…" />
+  if (error || !data) return <ErrorState message={error} />
+
   return (
     <div className="max-w-[1280px]">
-      <Card className="p-6">
-        <h1 className="font-display text-[24px] font-semibold tracking-tight">Audit Trail</h1>
-        <p className="mt-2 text-sm text-text-dim">Compliance audit history will appear here.</p>
-      </Card>
+      <PageHeader
+        eyebrow="Immutable Log"
+        title="Audit Trail"
+        subtitle="Every action, timestamped and traceable — built for the auditor, not just the engineer."
+      />
+      <AuditEventList events={data.events} />
     </div>
   )
 }
