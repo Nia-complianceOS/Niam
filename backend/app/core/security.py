@@ -7,6 +7,8 @@ from here rather than calling os.getenv() directly. That keeps us to
 one source of truth for env vars and one place to change defaults.
 """
 
+import hashlib
+import hmac
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -38,6 +40,23 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+
+def verify_github_signature(payload: bytes | str, signature: str | None) -> bool:
+    """Verify an HMAC-SHA256 GitHub webhook signature.
+
+    If no signature is supplied, the request is treated as invalid.
+    """
+    if not signature:
+        return False
+
+    settings = get_settings()
+    expected = hmac.new(
+        settings.github_webhook_secret.encode("utf-8"),
+        payload if isinstance(payload, bytes) else payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(f"sha256={expected}", signature)
 
 
 @lru_cache

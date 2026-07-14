@@ -72,10 +72,13 @@ uvicorn.log
 # Node / Frontend
 # ==========================
 node_modules/
-.npm/
-.next/
 dist/
-coverage/
+dist-ssr/
+.env
+.env.local
+.DS_Store
+*.local
+*.tsbuildinfo
 
 # ==========================
 # OS Files
