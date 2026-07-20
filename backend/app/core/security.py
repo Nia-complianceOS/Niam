@@ -1,65 +1,37 @@
 """
-Centralized app configuration.
+Security-related helpers: GitHub webhook signature verification.
 
-Every module — backend services, API routes, and the Data & Graph
-Intelligence pipeline under app/intelligence/ — should read settings
-from here rather than calling os.getenv() directly. That keeps us to
-one source of truth for env vars and one place to change defaults.
+Settings live in app/core/config.py only — this file used to define its
+own duplicate Settings class, which had drifted out of sync with
+config.py (different field names for the same env vars). That's fixed
+now: this module imports get_settings from config.py like everything
+else does.
 """
 
 import hashlib
 import hmac
-from functools import lru_cache
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
-
-    # App
-    app_env: str = "development"
-    api_v1_prefix: str = "/api/v1"
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"
-
-    # Neo4j
-    neo4j_uri: str = ""
-    neo4j_user: str = ""
-    neo4j_password: str = ""
-
-    # GitHub
-    github_token: str = ""
-    github_webhook_secret: str = ""
-
-    # Anthropic (used by the intelligence module, not directly by backend routes)
-    anthropic_api_key: str = ""
-
-    # Vendor ingestion
-    vendor_api_key: str = ""
-
-    @property
-    def cors_origins_list(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+from app.core.config import get_settings
 
 
 def verify_github_signature(payload: bytes | str, signature: str | None) -> bool:
     """Verify an HMAC-SHA256 GitHub webhook signature.
 
-    If no signature is supplied, the request is treated as invalid.
+    If no signature is supplied, or no webhook secret is configured,
+    the request is treated as invalid. Callers (see api/v1/endpoints/
+    webhook.py) currently only invoke this when a secret IS configured,
+    so the "no secret configured" case is a defensive fallback, not the
+    expected path.
     """
-    if not signature:
+    settings = get_settings()
+
+    if not signature or not settings.github_webhook_secret:
         return False
 
-    settings = get_settings()
+    body = payload if isinstance(payload, bytes) else payload.encode("utf-8")
     expected = hmac.new(
         settings.github_webhook_secret.encode("utf-8"),
-        payload if isinstance(payload, bytes) else payload.encode("utf-8"),
+        body,
         hashlib.sha256,
     ).hexdigest()
     return hmac.compare_digest(f"sha256={expected}", signature)
-
-
-@lru_cache
-def get_settings() -> Settings:
-    """Cached settings instance — import and call this, don't instantiate Settings() directly."""
-    return Settings()

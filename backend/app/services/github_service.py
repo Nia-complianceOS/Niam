@@ -9,10 +9,12 @@ the onboarding doc, using GITHUB_TOKEN from app/core/config.py.
 
 from datetime import datetime, timedelta, timezone
 
-from app.schemas.common import ComplianceStatus, RegulationCode, PRStatus
-from app.schemas.repos import Repository, ReposResponse
+from fastapi import HTTPException
+
+from app.schemas.common import ComplianceStatus, PRStatus
 from app.schemas.gaps import Gap
 from app.schemas.prs import PullRequest, PRsResponse
+from app.schemas.repos import Repository, ReposResponse
 
 _NOW = lambda: datetime.now(timezone.utc)  # noqa: E731
 
@@ -22,17 +24,17 @@ _PRS: dict[str, PullRequest] = {}
 def list_repositories() -> ReposResponse:
     now = _NOW()
     return ReposResponse(repositories=[
-        Repository(id="r1", full_name="nova-labs/checkout-service", score=73,
-                    last_scanned_at=now - timedelta(minutes=4),
+        Repository(id="r1", full_name="nova-labs/checkout-service", branch="main", score=73,
+                    last_scanned_at=(now - timedelta(minutes=4)).isoformat(),
                     status=ComplianceStatus.WARNING, status_detail="Drift Detected"),
-        Repository(id="r2", full_name="nova-labs/auth-service", score=91,
-                    last_scanned_at=now - timedelta(hours=1),
+        Repository(id="r2", full_name="nova-labs/auth-service", branch="main", score=91,
+                    last_scanned_at=(now - timedelta(hours=1)).isoformat(),
                     status=ComplianceStatus.COMPLIANT, status_detail="Healthy"),
-        Repository(id="r3", full_name="nova-labs/marketing-site", score=88,
-                    last_scanned_at=now - timedelta(hours=3),
+        Repository(id="r3", full_name="nova-labs/marketing-site", branch="main", score=88,
+                    last_scanned_at=(now - timedelta(hours=3)).isoformat(),
                     status=ComplianceStatus.COMPLIANT, status_detail="Healthy"),
-        Repository(id="r4", full_name="nova-labs/support-ai", score=64,
-                    last_scanned_at=now - timedelta(hours=6),
+        Repository(id="r4", full_name="nova-labs/support-ai", branch="develop", score=64,
+                    last_scanned_at=(now - timedelta(hours=6)).isoformat(),
                     status=ComplianceStatus.WARNING, status_detail="Retention Gap"),
     ])
 
@@ -48,7 +50,19 @@ def open_compliance_pr(gap: Gap) -> PullRequest:
     content, so the /open-pr endpoint and Frontend's PR review modal
     can be built and tested end-to-end before real PyGithub wiring
     lands in Phase C.
+
+    Raises HTTPException(400) if the gap has no remediation drafts yet
+    — a PR should never be opened for a gap where generate-fix hasn't
+    run, and the endpoint should surface that as a clear 400 rather
+    than opening an empty PR or letting an unhandled error become a
+    generic 500.
     """
+    if not gap.remediation_drafts:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Gap '{gap.id}' has no remediation drafts yet — call generate-fix before open-pr",
+        )
+
     pr_id = f"pr-{len(_PRS) + 300}"
     now = _NOW()
     pr = PullRequest(
@@ -62,8 +76,8 @@ def open_compliance_pr(gap: Gap) -> PullRequest:
         regulations=gap.regulations,
         files=gap.remediation_drafts,
         github_pr_url=None,  # populated once real GitHub API call lands
-        opened_at=now,
-        updated_at=now,
+        opened_at=now.isoformat(),
+        updated_at=now.isoformat(),
     )
     _PRS[pr_id] = pr
     return pr

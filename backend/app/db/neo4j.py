@@ -15,6 +15,7 @@ for the common case of "run this Cypher, get back a list of dicts".
 from functools import lru_cache
 
 from neo4j import Driver, GraphDatabase
+from neo4j.exceptions import Neo4jError, ServiceUnavailable
 
 from app.core.config import get_settings
 
@@ -29,11 +30,22 @@ def get_driver() -> Driver:
 
 
 def run_query(query: str, params: dict | None = None) -> list[dict]:
-    """Run a Cypher query and return records as a list of plain dicts."""
+    """Run a Cypher query and return records as a list of plain dicts.
+
+    Raises RuntimeError with a clear message if Neo4j is unreachable or
+    the query fails, so callers (services) can decide how to degrade
+    (e.g. return an empty graph) instead of leaking a raw driver
+    exception up through the API.
+    """
     driver = get_driver()
-    with driver.session() as session:
-        result = session.run(query, params or {})
-        return [record.data() for record in result]
+    try:
+        with driver.session() as session:
+            result = session.run(query, params or {})
+            return [record.data() for record in result]
+    except ServiceUnavailable as exc:
+        raise RuntimeError("Neo4j is unreachable — check NEO4J_URI and that the instance is running") from exc
+    except Neo4jError as exc:
+        raise RuntimeError(f"Neo4j query failed: {exc}") from exc
 
 
 def verify_connectivity() -> bool:
