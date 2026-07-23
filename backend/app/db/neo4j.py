@@ -32,13 +32,17 @@ def get_driver() -> Driver:
 def run_query(query: str, params: dict | None = None) -> list[dict]:
     """Run a Cypher query and return records as a list of plain dicts.
 
-    Raises RuntimeError with a clear message if Neo4j is unreachable or
-    the query fails, so callers (services) can decide how to degrade
-    (e.g. return an empty graph) instead of leaking a raw driver
-    exception up through the API.
+    Raises RuntimeError with a clear message if Neo4j is unreachable,
+    misconfigured, or the query fails, so callers (services) can decide
+    how to degrade (e.g. return an empty graph, or a single stat card
+    marked unavailable) instead of leaking a raw driver exception up
+    through the API. Driver acquisition happens inside the try block
+    on purpose — an empty or malformed NEO4J_URI (the default, unset
+    state) can raise before a session is even opened, and that failure
+    needs to degrade the same way a mid-query connectivity loss does.
     """
-    driver = get_driver()
     try:
+        driver = get_driver()
         with driver.session() as session:
             result = session.run(query, params or {})
             return [record.data() for record in result]
@@ -46,6 +50,11 @@ def run_query(query: str, params: dict | None = None) -> list[dict]:
         raise RuntimeError("Neo4j is unreachable — check NEO4J_URI and that the instance is running") from exc
     except Neo4jError as exc:
         raise RuntimeError(f"Neo4j query failed: {exc}") from exc
+    except (ValueError, TypeError, OSError) as exc:
+        # Driver construction itself can raise these for a malformed or
+        # empty NEO4J_URI/credentials, before ServiceUnavailable would
+        # ever apply.
+        raise RuntimeError(f"Neo4j is not configured correctly: {exc}") from exc
 
 
 def verify_connectivity() -> bool:

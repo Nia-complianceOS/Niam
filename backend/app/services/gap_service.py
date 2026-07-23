@@ -1,13 +1,23 @@
 """
 Serves and mutates compliance gaps.
 
-Real version: list_gaps()/get_gap() query Neo4j (or a Postgres table,
-if we end up storing gap metadata outside the graph) for gap objects
-written by the Data & Graph Intelligence module's reconciliation
-engine. generate_fix() calls their remediation-drafting output.
-Backend's job per the team boundary is to store/serve that JSON
-as-is, not compute it — the mock data below is a stand-in for that
-handoff so Frontend and route wiring can be built now.
+STATUS AS OF PHASE 3.3: still serving mock data. The Data & Graph
+Intelligence module has not landed Gap/DPDPClause nodes in Neo4j yet
+(confirmed with the team — see the Data & Graph Contract Spec shared
+separately). Real version: list_gaps()/get_gap() will query Neo4j for
+Gap nodes written by the reconciliation engine; generate_fix() will
+read already-drafted RemediationDraft nodes rather than generating
+them here. Backend's job per the team boundary is to store/serve that
+JSON as-is, not compute it.
+
+This file is deliberately structured as an adapter seam: the Cypher
+below (_QUERY_*) documents the exact shape Phase 3.3-real will query
+once Gap nodes exist, and _gap_from_graph_row() shows how a Neo4j
+record maps onto the existing Gap pydantic schema. Neither is called
+yet — list_gaps()/get_gap() still read the in-memory mock store. When
+Gap nodes land, the swap is: replace the mock dict lookup with
+run_query(_QUERY_...) and pass each row through _gap_from_graph_row().
+The response shape (Gap/GapsResponse) does not need to change.
 
 Also home to the smaller "compliance surface" reads (vendors,
 regulations, policies, audit trail) since they're all views over the
@@ -19,17 +29,96 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 
-from app.schemas.common import CommitRef, GapStatus, RegulationCode, ComplianceStatus
-from app.schemas.gaps import Gap, GapsResponse, RemediationDraft
-from app.schemas.vendors import Vendor, VendorsResponse
-from app.schemas.regulations import RegulationCoverage, RegulationsResponse
-from app.schemas.policies import Policy, PoliciesResponse
 from app.schemas.audit import AuditEvent, AuditResponse
+from app.schemas.common import CommitRef, ComplianceStatus, GapStatus, RegulationCode
+from app.schemas.gaps import Gap, GapsResponse, RemediationDraft
+from app.schemas.policies import Policy, PoliciesResponse
+from app.schemas.regulations import RegulationCoverage, RegulationsResponse
+from app.schemas.vendors import Vendor, VendorsResponse
 
 _NOW = lambda: datetime.now(timezone.utc)  # noqa: E731
 
-# In-memory mock store, keyed by gap id. Replace with a real Neo4j/DB
-# read in Phase B once the intelligence module's output exists.
+# ---------------------------------------------------------------------------
+# FUTURE CONTRACT — not called yet. Documents the Cypher gap_service.py will
+# run once the Data & Graph Intelligence module writes :Gap nodes. See the
+# Data & Graph Contract Spec for the full node/relationship definitions this
+# assumes. Scoped to DPDP only for v1, matching Track 1's stated scope.
+# ---------------------------------------------------------------------------
+
+_QUERY_LIST_GAPS = """
+MATCH (g:Gap)
+OPTIONAL MATCH (g)-[:AFFECTS]->(v:Vendor)
+OPTIONAL MATCH (g)-[:INVOLVES]->(d:DataType)
+OPTIONAL MATCH (g)-[:VIOLATES]->(c:DPDPClause)
+OPTIONAL MATCH (g)-[hd:HAS_DRAFT]->(rd:RemediationDraft)
+RETURN g,
+       v.name AS vendor_name,
+       collect(DISTINCT d.name) AS data_type_names,
+       collect(DISTINCT c.clause_id) AS clause_ids,
+       collect(DISTINCT {
+           document: rd.document, summary: rd.summary,
+           file_path: rd.file_path, diff_text: rd.diff_text, order: hd.order
+       }) AS drafts
+ORDER BY g.detected_at DESC
+"""
+
+_QUERY_GET_GAP = _QUERY_LIST_GAPS.replace("MATCH (g:Gap)", "MATCH (g:Gap {id: $gap_id})")
+
+# generate_fix() and open_compliance_pr() (github_service.py) both need a
+# Gap's remediation drafts to already exist as :RemediationDraft nodes once
+# that stage is real — this project's job is to read/serve them, not draft
+# them (that's the Data & Graph module's job per the team boundary).
+_QUERY_HAS_DRAFTS = """
+MATCH (g:Gap {id: $gap_id})-[:HAS_DRAFT]->(rd:RemediationDraft)
+RETURN count(rd) AS draft_count
+"""
+
+
+def _gap_from_graph_row(row: dict) -> Gap:
+    """
+    Adapter: maps one row of _QUERY_LIST_GAPS/_QUERY_GET_GAP onto the
+    existing Gap pydantic schema. Not called yet — reference
+    implementation for when Gap nodes exist. Kept here (rather than
+    written from scratch later) so the contract and the code that
+    will consume it stay in sync as the spec evolves.
+    """
+    node = row["g"]
+    drafts = [
+        RemediationDraft(
+            document=d["document"], summary=d["summary"],
+            file_path=d.get("file_path"), diff_text=d.get("diff_text"),
+        )
+        for d in sorted(row.get("drafts") or [], key=lambda d: d.get("order") or 0)
+        if d.get("document")  # collect() with no HAS_DRAFT match yields [{}]
+    ]
+    return Gap(
+        id=node["id"],
+        title=node["title"],
+        status=node["status"],
+        source_commit=CommitRef(
+            sha=node["source_commit_sha"],
+            message=node["source_commit_message"],
+            author=node["source_commit_author"],
+            repo=node["source_commit_repo"],
+            branch=node.get("source_commit_branch", "main"),
+            committed_at=node["source_commit_committed_at"],
+        ) if node.get("source_commit_sha") else None,
+        vendor=row.get("vendor_name"),
+        data_types=[dt for dt in (row.get("data_type_names") or []) if dt],
+        affected_documents=node.get("affected_documents", []),
+        regulations=[cid for cid in (row.get("clause_ids") or []) if cid] or [RegulationCode.DPDP],
+        ai_recommendation=node.get("ai_recommendation", ""),
+        remediation_drafts=drafts,
+        pr_id=node.get("pr_id"),
+        detected_at=node.get("detected_at"),
+        updated_at=node.get("updated_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# MOCK STORE — active today. Swap for the queries above once Gap nodes exist.
+# ---------------------------------------------------------------------------
+
 _GAPS: dict[str, Gap] = {
     "gap-mixpanel-001": Gap(
         id="gap-mixpanel-001",
@@ -87,10 +176,17 @@ def get_gap(gap_id: str) -> Gap:
 def generate_fix(gap_id: str) -> list[RemediationDraft]:
     """
     Mock of the Data & Graph Intelligence module's remediation-drafting
-    step. Real version receives already-drafted RemediationDraft objects
-    from that module rather than generating them here.
+    step. Real version reads already-drafted RemediationDraft nodes
+    from the graph (see _QUERY_HAS_DRAFTS / _gap_from_graph_row above)
+    rather than generating them here.
     """
     gap = get_gap(gap_id)
+    if gap.status == GapStatus.RESOLVED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Gap '{gap_id}' is already resolved — no fix to generate",
+        )
+
     drafts = [
         RemediationDraft(
             document="Privacy Policy", summary=f"Added {gap.vendor} disclosure",
@@ -123,6 +219,7 @@ def mark_pr_opened(gap_id: str, pr_id: str) -> None:
 
 # ---------------------------------------------------------------------------
 # Vendors / Regulations / Policies / Audit — other "compliance surface" reads
+# (unchanged from Phase 2 — still mock, out of scope for this pass)
 # ---------------------------------------------------------------------------
 
 def list_vendors() -> VendorsResponse:
