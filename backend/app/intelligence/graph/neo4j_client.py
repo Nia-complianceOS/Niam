@@ -15,12 +15,11 @@ Env vars expected (per onboarding doc Section 03 — never hardcode these):
 
 import logging
 import os
-
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable, TransientError
 
-load_dotenv()
+load_dotenv(find_dotenv())
 
 logger = logging.getLogger(__name__)
 
@@ -30,15 +29,16 @@ class Neo4jClient:
 
     def __init__(self, uri: str = None, user: str = None, password: str = None):
         self._uri = uri or os.getenv("NEO4J_URI")
-        self._user = user or os.getenv("NEO4J_USER")
+        self._user = user or os.getenv("NEO4J_USER") or os.getenv("NEO4J_USERNAME")
         self._password = password or os.getenv("NEO4J_PASSWORD")
 
         if not all([self._uri, self._user, self._password]):
             raise ValueError(
-                "Missing Neo4j credentials. Expected NEO4J_URI, NEO4J_USER, "
-                "NEO4J_PASSWORD in the environment (.env) — see onboarding "
-                "doc Section 03. Never pass these as literals in code."
-            )
+                "Missing Neo4j credentials. Expected NEO4J_URI, NEO4J_PASSWORD, "
+                "and either NEO4J_USER or NEO4J_USERNAME in the environment "
+                "(.env) — see onboarding doc Section 03. Never pass these as "
+                "literals in code."
+                )
 
         self._driver = GraphDatabase.driver(self._uri, auth=(self._user, self._password))
 
