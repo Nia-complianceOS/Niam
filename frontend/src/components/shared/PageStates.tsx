@@ -19,6 +19,21 @@ export function ErrorState({ message }: { message: string | null }) {
   )
 }
 
+/**
+ * For the "request succeeded, there's just nothing there yet" case —
+ * distinct from ErrorState. Used when a backend/graph call returns 200
+ * with an empty list/graph (e.g. no repos connected yet, no vendors
+ * ingested yet, or a fresh Neo4j instance with no nodes written).
+ */
+export function EmptyState({ title, message }: { title: string; message: string }) {
+  return (
+    <Card className="p-6 border-white/5">
+      <div className="font-semibold mb-1">{title}</div>
+      <div className="text-text-dim text-sm">{message}</div>
+    </Card>
+  )
+}
+
 export function PageHeader({ eyebrow, title, subtitle }: { eyebrow: string; title: string; subtitle: string }) {
   return (
     <div className="mb-6">

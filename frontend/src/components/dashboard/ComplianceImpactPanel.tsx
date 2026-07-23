@@ -2,16 +2,17 @@ import type { ReactNode } from 'react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import type { Gap } from '@/types/api'
-import { Sparkles, GitPullRequest } from 'lucide-react'
+import { Sparkles, GitPullRequest, CheckCircle2, Clock } from 'lucide-react'
 
 interface Props {
   gap: Gap | undefined
   fixLoading: boolean
+  actionError?: string | null
   onGenerateFix: () => void
   onOpenPR: () => void
 }
 
-export function ComplianceImpactPanel({ gap, fixLoading, onGenerateFix, onOpenPR }: Props) {
+export function ComplianceImpactPanel({ gap, fixLoading, actionError, onGenerateFix, onOpenPR }: Props) {
   return (
     <Card className="p-5">
       <div className="font-display text-[15px] font-semibold mb-1">Compliance Impact</div>
@@ -74,8 +75,26 @@ export function ComplianceImpactPanel({ gap, fixLoading, onGenerateFix, onOpenPR
               {gap.ai_recommendation}
             </div>
 
+            {actionError && (
+              <div className="mb-3 px-3.5 py-2.5 rounded-[10px] bg-accent-red/10 border border-accent-red/25 text-[12px] text-[#f5b7b9] leading-relaxed">
+                {actionError}
+              </div>
+            )}
+
             <div className="mt-auto">
-              {gap.remediation_drafts.length === 0 ? (
+              {gap.status === 'resolved' ? (
+                <StatusBanner
+                  icon={<CheckCircle2 size={15} />}
+                  tone="good"
+                  text={gap.pr_id ? `Resolved · PR #${gap.pr_id} merged` : 'Resolved'}
+                />
+              ) : gap.status === 'pr_opened' ? (
+                <StatusBanner
+                  icon={<Clock size={15} />}
+                  tone="neutral"
+                  text={gap.pr_id ? `PR #${gap.pr_id} opened — awaiting legal review` : 'Awaiting legal review'}
+                />
+              ) : gap.remediation_drafts.length === 0 ? (
                 <Button size="block" onClick={onGenerateFix} disabled={fixLoading}>
                   {fixLoading ? (
                     'Analyzing…'
@@ -117,6 +136,19 @@ function Section({ label, children, last }: { label: string; children: ReactNode
     <div className={last ? '' : 'mb-4'}>
       <div className="text-[11px] font-semibold text-text-faint uppercase tracking-wide mb-2">{label}</div>
       {children}
+    </div>
+  )
+}
+
+function StatusBanner({ icon, tone, text }: { icon: ReactNode; tone: 'good' | 'neutral'; text: string }) {
+  const toneClasses =
+    tone === 'good'
+      ? 'bg-accent-green/10 border-accent-green/25 text-accent-green'
+      : 'bg-white/5 border-border-soft text-text-dim'
+  return (
+    <div className={`flex items-center gap-2 px-3.5 py-3 rounded-[10px] border text-[13px] font-medium ${toneClasses}`}>
+      {icon}
+      {text}
     </div>
   )
 }

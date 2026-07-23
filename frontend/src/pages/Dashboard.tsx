@@ -16,6 +16,7 @@ export default function Dashboard() {
     loading,
     error,
     fixLoading,
+    actionError,
     selectCommit,
     runGenerateFix,
     runOpenPR,
@@ -81,6 +82,7 @@ export default function Dashboard() {
       <ComplianceImpactPanel
         gap={selectedGap}
         fixLoading={fixLoading}
+        actionError={actionError}
         onGenerateFix={runGenerateFix}
         onOpenPR={handleOpenPR}
       />

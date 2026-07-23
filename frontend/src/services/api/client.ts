@@ -18,6 +18,27 @@ const client = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1',
 })
 
+// Every page-level hook does `.catch((err: Error) => setError(err.message))`
+// (see useAsync.ts / useGraph.ts). Without this interceptor, err.message for
+// an HTTP error response is axios's generic "Request failed with status code
+// 503" — it never surfaces the actual `detail` string FastAPI's
+// HTTPException sends back (e.g. "Graph data unavailable: ..."). This
+// rewrites error.message to that detail when present, and gives a clear
+// message for the "backend isn't running at all" case (a request that never
+// got a response), so every page's ErrorState shows something actionable.
+client.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const detail = error?.response?.data?.detail
+    if (typeof detail === 'string' && detail.length > 0) {
+      error.message = detail
+    } else if (error?.request && !error?.response) {
+      error.message = 'Could not reach the backend — is it running?'
+    }
+    return Promise.reject(error)
+  }
+)
+
 export const getHealth = () => client.get('/health').then((r) => r.data)
 
 export const getDashboardSummary = () =>

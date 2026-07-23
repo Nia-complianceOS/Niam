@@ -68,7 +68,7 @@ export function PRReviewModal({ pr, onClose }: Props) {
           <Button variant="ghost" onClick={onClose}>
             Close
           </Button>
-          <Button>
+          <Button disabled title="Merging happens in GitHub once your team reviews the PR — not wired up here yet">
             <GitMerge size={14} /> Approve &amp; Merge
           </Button>
         </div>

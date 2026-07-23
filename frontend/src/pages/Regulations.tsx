@@ -1,21 +1,44 @@
-import { RegulationsAccordion } from '@/components/regulations/RegulationsAccordion'
-import { LoadingState, ErrorState, PageHeader } from '@/components/shared/PageStates'
-import { useRegulations } from '@/hooks/useRegulations'
+import { Card } from '@/components/ui/Card'
+import { Badge } from '@/components/ui/Badge'
+import { LoadingState, ErrorState, EmptyState, PageHeader } from '@/components/shared/PageStates'
+import { usePullRequests } from '@/hooks/usePullRequests'
 
-export default function Regulations() {
-  const { data, loading, error } = useRegulations()
+export default function PullRequests() {
+  const { data, loading, error } = usePullRequests()
 
-  if (loading) return <LoadingState label="Loading regulations…" />
-  if (error || !data) return <ErrorState message={error} />
+  if (loading) return <LoadingState label="Loading pull requests…" />
+  if (error) return <ErrorState message={error} />
 
   return (
     <div className="max-w-[1280px]">
       <PageHeader
-        eyebrow="Frameworks"
-        title="Regulations"
-        subtitle="Coverage across every framework your product is required to meet."
+        eyebrow="Review Queue"
+        title="Pull Requests"
+        subtitle="Track open remediation work and the legal review state around it."
       />
-      <RegulationsAccordion regulations={data.regulations} />
+      {!data || data.pull_requests.length === 0 ? (
+        <EmptyState
+          title="No pull requests opened yet"
+          message="Once a compliance fix is generated and opened as a PR, it'll show up here."
+        />
+      ) : (
+        <div className="grid gap-3">
+          {data.pull_requests.map((pr) => (
+            <Card key={pr.id} className="p-4 flex items-center justify-between gap-4">
+              <div>
+                <div className="font-semibold">{pr.title}</div>
+                <div className="text-sm text-text-dim">{pr.repo_full_name} • {pr.opened_by}</div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Badge tone={pr.status === 'merged' ? 'good' : pr.status === 'closed' ? 'gap' : 'muted'}>
+                  {pr.status}
+                </Badge>
+                <div className="text-sm text-text-dim">{pr.reviewer}</div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
