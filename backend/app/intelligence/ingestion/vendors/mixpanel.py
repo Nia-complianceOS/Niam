@@ -36,7 +36,7 @@ import json
 import logging
 import os
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 from dotenv import load_dotenv
@@ -81,7 +81,12 @@ class MixpanelIngestion:
         `limit` caps the number of parsed events returned (the API itself
         streams the full range — we stop reading once we hit `limit`).
         """
-        to_date = date.today()
+        # Use UTC, not local system time — Mixpanel evaluates from_date/
+        # to_date in UTC (for projects created after Jan 1 2023). A
+        # machine in a timezone ahead of UTC (e.g. IST, UTC+5:30) can
+        # compute a local "today" that Mixpanel still considers "tomorrow",
+        # producing a spurious "to_date cannot be later than today" 400.
+        to_date = datetime.now(timezone.utc).date()
         from_date = to_date - timedelta(days=days_back)
 
         params = {
@@ -115,6 +120,12 @@ class MixpanelIngestion:
                 time.sleep(wait)
                 last_err = resp
                 continue
+            if 400 <= resp.status_code < 500:
+                # Mixpanel's 4xx body usually explains the real cause
+                # (bad project_id, service account lacks access to this
+                # project, wrong data-residency host, etc.) — surface it
+                # instead of a bare status code.
+                raise RuntimeError(f"Mixpanel export {resp.status_code}: {resp.text}")
             resp.raise_for_status()
         else:
             raise RuntimeError(f"Mixpanel export failed after {MAX_RETRIES} attempts: {last_err}")

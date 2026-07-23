@@ -6,6 +6,7 @@ easy to unit test without a live database.
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import json
 
 
 @dataclass
@@ -55,7 +56,8 @@ def normalize_classifier_record(record) -> dict:
     if missing:
         raise ValueError(f"classifier record missing required fields: {missing}")
 
-    return {
+    detected_at = datetime.now(timezone.utc).isoformat()
+    result = {
         "file": record["file"],
         "line": record["line"],
         "data_type": str(record["data_type"]).strip().lower(),
@@ -63,8 +65,22 @@ def normalize_classifier_record(record) -> dict:
         "confidence": float(record["confidence"]),
         "repo": record.get("repo"),
         "commit_sha": record.get("commit_sha"),
-        "detected_at": datetime.now(timezone.utc).isoformat(),
+        "detected_at": detected_at,
     }
+    # Neo4j rejects maps/objects as property values — only primitives and
+    # arrays of primitives are allowed. Provenance gets JSON-serialized
+    # here so edge_builder.py can append it as a plain string into the
+    # `sources` array property, instead of an inline map literal.
+    result["source_json"] = json.dumps({
+        "origin": "code",
+        "file": result["file"],
+        "line": result["line"],
+        "repo": result["repo"],
+        "commit_sha": result["commit_sha"],
+        "confidence": result["confidence"],
+        "detected_at": detected_at,
+    })
+    return result
 
 
 def normalize_vendor_field_record(record: dict) -> dict:
@@ -78,10 +94,19 @@ def normalize_vendor_field_record(record: dict) -> dict:
     if missing:
         raise ValueError(f"vendor field record missing required fields: {missing}")
 
-    return {
+    detected_at = datetime.now(timezone.utc).isoformat()
+    result = {
         "vendor": str(record["vendor"]).strip(),
         "data_type": str(record["data_type"]).strip().lower(),
         "event_type": record["event_type"],
         "field_path": record["field_path"],
-        "detected_at": datetime.now(timezone.utc).isoformat(),
+        "detected_at": detected_at,
     }
+    result["source_json"] = json.dumps({
+        "origin": "vendor",
+        "vendor": result["vendor"],
+        "event_type": result["event_type"],
+        "field_path": result["field_path"],
+        "detected_at": detected_at,
+    })
+    return result
