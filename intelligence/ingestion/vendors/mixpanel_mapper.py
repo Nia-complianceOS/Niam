@@ -12,6 +12,10 @@ Mixpanel has two field vocabularies to cover:
      These can't be covered exhaustively by any static table; anything
      not recognized falls through to `unmapped` for a human to triage,
      same fail-closed behavior as classifier.py's taxonomy validation.
+
+REPLACE the target labels below with the real classifier.ALLOWED_DATA_TYPES
+values once that file is available here — same caveat as schema.py and
+stripe_mapper.py.
 """
 
 import logging
@@ -28,42 +32,40 @@ FIELD_TO_DATA_TYPE = {
     "$first_name": "profile_data",
     "$last_name": "profile_data",
     "$avatar": "profile_data",
-    "$phone": "phone",                    # renamed from "phone_number"
-    "$city": "location",                  # renamed from "address" — this is
-    "$region": "location",                # geo-derived data, not a mailing
-    "$country_code": "location",          # address; "location" is the closer fit
+    "$phone": "phone_number",
+    "$city": "address",
+    "$region": "address",
+    "$country_code": "address",
     "distinct_id": "user_id",
     "$user_id": "user_id",
-    "$device_id": "device_id",            # renamed from "device_metadata"
-    "$os": "device_id",
-    "$browser": "device_id",
-    "$browser_version": "device_id",
-    "$screen_width": "device_id",
-    "$screen_height": "device_id",
-    "ip": "ip_address",                   # was "device_metadata" — real taxonomy
-                                           # has a dedicated ip_address label, use it
+    "$device_id": "device_metadata",
+    "$os": "device_metadata",
+    "$browser": "device_metadata",
+    "$browser_version": "device_metadata",
+    "$screen_width": "device_metadata",
+    "$screen_height": "device_metadata",
+    "ip": "device_metadata",
     "time": "activity_timestamp",
     "$insert_id": "internal_job_metadata",
     "mp_lib": "internal_job_metadata",
     "$lib_version": "internal_job_metadata",
-    "$current_url": "other_personal_data",   # was "activity_timestamp" — that was
-    "$referrer": "other_personal_data",      # wrong even under the old taxonomy,
-    "$initial_referrer": "other_personal_data",  # a URL isn't a timestamp; catch-all bucket fits better
+    "$current_url": "activity_timestamp",
+    "$referrer": "activity_timestamp",
+    "$initial_referrer": "activity_timestamp",
     "token": "internal_job_metadata",
 
-    # Common custom-property names
+    # Common custom-property names — best-effort, not exhaustive; add to
+    # this table as real events surface fields not covered here.
     "email": "email",
     "user_email": "email",
-    "phone_number": "phone",              # renamed from "phone_number"
-    "address": "address",                 # unchanged — "address" still exists as its own label
-    "city": "location",                   # NEW — was unmapped in your last run
-    "name": "profile_data",               # NEW — was unmapped in your last run
+    "phone_number": "phone_number",
+    "address": "address",
     "message": "message_content",
     "content": "message_content",
     "locale": "locale_or_language",
     "language": "locale_or_language",
-    "consent": "consent_or_age",          # renamed from "consent_record"
-    "consent_given": "consent_or_age",
+    "consent": "consent_record",
+    "consent_given": "consent_record",
 }
 
 

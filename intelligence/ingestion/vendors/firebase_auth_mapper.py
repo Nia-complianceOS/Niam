@@ -4,6 +4,10 @@ record fields onto the shared DataType taxonomy. Simpler than the Stripe/
 Mixpanel mappers since the field vocabulary is small and fully known
 (there's no open-ended custom-property space to chase) — see
 firebase_auth.py's _user_to_dict for the complete field list this covers.
+
+REPLACE the target labels below with the real classifier.ALLOWED_DATA_TYPES
+values once that file is available here — same caveat as the other
+mapper modules.
 """
 
 import logging
@@ -16,7 +20,7 @@ FIELD_TO_DATA_TYPE = {
     "uid": "user_id",
     "email": "email",
     "email_verified": "internal_job_metadata",
-    "phone_number": "phone",              # was "phone_number" — renamed to real taxonomy label "phone"
+    "phone_number": "phone_number",
     "display_name": "profile_data",
     "photo_url": "profile_data",
     "disabled": "internal_job_metadata",
