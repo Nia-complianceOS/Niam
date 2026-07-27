@@ -9,11 +9,10 @@ Track-1-ingestion slice: System / DataType / Vendor / DPDPClause labels
 and the edges graph_writer.py writes.
 
 IMPORTANT: `data_type` values written into this graph MUST come from the
-same taxonomy as classifier.py's ALLOWED_DATA_TYPES. That file wasn't
-available when this module was written — DATA_TYPE_TAXONOMY below is a
-stand-in built from the examples in the handoff doc. Before running
-ingestion against real data, replace DATA_TYPE_TAXONOMY with an import
-from classifier.py so code-scan and vendor-scan data types line up.
+same taxonomy as classifier.py's ALLOWED_DATA_TYPES. Synced below as of
+the taxonomy-sync pass — if classifier.py's list ever changes, update
+DATA_TYPE_TAXONOMY to match, or code-scan and vendor-scan data will
+silently disagree on labels again.
 """
 
 # --- Node labels -----------------------------------------------------
@@ -34,24 +33,31 @@ REL_COLLECTS = "COLLECTS"      # (System)-[:COLLECTS]->(DataType)
 REL_SENT_TO = "SENT_TO"        # (DataType)-[:SENT_TO]->(Vendor)
 REL_GOVERNED_BY = "GOVERNED_BY"  # reserved: (DataType)-[:GOVERNED_BY]->(DPDPClause)
 
-# --- Placeholder taxonomy — REPLACE with classifier.py's real list -----
-# Examples pulled verbatim from the handoff doc; the real list is ~21
-# entries and lives in app/intelligence/ingestion/github/classifier.py
-# as ALLOWED_DATA_TYPES.
+# --- Data type taxonomy — synced with classifier.py's ALLOWED_DATA_TYPES
+# (ingestion/github/classifier.py). Keep these two lists identical.
 DATA_TYPE_TAXONOMY = {
     "email",
+    "phone",
+    "address",
+    "date_of_birth",
+    "government_id",
+    "credit_card",
+    "ip_address",
     "user_id",
+    "username",
+    "password",
+    "session_token",
+    "device_id",
+    "location",
     "message_content",
+    "search_query",
     "locale_or_language",
     "activity_timestamp",
+    "consent_or_age",
+    "profile_data",
     "notification_metadata",
     "internal_job_metadata",
-    "profile_data",
-    "phone_number",
-    "address",
-    "payment_data",
-    "device_metadata",
-    "consent_record",
+    "other_personal_data",
 }
 
 DEFAULT_SYSTEM_NAME = "nia-demo-system"  # single-system default for Track 1;
