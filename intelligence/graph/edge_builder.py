@@ -68,3 +68,28 @@ MERGE (d)-[r:{REL_SENT_TO}]->(v)
 ON CREATE SET r.sources = [row.source_json]
 ON MATCH SET r.sources = r.sources + [row.source_json]
 """
+
+# --- GOVERNED_BY: DataType -> DPDPClause, from the DPDP clause loader ----
+# Unlike COLLECTS/SENT_TO, clause properties (title, obligation_summary,
+# effective_from, status) live ON THE CLAUSE NODE, not as `sources`
+# provenance on the relationship — a clause has one canonical text
+# regardless of which data type led us to it, so re-detecting the same
+# clause via a different data type should update the node, not duplicate
+# or append to it. ON MATCH SET refreshes these in case the Act text or
+# the commencement schedule changes between loader runs.
+
+MERGE_GOVERNED_BY_FROM_CLAUSE = f"""
+UNWIND $rows AS row
+MERGE (c:DPDPClause {{clause_id: row.clause_id}})
+ON CREATE SET c.section = row.section,
+              c.title = row.title,
+              c.obligation_summary = row.obligation_summary,
+              c.effective_from = row.effective_from,
+              c.status = row.status
+ON MATCH SET  c.title = row.title,
+              c.obligation_summary = row.obligation_summary,
+              c.effective_from = row.effective_from,
+              c.status = row.status
+MERGE (d:{LABEL_DATA_TYPE} {{name: row.data_type}})
+MERGE (d)-[:GOVERNED_BY]->(c)
+"""
