@@ -45,23 +45,34 @@ def normalize_classifier_record(record) -> dict:
     scan_repo_remote(classify=False), so graph_writer inherits the same
     dual-input tolerance).
 
-    Expected fields: file, line, data_type, vendor, confidence
-    Optional: repo, commit_sha
+    Expected fields: file_path, line_number, data_type, confidence
+        (matches CandidateLine.to_dict() / classify_candidates() output
+        exactly — diff_parser.py and classifier.py both use file_path/
+        line_number, not file/line)
+    Optional: vendor, repo, commit_sha
+        vendor is legitimately null for confirmed data-handling code with
+        no external vendor involved (e.g. a local DB save) — per
+        classifier.py's own docstring: "vendor is free text ... or null
+        if no external vendor is involved." Do NOT add vendor back to
+        `required` below.
     """
     if not isinstance(record, dict):
         record = record.__dict__
 
-    required = ["file", "line", "data_type", "vendor", "confidence"]
+    required = ["file_path", "line_number", "data_type", "confidence"]
     missing = [f for f in required if record.get(f) is None]
     if missing:
         raise ValueError(f"classifier record missing required fields: {missing}")
 
+    raw_vendor = record.get("vendor")
+    vendor = str(raw_vendor).strip() if raw_vendor else None
+
     detected_at = datetime.now(timezone.utc).isoformat()
     result = {
-        "file": record["file"],
-        "line": record["line"],
+        "file_path": record["file_path"],
+        "line_number": record["line_number"],
         "data_type": str(record["data_type"]).strip().lower(),
-        "vendor": str(record["vendor"]).strip(),
+        "vendor": vendor,
         "confidence": float(record["confidence"]),
         "repo": record.get("repo"),
         "commit_sha": record.get("commit_sha"),
@@ -73,8 +84,8 @@ def normalize_classifier_record(record) -> dict:
     # `sources` array property, instead of an inline map literal.
     result["source_json"] = json.dumps({
         "origin": "code",
-        "file": result["file"],
-        "line": result["line"],
+        "file": result["file_path"],
+        "line": result["line_number"],
         "repo": result["repo"],
         "commit_sha": result["commit_sha"],
         "confidence": result["confidence"],
