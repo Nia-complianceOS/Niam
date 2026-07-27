@@ -14,9 +14,7 @@ lookup table is more reliable and free of rate limits. Anything not in the
 table is returned as unmapped rather than guessed, so it surfaces for a
 human to add rather than silently mislabeling data.
 
-REPLACE FIELD_TO_DATA_TYPE's target labels with the real
-classifier.ALLOWED_DATA_TYPES values once that file is available here —
-same caveat as schema.py.
+Target labels are synced with classifier.ALLOWED_DATA_TYPES.
 """
 
 import logging
@@ -31,8 +29,8 @@ FIELD_TO_DATA_TYPE = {
     "customer_email": "email",
     "receipt_email": "email",
     "billing_details.email": "email",
-    "phone": "phone_number",
-    "billing_details.phone": "phone_number",
+    "phone": "phone",
+    "billing_details.phone": "phone",
     "address": "address",
     "billing_details.address": "address",
     "shipping": "address",
@@ -42,14 +40,14 @@ FIELD_TO_DATA_TYPE = {
     "id": "user_id",
     "metadata": "internal_job_metadata",
     "created": "activity_timestamp",
-    "invoice": "payment_data",
-    "amount": "payment_data",
-    "amount_paid": "payment_data",
-    "amount_due": "payment_data",
-    "currency": "payment_data",
-    "card": "payment_data",
-    "payment_method": "payment_data",
-    "payment_method_details": "payment_data",
+    "invoice": "credit_card",
+    "amount": "credit_card",
+    "amount_paid": "credit_card",
+    "amount_due": "credit_card",
+    "currency": "credit_card",
+    "card": "credit_card",
+    "payment_method": "credit_card",
+    "payment_method_details": "credit_card",
     "description": "message_content",
     "statement_descriptor": "message_content",
     "locale": "locale_or_language",
