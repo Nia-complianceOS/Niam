@@ -121,3 +121,33 @@ def normalize_vendor_field_record(record: dict) -> dict:
         "detected_at": detected_at,
     })
     return result
+
+
+def normalize_dpdp_clause_record(record: dict, data_type: str) -> dict:
+    """
+    One row per (clause, data_type) pair — a single Act section can
+    govern multiple data types (legal.dpdp_extractor.DPDPClauseExtractor
+    returns one record per section with a data_types_governed list), and
+    GraphWriter's batch-write pattern expects flat rows, same shape as
+    the code/vendor normalizers above. Call once per entry in that list.
+
+    Expected fields on `record` (from DPDPClauseExtractor.extract_clauses()):
+        section, title, obligation_summary
+    Optional: effective_from, status (from legal/commencement.py — a
+        clause not yet in force should still be visible in the graph,
+        just clearly marked, not silently omitted).
+    """
+    required = ["section", "title", "obligation_summary"]
+    missing = [f for f in required if record.get(f) is None]
+    if missing:
+        raise ValueError(f"DPDP clause record missing required fields: {missing}")
+
+    return {
+        "clause_id": f"DPDP-s{record['section']}",
+        "section": str(record["section"]),
+        "title": str(record["title"]).strip(),
+        "obligation_summary": str(record["obligation_summary"]).strip(),
+        "effective_from": record.get("effective_from"),
+        "status": record.get("status", "unknown"),
+        "data_type": str(data_type).strip().lower(),
+    }
