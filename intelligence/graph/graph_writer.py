@@ -50,10 +50,17 @@ class GraphWriter:
         function does NOT filter on confidence; if you want a minimum-
         confidence cutoff before it hits the graph, filter before calling.
         """
-        normalized, skipped_invalid_taxonomy = [], []
+        normalized, skipped_invalid_taxonomy, skipped_malformed = [], [], []
 
         for raw in records:
-            row = normalize_classifier_record(raw)
+            try:
+                row = normalize_classifier_record(raw)
+            except ValueError as exc:
+                # One malformed record (missing field, bad type, etc.)
+                # should never take down the whole batch — same
+                # fail-closed-per-item pattern the vendor mappers use.
+                skipped_malformed.append({"record": raw, "error": str(exc)})
+                continue
             if not validate_data_type(row["data_type"]):
                 # Same fail-closed principle as classifier.py's
                 # _validate_taxonomy() — don't silently write an
@@ -65,6 +72,13 @@ class GraphWriter:
             row["system"] = self.system_name
             normalized.append(row)
 
+        if skipped_malformed:
+            logger.warning(
+                "Skipped %d classifier record(s) that failed normalization: %s",
+                len(skipped_malformed),
+                [s["error"] for s in skipped_malformed],
+            )
+
         if skipped_invalid_taxonomy:
             logger.warning(
                 "Skipped %d classifier records with data_type outside "
@@ -74,14 +88,27 @@ class GraphWriter:
                 sorted({r["data_type"] for r in skipped_invalid_taxonomy}),
             )
 
+        # SENT_TO only makes sense when a vendor was actually detected —
+        # writing it for vendor=None rows would MERGE a null-named Vendor
+        # node (edge_builder's MERGE_SENT_TO_FROM_CODE keys on row.vendor).
+        with_vendor = [r for r in normalized if r["vendor"] is not None]
+
         written = 0
         for batch in _chunks(normalized, BATCH_SIZE):
             self.client.run_write_batch(MERGE_COLLECTS_FROM_CODE, batch)
-            self.client.run_write_batch(MERGE_SENT_TO_FROM_CODE, batch)
             written += len(batch)
+        for batch in _chunks(with_vendor, BATCH_SIZE):
+            self.client.run_write_batch(MERGE_SENT_TO_FROM_CODE, batch)
 
-        logger.info("Wrote %d code-scan candidates into graph", written)
-        return {"written": written, "skipped_invalid_taxonomy": len(skipped_invalid_taxonomy)}
+        logger.info(
+            "Wrote %d code-scan candidates into graph (%d with a vendor edge)",
+            written, len(with_vendor),
+        )
+        return {
+            "written": written,
+            "skipped_invalid_taxonomy": len(skipped_invalid_taxonomy),
+            "skipped_malformed": len(skipped_malformed),
+        }
 
     # --- vendor ingestion (Stripe etc.) ---------------------------------
 
