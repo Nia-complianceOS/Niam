@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: nia-backend
+    env: docker
+    region: ohio
+    plan: starter
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: CORS_ORIGINS
+        # Update this to match your deployed frontend URL
+        value: "https://nia-frontend.vercel.app,http://localhost:5173"
+      # Secure credentials should be added via Render dashboard, not committed here.
+      # - NEO4J_URI
+      # - NEO4J_USER
+      # - NEO4J_PASSWORD
+      # - GITHUB_TOKEN
+      # - GITHUB_WEBHOOK_SECRET
+      # - GEMINI_API_KEY
