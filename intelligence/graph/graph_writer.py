@@ -22,13 +22,18 @@ scan is a handful of round trips, not 200.
 import logging
 
 from graph.neo4j_client import Neo4jClient
-from graph.node_builder import normalize_classifier_record, normalize_vendor_field_record
+from graph.node_builder import (
+    normalize_classifier_record,
+    normalize_vendor_field_record,
+    normalize_dpdp_clause_record,
+)
 from graph.schema import DEFAULT_SYSTEM_NAME, validate_data_type
 from graph.edge_builder import (
     MERGE_COLLECTS_FROM_CODE,
     MERGE_SENT_TO_FROM_CODE,
     MERGE_COLLECTS_FROM_VENDOR,
     MERGE_SENT_TO_FROM_VENDOR,
+    MERGE_GOVERNED_BY_FROM_CLAUSE,
 )
 
 logger = logging.getLogger(__name__)
@@ -147,6 +152,64 @@ class GraphWriter:
 
     def close(self):
         self.client.close()
+
+    # --- DPDP clause loader ----------------------------------------------
+
+    def write_dpdp_clauses(self, extracted_clauses: list) -> dict:
+        """
+        extracted_clauses: output of
+        legal.dpdp_extractor.DPDPClauseExtractor.extract_clauses() — one
+        dict per Act section, each carrying a data_types_governed list.
+        Fans each section out into one row per governed data type before
+        writing (a DPDPClause node itself has one canonical text; the
+        fan-out only happens on the DataType-side edge).
+        """
+        rows = []
+        skipped_invalid_taxonomy, skipped_malformed, skipped_not_governing = [], [], []
+
+        for record in extracted_clauses:
+            if not record.get("is_data_governing"):
+                skipped_not_governing.append(record.get("section"))
+                continue
+            for dtype in (record.get("data_types_governed") or []):
+                try:
+                    row = normalize_dpdp_clause_record(record, dtype)
+                except ValueError as exc:
+                    skipped_malformed.append({"record": record, "error": str(exc)})
+                    continue
+                if not validate_data_type(row["data_type"]):
+                    skipped_invalid_taxonomy.append(row)
+                    continue
+                rows.append(row)
+
+        if skipped_malformed:
+            logger.warning(
+                "Skipped %d malformed DPDP clause row(s): %s",
+                len(skipped_malformed), [s["error"] for s in skipped_malformed],
+            )
+        if skipped_invalid_taxonomy:
+            logger.warning(
+                "Skipped %d DPDP clause row(s) with data_type outside taxonomy: %s",
+                len(skipped_invalid_taxonomy),
+                sorted({r["data_type"] for r in skipped_invalid_taxonomy}),
+            )
+
+        written = 0
+        for batch in _chunks(rows, BATCH_SIZE):
+            self.client.run_write_batch(MERGE_GOVERNED_BY_FROM_CLAUSE, batch)
+            written += len(batch)
+
+        logger.info(
+            "Wrote %d DataType-GOVERNED_BY-DPDPClause edge(s) (%d sections "
+            "skipped as non-data-governing)",
+            written, len(skipped_not_governing),
+        )
+        return {
+            "written": written,
+            "skipped_invalid_taxonomy": len(skipped_invalid_taxonomy),
+            "skipped_malformed": len(skipped_malformed),
+            "skipped_not_governing": len(skipped_not_governing),
+        }
 
 
 def _chunks(seq: list, size: int):

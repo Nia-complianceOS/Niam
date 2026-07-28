@@ -35,10 +35,21 @@ _ENACTING_FORMULA = "BE it enacted by Parliament"
 
 # Matches e.g. "9. Processing of personal data of children.—(1) The Data
 # Fiduciary shall..." — a leading section number, a title ending in a
-# period, then a dash (the Act uses an em/en dash, not a plain hyphen)
-# immediately before the body starts.
+# period, then one or more em/en dash or hyphen characters, optionally
+# followed by whitespace, before the body starts.
+#
+# Two real formatting quirks in the actual PDF text drove the shape of
+# this regex — both silently dropped a whole section before this fix:
+#   1. `[^.]` (not `[^.\n]`) lets the title span an embedded line-wrap —
+#      e.g. section 21's title wraps mid-sentence: "...Chairperson and
+#      Members of \nBoard.—(1)...". Excluding only "\n" would refuse to
+#      match past the wrap and the whole section silently vanishes.
+#   2. Trailing `\s*` (not a `(?=\S)` lookahead) allows a space between
+#      the dash and the body — e.g. section 29 uses ".— (1)..." and
+#      section 41 uses ".— Every rule made..." (single dash + space,
+#      not immediately followed by non-whitespace).
 _SECTION_RE = re.compile(
-    r'(?m)^\s*(\d{1,2})\.\s+([^\n]+?)\.[\u2013\u2014\-]+(?=\S)'
+    r'(?m)^\s*(\d{1,2})\.\s+([^.]+?)\.\s*[\u2013\u2014\-]+\s*'
 )
 
 # Sections above this number belong to THE SCHEDULE (penalty amounts) or
@@ -91,7 +102,7 @@ def split_into_sections(act_text: str) -> List[Dict]:
         except ValueError:
             continue
 
-        title = m.group(2).strip()
+        title = re.sub(r'\s+', ' ', m.group(2)).strip()
         start = m.end()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(body_text)
         section_body = body_text[start:end].strip()

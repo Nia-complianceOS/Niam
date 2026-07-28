@@ -38,7 +38,11 @@ logger = logging.getLogger(__name__)
 
 # Sections are full legal paragraphs, not one-line code snippets — much
 # larger than classifier.py's per-item size, hence the smaller batch.
-BATCH_SIZE = 4
+# Started at 4; dropped to 2 after a live run showed ~40% of batches
+# miscounting results at size 4 (worse than the code scanner's ~19% at
+# size 8) — denser text seems to make it easier for the model to lose
+# track of how many items it's returned.
+BATCH_SIZE = 2
 REQUESTS_PER_MINUTE = 12
 MAX_OUTPUT_TOKENS = 4096
 MAX_RETRIES = 3
