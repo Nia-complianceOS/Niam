@@ -50,10 +50,12 @@ ORDER BY d.name
 """
 
 # --- coverage gaps: collected data with NO clause at all -----------------
-# Distinct from "not yet commenced" — this is "the DPDP extraction never
-# found ANY clause governing this data type", which is either a genuine
-# gap in the Act (unlikely) or a sign the extractor/taxonomy needs a
-# closer look (more likely, e.g. a data type the extractor under-tagged).
+# Kept as a low-level building block / sanity-check query, but
+# DPDPRetriever.coverage_gaps() no longer calls this directly — it's
+# built on clauses_for_system() instead (which accounts for general-
+# purpose "other_personal_data" clauses applying to every data type),
+# so the two can't drift out of sync with each other. This raw version
+# only catches data types with no EXACT-NAME clause match at all.
 
 COVERAGE_GAPS_FOR_SYSTEM = """
 MATCH (s:System {name: $system_name})-[:COLLECTS]->(d:DataType)
