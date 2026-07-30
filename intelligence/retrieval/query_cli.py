@@ -25,6 +25,23 @@ def _print(obj):
     print(json.dumps(obj, indent=2, default=str))
 
 
+def _clause_line(c: dict) -> str:
+    marker = "✓" if c.get("status") == "in_force" else "…"
+    return f"    {marker} {c['clause_id']:<10} {c.get('title', ''):<45} ({c.get('status')})"
+
+
+def _print_clauses_summary(clauses: list, label: str = ""):
+    """Compact one-line-per-clause view — full obligation_summary text is
+    what actually blows past a terminal's scrollback, not the clause list
+    itself, so this drops it and shows just id/title/status."""
+    in_force = sum(1 for c in clauses if c.get("status") == "in_force")
+    upcoming = len(clauses) - in_force
+    header = f"{label}: " if label else ""
+    print(f"{header}{len(clauses)} clause(s) — {in_force} in force, {upcoming} not yet commenced")
+    for c in clauses:
+        print(_clause_line(c))
+
+
 def main():
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
@@ -36,12 +53,16 @@ def main():
     p.add_argument("--no-upcoming", action="store_true", help="only in-force clauses")
     p.add_argument("--no-general", action="store_true",
                     help="exclude general-purpose 'other_personal_data' clauses")
+    p.add_argument("--summary", action="store_true",
+                    help="compact one-line-per-clause view instead of full JSON")
 
     p = sub.add_parser("for-system", help="clauses for every data type a system collects")
     p.add_argument("--system", default=DEFAULT_SYSTEM_NAME)
     p.add_argument("--no-upcoming", action="store_true")
     p.add_argument("--no-general", action="store_true",
                     help="exclude general-purpose 'other_personal_data' clauses")
+    p.add_argument("--summary", action="store_true",
+                    help="compact one-line-per-clause view instead of full JSON")
 
     p = sub.add_parser("gaps", help="collected data types with zero governing clauses")
     p.add_argument("--system", default=DEFAULT_SYSTEM_NAME)
@@ -66,21 +87,31 @@ def main():
 
         elif args.command == "for-data-type":
             try:
-                _print(retriever.clauses_for_data_type(
+                clauses = retriever.clauses_for_data_type(
                     args.data_type,
                     include_upcoming=not args.no_upcoming,
                     include_general=not args.no_general,
-                ))
+                )
             except ValueError as exc:
                 print(f"Error: {exc}")
                 sys.exit(1)
+            if args.summary:
+                _print_clauses_summary(clauses, label=args.data_type)
+            else:
+                _print(clauses)
 
         elif args.command == "for-system":
-            _print(retriever.clauses_for_system(
+            by_data_type = retriever.clauses_for_system(
                 args.system,
                 include_upcoming=not args.no_upcoming,
                 include_general=not args.no_general,
-            ))
+            )
+            if args.summary:
+                for data_type, clauses in sorted(by_data_type.items()):
+                    _print_clauses_summary(clauses, label=data_type)
+                    print()
+            else:
+                _print(by_data_type)
 
         elif args.command == "gaps":
             gaps = retriever.coverage_gaps(args.system, include_general=not args.no_general)
