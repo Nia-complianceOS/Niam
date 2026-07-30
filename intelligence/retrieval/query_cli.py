@@ -1,0 +1,98 @@
+"""
+retrieval/query_cli.py — manual/demo CLI for the retrieval layer.
+
+Examples:
+    python -m retrieval.query_cli summary
+    python -m retrieval.query_cli for-data-type consent_or_age
+    python -m retrieval.query_cli for-system
+    python -m retrieval.query_cli for-system --no-upcoming
+    python -m retrieval.query_cli gaps
+    python -m retrieval.query_cli vendor-exposure DPDP-s6
+    python -m retrieval.query_cli clause DPDP-s9
+    python -m retrieval.query_cli upcoming
+    python -m retrieval.query_cli upcoming --within-days 120
+"""
+
+import argparse
+import json
+import sys
+
+from graph.schema import DEFAULT_SYSTEM_NAME
+from retrieval.dpdp_retrieval import DPDPRetriever
+
+
+def _print(obj):
+    print(json.dumps(obj, indent=2, default=str))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("summary", help="graph-wide counts and coverage snapshot")
+
+    p = sub.add_parser("for-data-type", help="clauses governing one data type")
+    p.add_argument("data_type")
+    p.add_argument("--no-upcoming", action="store_true", help="only in-force clauses")
+
+    p = sub.add_parser("for-system", help="clauses for every data type a system collects")
+    p.add_argument("--system", default=DEFAULT_SYSTEM_NAME)
+    p.add_argument("--no-upcoming", action="store_true")
+
+    p = sub.add_parser("gaps", help="collected data types with zero governing clauses")
+    p.add_argument("--system", default=DEFAULT_SYSTEM_NAME)
+
+    p = sub.add_parser("vendor-exposure", help="vendors touching data governed by a clause")
+    p.add_argument("clause_id", help="e.g. DPDP-s6")
+
+    p = sub.add_parser("clause", help="full detail for one clause")
+    p.add_argument("clause_id", help="e.g. DPDP-s9")
+
+    p = sub.add_parser("upcoming", help="not-yet-commenced clauses, soonest first")
+    p.add_argument("--within-days", type=int, default=None)
+
+    args = parser.parse_args()
+
+    retriever = DPDPRetriever()
+    try:
+        if args.command == "summary":
+            _print(retriever.graph_summary())
+
+        elif args.command == "for-data-type":
+            try:
+                _print(retriever.clauses_for_data_type(
+                    args.data_type, include_upcoming=not args.no_upcoming))
+            except ValueError as exc:
+                print(f"Error: {exc}")
+                sys.exit(1)
+
+        elif args.command == "for-system":
+            _print(retriever.clauses_for_system(
+                args.system, include_upcoming=not args.no_upcoming))
+
+        elif args.command == "gaps":
+            gaps = retriever.coverage_gaps(args.system)
+            if gaps:
+                print(f"{len(gaps)} data type(s) with no governing clause at all:")
+                _print(gaps)
+            else:
+                print("No coverage gaps — every collected data type has at least one clause.")
+
+        elif args.command == "vendor-exposure":
+            _print(retriever.vendor_exposure_for_clause(args.clause_id))
+
+        elif args.command == "clause":
+            detail = retriever.clause_detail(args.clause_id)
+            if detail is None:
+                print(f"No clause found with id {args.clause_id!r}.")
+                sys.exit(1)
+            _print(detail)
+
+        elif args.command == "upcoming":
+            _print(retriever.upcoming_clauses(within_days=args.within_days))
+    finally:
+        retriever.close()
+
+
+if __name__ == "__main__":
+    main()
