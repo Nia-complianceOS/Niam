@@ -34,13 +34,19 @@ def main():
     p = sub.add_parser("for-data-type", help="clauses governing one data type")
     p.add_argument("data_type")
     p.add_argument("--no-upcoming", action="store_true", help="only in-force clauses")
+    p.add_argument("--no-general", action="store_true",
+                    help="exclude general-purpose 'other_personal_data' clauses")
 
     p = sub.add_parser("for-system", help="clauses for every data type a system collects")
     p.add_argument("--system", default=DEFAULT_SYSTEM_NAME)
     p.add_argument("--no-upcoming", action="store_true")
+    p.add_argument("--no-general", action="store_true",
+                    help="exclude general-purpose 'other_personal_data' clauses")
 
     p = sub.add_parser("gaps", help="collected data types with zero governing clauses")
     p.add_argument("--system", default=DEFAULT_SYSTEM_NAME)
+    p.add_argument("--no-general", action="store_true",
+                    help="stricter reading: only exact-name clause matches count as coverage")
 
     p = sub.add_parser("vendor-exposure", help="vendors touching data governed by a clause")
     p.add_argument("clause_id", help="e.g. DPDP-s6")
@@ -61,17 +67,23 @@ def main():
         elif args.command == "for-data-type":
             try:
                 _print(retriever.clauses_for_data_type(
-                    args.data_type, include_upcoming=not args.no_upcoming))
+                    args.data_type,
+                    include_upcoming=not args.no_upcoming,
+                    include_general=not args.no_general,
+                ))
             except ValueError as exc:
                 print(f"Error: {exc}")
                 sys.exit(1)
 
         elif args.command == "for-system":
             _print(retriever.clauses_for_system(
-                args.system, include_upcoming=not args.no_upcoming))
+                args.system,
+                include_upcoming=not args.no_upcoming,
+                include_general=not args.no_general,
+            ))
 
         elif args.command == "gaps":
-            gaps = retriever.coverage_gaps(args.system)
+            gaps = retriever.coverage_gaps(args.system, include_general=not args.no_general)
             if gaps:
                 print(f"{len(gaps)} data type(s) with no governing clause at all:")
                 _print(gaps)
