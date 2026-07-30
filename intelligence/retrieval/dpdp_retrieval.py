@@ -18,7 +18,6 @@ from retrieval.queries import (
     CLAUSES_FOR_DATA_TYPE,
     CLAUSES_FOR_SYSTEM,
     CLAUSE_DETAIL,
-    COVERAGE_GAPS_FOR_SYSTEM,
     GRAPH_SUMMARY,
     UPCOMING_CLAUSES,
     VENDOR_EXPOSURE_FOR_CLAUSE,
@@ -36,9 +35,28 @@ class DPDPRetriever:
 
     # --- core lookups -----------------------------------------------------
 
-    def clauses_for_data_type(self, data_type: str, include_upcoming: bool = True) -> List[dict]:
+    # A clause tagged "other_personal_data" by the extractor means "this
+    # obligation applies broadly to whatever personal data a fiduciary
+    # holds" (per the extractor's own prompt instruction), not "this
+    # obligation applies only to a literal DataType node named
+    # other_personal_data". Structurally though, GOVERNED_BY only
+    # connects to that one specific node — so without this fallback,
+    # general-purpose sections (grounds for processing, notice, consent,
+    # rights, cross-border transfer — most of the Act) never surface for
+    # any of your actually-collected, specifically-named data types.
+    GENERAL_DATA_TYPE = "other_personal_data"
+
+    def clauses_for_data_type(
+        self, data_type: str, include_upcoming: bool = True, include_general: bool = True
+    ) -> List[dict]:
         """
         All DPDP clauses governing a single data type.
+
+        include_general=True (default) also includes clauses tagged
+        GENERAL_DATA_TYPE ("other_personal_data") — see the module-level
+        note above for why that's the semantically correct behavior,
+        not an approximation. Pass False to see ONLY clauses that
+        specifically named this exact data type.
 
         Raises ValueError for a data_type outside DATA_TYPE_TAXONOMY —
         same fail-closed principle as the rest of the pipeline. A typo'd
@@ -56,15 +74,36 @@ class DPDPRetriever:
             CLAUSES_FOR_DATA_TYPE,
             {"data_type": data_type, "include_upcoming": include_upcoming},
         )
+
+        if include_general and data_type != self.GENERAL_DATA_TYPE:
+            general_rows = self.client.run_read(
+                CLAUSES_FOR_DATA_TYPE,
+                {"data_type": self.GENERAL_DATA_TYPE, "include_upcoming": include_upcoming},
+            )
+            seen = {r["clause_id"] for r in rows}
+            rows = rows + [r for r in general_rows if r["clause_id"] not in seen]
+            rows.sort(key=lambda r: int(r["section"]))
+
         return rows
 
     def clauses_for_system(
-        self, system_name: str = DEFAULT_SYSTEM_NAME, include_upcoming: bool = True
+        self,
+        system_name: str = DEFAULT_SYSTEM_NAME,
+        include_upcoming: bool = True,
+        include_general: bool = True,
     ) -> Dict[str, List[dict]]:
         """
         Every DataType the given System collects, each mapped to its
         list of governing clauses (empty list if none exist yet — see
         coverage_gaps() to distinguish that from "not yet commenced").
+
+        include_general=True (default) merges in clauses tagged
+        GENERAL_DATA_TYPE ("other_personal_data") for every collected
+        data type — without this, general-purpose sections (grounds for
+        processing, notice, consent, rights, cross-border transfer —
+        most of the Act's substantive obligations) never show up for
+        any specifically-named data type, since GOVERNED_BY only
+        connects to the literal node the extractor tagged.
 
         Returns {data_type: [clause_dict, ...]}, not a list of rows —
         this is the shape the DPDP Reasoner stage will want to iterate:
@@ -78,20 +117,37 @@ class DPDPRetriever:
         for row in rows:
             clauses = [c for c in (row.get("clauses") or []) if c]
             result[row["data_type"]] = clauses
+
+        if include_general:
+            general_clauses = self.clauses_for_data_type(
+                self.GENERAL_DATA_TYPE, include_upcoming=include_upcoming, include_general=False
+            )
+            for data_type, clauses in result.items():
+                if data_type == self.GENERAL_DATA_TYPE:
+                    continue
+                seen = {c["clause_id"] for c in clauses}
+                result[data_type] = clauses + [c for c in general_clauses if c["clause_id"] not in seen]
+                result[data_type].sort(key=lambda c: int(c["section"]))
+
         return result
 
-    def coverage_gaps(self, system_name: str = DEFAULT_SYSTEM_NAME) -> List[str]:
+    def coverage_gaps(
+        self, system_name: str = DEFAULT_SYSTEM_NAME, include_general: bool = True
+    ) -> List[str]:
         """
         DataTypes the System collects that have ZERO governing clauses
-        — no clause exists for this data type at all, distinct from a
-        clause existing but not yet commenced. Worth periodically
-        re-checking as the DPDP clause loader's taxonomy coverage
-        improves; a nonzero result here after a full clause-loader run
-        usually means the extractor under-tagged something, not that
-        the Act genuinely has no bearing on that data type.
+        (including general-purpose ones, if include_general=True) — a
+        genuine gap, distinct from a clause existing but not yet
+        commenced (that's still "covered", just not enforceable today).
+
+        Built on clauses_for_system() rather than a separate raw query,
+        so this can never drift out of sync with what that method
+        actually considers "covered" — pass include_general=False to
+        see gaps under the stricter "only exact-name matches count"
+        reading instead.
         """
-        rows = self.client.run_read(COVERAGE_GAPS_FOR_SYSTEM, {"system_name": system_name})
-        return [r["data_type"] for r in rows]
+        by_data_type = self.clauses_for_system(system_name, include_upcoming=True, include_general=include_general)
+        return sorted(dt for dt, clauses in by_data_type.items() if not clauses)
 
     def vendor_exposure_for_clause(self, clause_id: str) -> List[dict]:
         """
