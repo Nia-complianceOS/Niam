@@ -20,12 +20,13 @@ from typing import List
 
 from google import genai
 from google.genai import types
-from dotenv import load_dotenv
+import os
+from dotenv import load_dotenv, find_dotenv
 
 from .diff_parser import CandidateLine
 from .utils import get_logger
 
-load_dotenv()
+load_dotenv(os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True)))
 logger = get_logger(__name__)
 
 # Pinned explicitly — do NOT use "gemini-flash-latest". That alias

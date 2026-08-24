@@ -19,7 +19,7 @@ from dotenv import load_dotenv, find_dotenv
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable, TransientError
 
-load_dotenv(find_dotenv())
+load_dotenv(os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True)))
 
 logger = logging.getLogger(__name__)
 

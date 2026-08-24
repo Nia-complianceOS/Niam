@@ -23,7 +23,8 @@ from typing import List, Dict
 
 from google import genai
 from google.genai import types
-from dotenv import load_dotenv
+import os
+from dotenv import load_dotenv, find_dotenv
 
 from ingestion.github.classifier import (
     ALLOWED_DATA_TYPES,
@@ -33,7 +34,7 @@ from ingestion.github.classifier import (
 )
 from legal.commencement import status_for_section
 
-load_dotenv()
+load_dotenv(os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True)))
 logger = logging.getLogger(__name__)
 
 # Sections are full legal paragraphs, not one-line code snippets — much

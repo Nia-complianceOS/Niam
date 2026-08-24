@@ -39,9 +39,10 @@ import time
 from datetime import date, datetime, timedelta, timezone
 
 import requests
-from dotenv import load_dotenv
+import os
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv()
+load_dotenv(os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True)))
 
 logger = logging.getLogger(__name__)
 

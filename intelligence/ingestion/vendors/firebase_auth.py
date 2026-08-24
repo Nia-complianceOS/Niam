@@ -36,11 +36,12 @@ import logging
 import os
 
 import firebase_admin
-from dotenv import load_dotenv
+import os
+from dotenv import load_dotenv, find_dotenv
 from firebase_admin import auth as firebase_auth_module
 from firebase_admin import credentials
 
-load_dotenv()
+load_dotenv(os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True)))
 
 logger = logging.getLogger(__name__)
 

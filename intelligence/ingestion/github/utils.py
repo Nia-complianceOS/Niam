@@ -8,10 +8,9 @@ environment variables via python-dotenv — never hardcoded.
 
 import logging
 import os
+from dotenv import load_dotenv, find_dotenv
 
-from dotenv import load_dotenv
-
-load_dotenv()
+load_dotenv(os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True)))
 
 GITHUB_API_BASE = "https://api.github.com"
 

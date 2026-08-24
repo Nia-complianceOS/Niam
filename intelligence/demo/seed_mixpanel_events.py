@@ -22,9 +22,10 @@ import time
 import uuid
 
 import requests
-from dotenv import load_dotenv
+import os
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv()
+load_dotenv(os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True)))
 
 TOKEN = os.getenv("MIXPANEL_TOKEN")
 TRACK_URL = "https://api.mixpanel.com/track"

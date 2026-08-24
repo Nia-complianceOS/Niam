@@ -14,7 +14,7 @@ a configured secret doesn't 403 every request.
 
 import logging
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Header, Request, HTTPException
 
 from app.core.config import get_settings
 from app.core.security import verify_github_signature
@@ -35,12 +35,21 @@ def trigger_reconciliation(commit_sha: str, repo_full_name: str) -> None:
 
 @router.post("/github")
 async def github_webhook(request: Request, x_hub_signature_256: str | None = Header(default=None)):
-    body = await request.body()
     settings = get_settings()
+
+    if not settings.github_webhook_secret and settings.app_env != "development":
+        raise HTTPException(status_code=403, detail="Webhook secret not configured")
+
+    body = await request.body()
 
     if settings.github_webhook_secret:
         if not verify_github_signature(body, x_hub_signature_256):
-            return {"status": "rejected", "reason": "invalid signature"}
+            raise HTTPException(status_code=403, detail="Invalid webhook signature")
+    else:
+        # Permissive mode: processing the webhook without validating a signature.
+        # This is safe because we already verified above that app_env == "development"
+        # when github_webhook_secret is unset, so this is strictly a local dev-only path.
+        pass
 
     payload = await request.json()
     if payload.get("ref") == "refs/heads/main":
