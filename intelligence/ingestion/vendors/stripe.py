@@ -21,9 +21,11 @@ import os
 import time
 
 import requests
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv()
+load_dotenv(
+    os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True))
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +36,11 @@ MAX_RETRIES = 3
 
 class StripeIngestion:
     def __init__(self, api_key: str = None):
-        self.api_key = api_key or os.getenv("STRIPE_API_KEY") or os.getenv("VENDOR_API_KEY")
+        self.api_key = (
+            api_key
+            or os.getenv("STRIPE_API_KEY")
+            or os.getenv("VENDOR_API_KEY")
+        )
         if not self.api_key:
             raise ValueError(
                 "No Stripe key found. Set STRIPE_API_KEY (or VENDOR_API_KEY) "
@@ -43,7 +49,9 @@ class StripeIngestion:
 
     # --- fetching ---------------------------------------------------------
 
-    def fetch_recent_events(self, limit: int = DEFAULT_EVENT_LIMIT, event_types: list = None) -> list:
+    def fetch_recent_events(
+        self, limit: int = DEFAULT_EVENT_LIMIT, event_types: list = None
+    ) -> list:
         """
         GET /v1/events, paginated via `starting_after`, capped at `limit`
         total events. `event_types` optionally restricts to specific
@@ -80,13 +88,20 @@ class StripeIngestion:
             if resp.status_code == 200:
                 return resp.json()
             if resp.status_code == 429:
-                wait = 2 ** attempt
-                logger.warning("Stripe 429, backing off %ds (attempt %d/%d)", wait, attempt, MAX_RETRIES)
+                wait = 2**attempt
+                logger.warning(
+                    "Stripe 429, backing off %ds (attempt %d/%d)",
+                    wait,
+                    attempt,
+                    MAX_RETRIES,
+                )
                 time.sleep(wait)
                 last_err = resp
                 continue
             resp.raise_for_status()
-        raise RuntimeError(f"Stripe API request failed after {MAX_RETRIES} attempts: {last_err}")
+        raise RuntimeError(
+            f"Stripe API request failed after {MAX_RETRIES} attempts: {last_err}"
+        )
 
     # --- schema extraction --------------------------------------------------
 
@@ -120,10 +135,16 @@ class StripeIngestion:
                         nested_pair = (event_type, nested_path)
                         if nested_pair not in seen:
                             seen.add(nested_pair)
-                            rows.append({"event_type": event_type, "field_path": nested_path})
+                            rows.append(
+                                {
+                                    "event_type": event_type,
+                                    "field_path": nested_path,
+                                }
+                            )
 
         logger.info(
             "Extracted %d distinct (event_type, field_path) pairs from %d events",
-            len(rows), len(events),
+            len(rows),
+            len(events),
         )
         return rows

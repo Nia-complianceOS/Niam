@@ -36,11 +36,13 @@ import logging
 import os
 
 import firebase_admin
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from firebase_admin import auth as firebase_auth_module
 from firebase_admin import credentials
 
-load_dotenv()
+load_dotenv(
+    os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True))
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,11 @@ RECORD_TYPE = "auth_user"
 
 
 class FirebaseAuthIngestion:
-    def __init__(self, service_account_path: str = None, app_name: str = "nia-firebase-auth"):
+    def __init__(
+        self,
+        service_account_path: str = None,
+        app_name: str = "nia-firebase-auth",
+    ):
         cred = self._load_credentials(service_account_path)
         try:
             self._app = firebase_admin.get_app(app_name)
@@ -57,12 +63,16 @@ class FirebaseAuthIngestion:
 
     @staticmethod
     def _load_credentials(service_account_path: str = None):
-        path = service_account_path or os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")
+        path = service_account_path or os.getenv(
+            "FIREBASE_SERVICE_ACCOUNT_PATH"
+        )
         raw_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
 
         if path:
             if not os.path.exists(path):
-                raise ValueError(f"FIREBASE_SERVICE_ACCOUNT_PATH set but file not found: {path}")
+                raise ValueError(
+                    f"FIREBASE_SERVICE_ACCOUNT_PATH set but file not found: {path}"
+                )
             return credentials.Certificate(path)
 
         if raw_json:
@@ -90,7 +100,10 @@ class FirebaseAuthIngestion:
             for user in page.users:
                 users.append(self._user_to_dict(user))
                 if len(users) >= max_results:
-                    logger.info("Fetched %d Firebase Auth users (hit max_results)", len(users))
+                    logger.info(
+                        "Fetched %d Firebase Auth users (hit max_results)",
+                        len(users),
+                    )
                     return users
             page = page.get_next_page()
 
@@ -109,9 +122,19 @@ class FirebaseAuthIngestion:
             "disabled": user.disabled,
             "custom_claims": user.custom_claims,
             "tenant_id": getattr(user, "tenant_id", None),
-            "provider_ids": [p.provider_id for p in (user.provider_data or [])],
-            "creation_timestamp": user.user_metadata.creation_timestamp if user.user_metadata else None,
-            "last_sign_in_timestamp": user.user_metadata.last_sign_in_timestamp if user.user_metadata else None,
+            "provider_ids": [
+                p.provider_id for p in (user.provider_data or [])
+            ],
+            "creation_timestamp": (
+                user.user_metadata.creation_timestamp
+                if user.user_metadata
+                else None
+            ),
+            "last_sign_in_timestamp": (
+                user.user_metadata.last_sign_in_timestamp
+                if user.user_metadata
+                else None
+            ),
         }
 
     # --- schema extraction --------------------------------------------------
@@ -138,6 +161,7 @@ class FirebaseAuthIngestion:
 
         logger.info(
             "Extracted %d populated field(s) from %d Firebase Auth users",
-            len(rows), len(users),
+            len(rows),
+            len(users),
         )
         return rows

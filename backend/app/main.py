@@ -46,4 +46,8 @@ app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 @app.get("/", tags=["meta"])
 def root():
-    return {"service": "continuum-api", "docs": "/docs", "api_prefix": settings.api_v1_prefix}
+    return {
+        "service": "continuum-api",
+        "docs": "/docs",
+        "api_prefix": settings.api_v1_prefix,
+    }

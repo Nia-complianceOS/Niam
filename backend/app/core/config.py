@@ -43,6 +43,15 @@ class Settings(BaseSettings):
         alias="CORS_ORIGINS",
     )
 
+    use_mocks: bool = Field(default=False, alias="USE_MOCKS")
+
+    # -------------------------
+    # Authentication
+    # -------------------------
+    jwt_secret: str = Field(
+        default="dev-secret-do-not-use-in-prod", alias="JWT_SECRET"
+    )
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [
@@ -62,7 +71,9 @@ class Settings(BaseSettings):
     # GitHub
     # -------------------------
     github_token: str = Field(default="", alias="GITHUB_TOKEN")
-    github_webhook_secret: str = Field(default="", alias="GITHUB_WEBHOOK_SECRET")
+    github_webhook_secret: str = Field(
+        default="", alias="GITHUB_WEBHOOK_SECRET"
+    )
 
     # -------------------------
     # AI providers
@@ -79,14 +90,20 @@ class Settings(BaseSettings):
     # -------------------------
     # Firebase
     # -------------------------
-    firebase_service_account_path: str = Field(default="", alias="FIREBASE_SERVICE_ACCOUNT_PATH")
+    firebase_service_account_path: str = Field(
+        default="", alias="FIREBASE_SERVICE_ACCOUNT_PATH"
+    )
 
     # -------------------------
     # Mixpanel
     # -------------------------
     mixpanel_token: str = Field(default="", alias="MIXPANEL_TOKEN")
-    mixpanel_service_account_username: str = Field(default="", alias="MIXPANEL_SERVICE_ACCOUNT_USERNAME")
-    mixpanel_service_account_secret: str = Field(default="", alias="MIXPANEL_SERVICE_ACCOUNT_SECRET")
+    mixpanel_service_account_username: str = Field(
+        default="", alias="MIXPANEL_SERVICE_ACCOUNT_USERNAME"
+    )
+    mixpanel_service_account_secret: str = Field(
+        default="", alias="MIXPANEL_SERVICE_ACCOUNT_SECRET"
+    )
 
     # -------------------------
     # Generic vendor key (Stripe or whichever single vendor is wired first)

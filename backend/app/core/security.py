@@ -14,7 +14,9 @@ import hmac
 from app.core.config import get_settings
 
 
-def verify_github_signature(payload: bytes | str, signature: str | None) -> bool:
+def verify_github_signature(
+    payload: bytes | str, signature: str | None
+) -> bool:
     """Verify an HMAC-SHA256 GitHub webhook signature.
 
     If no signature is supplied, or no webhook secret is configured,

@@ -7,6 +7,11 @@ keep importing from here and only this file changes. Right now it
 just re-exports the Neo4j helpers.
 """
 
-from app.db.neo4j import close_driver, get_driver, run_query, verify_connectivity
+from app.db.neo4j import (
+    close_driver,
+    get_driver,
+    run_query,
+    verify_connectivity,
+)
 
 __all__ = ["run_query", "get_driver", "verify_connectivity", "close_driver"]

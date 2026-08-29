@@ -24,8 +24,13 @@ call sites, the relationship is merged once and provenance is appended
 to `sources` rather than creating parallel edges.
 """
 
-from graph.schema import REL_COLLECTS, REL_SENT_TO, LABEL_SYSTEM, LABEL_DATA_TYPE, LABEL_VENDOR
-
+from graph.schema import (
+    REL_COLLECTS,
+    REL_SENT_TO,
+    LABEL_SYSTEM,
+    LABEL_DATA_TYPE,
+    LABEL_VENDOR,
+)
 
 # --- COLLECTS: System -> DataType, from code-scan output ----------------
 

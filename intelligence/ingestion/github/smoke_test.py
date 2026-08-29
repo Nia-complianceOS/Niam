@@ -4,7 +4,7 @@ from everything else so a failure here means "API setup problem",
 not "scanner logic problem".
 
 Run from the nia/ project root:
-    python -m app.ingestion.github.smoke_test
+    python -m ingestion.github.smoke_test
 
 Requires: pip install google-genai python-dotenv
 Requires: GEMINI_API_KEY set in .env (use a freshly rotated key)
@@ -18,7 +18,7 @@ test_candidates = [
     CandidateLine(
         file_path="signup.py",
         line_number=42,
-        content='    stripe.Customer.create(email=user.email)',
+        content="    stripe.Customer.create(email=user.email)",
         change_type="added",
         matched_signals=["stripe.", "email"],
     ),
@@ -33,7 +33,9 @@ test_candidates = [
 
 
 def main():
-    print("Initializing classifier (will fail here if GEMINI_API_KEY is missing/invalid)...")
+    print(
+        "Initializing classifier (will fail here if GEMINI_API_KEY is missing/invalid)..."
+    )
     classifier = DataHandlingClassifier()
 
     print("Sending 2 test candidates to Gemini 2.5 Flash...")
@@ -51,10 +53,17 @@ def main():
 
     # Sanity check the two obvious cases came out right
     stripe_result, css_result = results
-    if stripe_result["is_data_handling"] is True and css_result["is_data_handling"] is False:
-        print("PASS: classifier distinguished real data-handling code from a false positive.")
+    if (
+        stripe_result["is_data_handling"] is True
+        and css_result["is_data_handling"] is False
+    ):
+        print(
+            "PASS: classifier distinguished real data-handling code from a false positive."
+        )
     else:
-        print("CHECK MANUALLY: results don't match the expected obvious-case pattern above.")
+        print(
+            "CHECK MANUALLY: results don't match the expected obvious-case pattern above."
+        )
 
 
 if __name__ == "__main__":

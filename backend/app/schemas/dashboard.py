@@ -11,6 +11,7 @@ class StatCard(BaseModel):
     value: str
     sub_label: str
     sub_tone: str
+    score_explanation: str | None = None
 
 
 class TimelineStep(BaseModel):

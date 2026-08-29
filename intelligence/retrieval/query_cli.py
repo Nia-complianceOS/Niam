@@ -37,7 +37,9 @@ def _print_clauses_summary(clauses: list, label: str = ""):
     in_force = sum(1 for c in clauses if c.get("status") == "in_force")
     upcoming = len(clauses) - in_force
     header = f"{label}: " if label else ""
-    print(f"{header}{len(clauses)} clause(s) — {in_force} in force, {upcoming} not yet commenced")
+    print(
+        f"{header}{len(clauses)} clause(s) — {in_force} in force, {upcoming} not yet commenced"
+    )
     for c in clauses:
         print(_clause_line(c))
 
@@ -50,32 +52,57 @@ def main():
 
     p = sub.add_parser("for-data-type", help="clauses governing one data type")
     p.add_argument("data_type")
-    p.add_argument("--no-upcoming", action="store_true", help="only in-force clauses")
-    p.add_argument("--no-general", action="store_true",
-                    help="exclude general-purpose 'other_personal_data' clauses")
-    p.add_argument("--summary", action="store_true",
-                    help="compact one-line-per-clause view instead of full JSON")
+    p.add_argument(
+        "--no-upcoming", action="store_true", help="only in-force clauses"
+    )
+    p.add_argument(
+        "--no-general",
+        action="store_true",
+        help="exclude general-purpose 'other_personal_data' clauses",
+    )
+    p.add_argument(
+        "--summary",
+        action="store_true",
+        help="compact one-line-per-clause view instead of full JSON",
+    )
 
-    p = sub.add_parser("for-system", help="clauses for every data type a system collects")
+    p = sub.add_parser(
+        "for-system", help="clauses for every data type a system collects"
+    )
     p.add_argument("--system", default=DEFAULT_SYSTEM_NAME)
     p.add_argument("--no-upcoming", action="store_true")
-    p.add_argument("--no-general", action="store_true",
-                    help="exclude general-purpose 'other_personal_data' clauses")
-    p.add_argument("--summary", action="store_true",
-                    help="compact one-line-per-clause view instead of full JSON")
+    p.add_argument(
+        "--no-general",
+        action="store_true",
+        help="exclude general-purpose 'other_personal_data' clauses",
+    )
+    p.add_argument(
+        "--summary",
+        action="store_true",
+        help="compact one-line-per-clause view instead of full JSON",
+    )
 
-    p = sub.add_parser("gaps", help="collected data types with zero governing clauses")
+    p = sub.add_parser(
+        "gaps", help="collected data types with zero governing clauses"
+    )
     p.add_argument("--system", default=DEFAULT_SYSTEM_NAME)
-    p.add_argument("--no-general", action="store_true",
-                    help="stricter reading: only exact-name clause matches count as coverage")
+    p.add_argument(
+        "--no-general",
+        action="store_true",
+        help="stricter reading: only exact-name clause matches count as coverage",
+    )
 
-    p = sub.add_parser("vendor-exposure", help="vendors touching data governed by a clause")
+    p = sub.add_parser(
+        "vendor-exposure", help="vendors touching data governed by a clause"
+    )
     p.add_argument("clause_id", help="e.g. DPDP-s6")
 
     p = sub.add_parser("clause", help="full detail for one clause")
     p.add_argument("clause_id", help="e.g. DPDP-s9")
 
-    p = sub.add_parser("upcoming", help="not-yet-commenced clauses, soonest first")
+    p = sub.add_parser(
+        "upcoming", help="not-yet-commenced clauses, soonest first"
+    )
     p.add_argument("--within-days", type=int, default=None)
 
     args = parser.parse_args()
@@ -114,12 +141,18 @@ def main():
                 _print(by_data_type)
 
         elif args.command == "gaps":
-            gaps = retriever.coverage_gaps(args.system, include_general=not args.no_general)
+            gaps = retriever.coverage_gaps(
+                args.system, include_general=not args.no_general
+            )
             if gaps:
-                print(f"{len(gaps)} data type(s) with no governing clause at all:")
+                print(
+                    f"{len(gaps)} data type(s) with no governing clause at all:"
+                )
                 _print(gaps)
             else:
-                print("No coverage gaps — every collected data type has at least one clause.")
+                print(
+                    "No coverage gaps — every collected data type has at least one clause."
+                )
 
         elif args.command == "vendor-exposure":
             _print(retriever.vendor_exposure_for_clause(args.clause_id))

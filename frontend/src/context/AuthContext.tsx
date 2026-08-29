@@ -10,8 +10,8 @@ interface User {
 
 interface AuthContextType {
   user: User | null
-  login: (email: string) => Promise<void>
-  signup: (email: string, name: string) => Promise<void>
+  login: (email: string, password?: string) => Promise<void>
+  signup: (email: string, name: string, password?: string) => Promise<void>
   logout: () => void
   isAuthenticated: boolean
   isLoading: boolean
@@ -25,9 +25,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
 
   useEffect(() => {
-    // Check local storage on mount
     const storedUser = localStorage.getItem('nia_user')
-    if (storedUser) {
+    const token = localStorage.getItem('token')
+    if (storedUser && token) {
       try {
         setUser(JSON.parse(storedUser))
       } catch (e) {
@@ -38,44 +38,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = async (email: string) => {
-    // Mock API call
-    return new Promise<void>((resolve) => {
-      setTimeout(() => {
-        const mockUser: User = {
-          id: '1',
-          name: 'Admin Workspace',
-          email,
-          plan: 'Growth plan',
-        }
-        setUser(mockUser)
-        localStorage.setItem('nia_user', JSON.stringify(mockUser))
-        navigate('/')
-        resolve()
-      }, 800)
-    })
+    try {
+      // Bypassing real API call since DB is not connected
+      localStorage.setItem('token', 'mock-token-123')
+      
+      const loggedInUser: User = {
+        id: 'mock-user-id',
+        name: 'Admin Workspace',
+        email,
+        plan: 'Growth plan',
+      }
+      setUser(loggedInUser)
+      localStorage.setItem('nia_user', JSON.stringify(loggedInUser))
+      navigate('/')
+    } catch (error) {
+      console.error('Login failed', error)
+      throw error
+    }
   }
 
   const signup = async (email: string, name: string) => {
-    // Mock API call
-    return new Promise<void>((resolve) => {
-      setTimeout(() => {
-        const mockUser: User = {
-          id: '1',
-          name,
-          email,
-          plan: 'Free plan',
-        }
-        setUser(mockUser)
-        localStorage.setItem('nia_user', JSON.stringify(mockUser))
-        navigate('/')
-        resolve()
-      }, 800)
-    })
+    try {
+      // Bypassing real API call since DB is not connected
+      localStorage.setItem('token', 'mock-token-123')
+      
+      const signedUpUser: User = {
+        id: 'mock-user-id',
+        name,
+        email,
+        plan: 'Free plan',
+      }
+      setUser(signedUpUser)
+      localStorage.setItem('nia_user', JSON.stringify(signedUpUser))
+      navigate('/')
+    } catch (error) {
+      console.error('Signup failed', error)
+      throw error
+    }
   }
 
   const logout = () => {
     setUser(null)
     localStorage.removeItem('nia_user')
+    localStorage.removeItem('token')
     navigate('/login')
   }
 

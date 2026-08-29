@@ -23,17 +23,18 @@ from typing import List, Dict
 
 from google import genai
 from google.genai import types
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
 from ingestion.github.classifier import (
     ALLOWED_DATA_TYPES,
-    PREFERRED_MODELS,
     _resolve_available_model,
     _parse_retry_delay,
 )
 from legal.commencement import status_for_section
 
-load_dotenv()
+load_dotenv(
+    os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True))
+)
 logger = logging.getLogger(__name__)
 
 # Sections are full legal paragraphs, not one-line code snippets — much
@@ -48,7 +49,8 @@ MAX_OUTPUT_TOKENS = 4096
 MAX_RETRIES = 3
 BASE_BACKOFF_SECONDS = 5.0
 
-_SYSTEM_PROMPT = """You are structuring sections of the Digital Personal Data \
+_SYSTEM_PROMPT = (
+    """You are structuring sections of the Digital Personal Data \
 Protection Act, 2023 (India) into queryable compliance clauses for a graph \
 database. You'll be given the section number, title, and full body text of \
 one or more Act sections.
@@ -62,7 +64,9 @@ machinery, rule-making powers) that doesn't govern a specific data type.
 
 When is_data_governing is true, data_types_governed MUST be a list where \
 EVERY value is exactly one from this fixed list — do not invent new labels:
-""" + ", ".join(ALLOWED_DATA_TYPES) + """
+"""
+    + ", ".join(ALLOWED_DATA_TYPES)
+    + """
 
 If a section applies broadly to all personal data rather than one specific \
 category, use ["other_personal_data"] rather than trying to list everything.
@@ -81,6 +85,7 @@ order, with exactly this shape:
 data_types_governed must be an empty list when is_data_governing is false. \
 obligation_summary must always be your own paraphrase, never verbatim \
 text from the section body. No prose outside the JSON array."""
+)
 
 
 def _validate_taxonomy(parsed: List[dict]) -> None:
@@ -106,9 +111,13 @@ class DPDPClauseExtractor:
     ):
         key = api_key or os.getenv("GEMINI_API_KEY")
         if not key:
-            raise EnvironmentError("GEMINI_API_KEY not set. Add it to your .env file.")
+            raise EnvironmentError(
+                "GEMINI_API_KEY not set. Add it to your .env file."
+            )
         self.client = genai.Client(api_key=key)
-        self.model = _resolve_available_model(self.client) if model == "auto" else model
+        self.model = (
+            _resolve_available_model(self.client) if model == "auto" else model
+        )
         self._min_interval = 60.0 / requests_per_minute
         self._last_call_at = 0.0
 
@@ -124,9 +133,16 @@ class DPDPClauseExtractor:
         """
         results = []
         total_batches = (len(sections) + BATCH_SIZE - 1) // BATCH_SIZE
-        for batch_num, start in enumerate(range(0, len(sections), BATCH_SIZE), start=1):
-            batch = sections[start:start + BATCH_SIZE]
-            logger.info("Extracting batch %d/%d (%d sections)...", batch_num, total_batches, len(batch))
+        for batch_num, start in enumerate(
+            range(0, len(sections), BATCH_SIZE), start=1
+        ):
+            batch = sections[start : start + BATCH_SIZE]
+            logger.info(
+                "Extracting batch %d/%d (%d sections)...",
+                batch_num,
+                total_batches,
+                len(batch),
+            )
             extractions = self._extract_batch(batch)
             for section_dict, extraction in zip(batch, extractions):
                 merged = dict(section_dict)
@@ -173,26 +189,50 @@ class DPDPClauseExtractor:
             except Exception as exc:
                 last_error = exc
                 error_str = str(exc)
-                is_rate_limited = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
-                is_overloaded = "503" in error_str or "UNAVAILABLE" in error_str
+                is_rate_limited = (
+                    "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
+                )
+                is_overloaded = (
+                    "503" in error_str or "UNAVAILABLE" in error_str
+                )
 
                 if attempt == MAX_RETRIES:
                     break
 
                 if is_rate_limited:
-                    delay = _parse_retry_delay(error_str, default=BASE_BACKOFF_SECONDS * attempt)
-                    logger.warning("Rate limited (attempt %d/%d), retrying in %.1fs...", attempt, MAX_RETRIES, delay)
+                    delay = _parse_retry_delay(
+                        error_str, default=BASE_BACKOFF_SECONDS * attempt
+                    )
+                    logger.warning(
+                        "Rate limited (attempt %d/%d), retrying in %.1fs...",
+                        attempt,
+                        MAX_RETRIES,
+                        delay,
+                    )
                 elif is_overloaded:
                     delay = BASE_BACKOFF_SECONDS * (2 ** (attempt - 1))
-                    logger.warning("Model overloaded (attempt %d/%d), retrying in %.1fs...", attempt, MAX_RETRIES, delay)
+                    logger.warning(
+                        "Model overloaded (attempt %d/%d), retrying in %.1fs...",
+                        attempt,
+                        MAX_RETRIES,
+                        delay,
+                    )
                 else:
                     delay = 2.0
-                    logger.warning("Batch failed (attempt %d/%d): %s — retrying in %.1fs...",
-                                   attempt, MAX_RETRIES, exc, delay)
+                    logger.warning(
+                        "Batch failed (attempt %d/%d): %s — retrying in %.1fs...",
+                        attempt,
+                        MAX_RETRIES,
+                        exc,
+                        delay,
+                    )
                 time.sleep(delay)
 
-        logger.error("Extraction batch failed after %d attempts, marking for manual review: %s",
-                      MAX_RETRIES, last_error)
+        logger.error(
+            "Extraction batch failed after %d attempts, marking for manual review: %s",
+            MAX_RETRIES,
+            last_error,
+        )
         return [self._fallback(s["section"]) for s in batch]
 
     @staticmethod

@@ -13,21 +13,43 @@ import logging
 from ingestion.vendors.mixpanel import MixpanelIngestion
 from ingestion.vendors.mixpanel_mapper import map_fields_to_data_types
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Ingest Mixpanel event schema into the compliance graph")
-    parser.add_argument("--days-back", type=int, default=7, help="how many days of events to sample")
-    parser.add_argument("--event-names", nargs="*", default=None, help="restrict to specific Mixpanel event names")
-    parser.add_argument("--limit", type=int, default=500, help="max events to parse")
-    parser.add_argument("--write", action="store_true", help="write results into Neo4j (default: dry run)")
+    parser = argparse.ArgumentParser(
+        description="Ingest Mixpanel event schema into the compliance graph"
+    )
+    parser.add_argument(
+        "--days-back",
+        type=int,
+        default=7,
+        help="how many days of events to sample",
+    )
+    parser.add_argument(
+        "--event-names",
+        nargs="*",
+        default=None,
+        help="restrict to specific Mixpanel event names",
+    )
+    parser.add_argument(
+        "--limit", type=int, default=500, help="max events to parse"
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="write results into Neo4j (default: dry run)",
+    )
     args = parser.parse_args()
 
     ingestion = MixpanelIngestion()
     events = ingestion.fetch_recent_events(
-        days_back=args.days_back, event_names=args.event_names, limit=args.limit
+        days_back=args.days_back,
+        event_names=args.event_names,
+        limit=args.limit,
     )
     if not events:
         logger.warning(
@@ -53,11 +75,14 @@ def main():
     for dt, fields in sorted(by_data_type.items()):
         print(f"  {dt}: {sorted(fields)}")
     if unmapped:
-        print(f"\nUnmapped (add to FIELD_TO_DATA_TYPE if these carry personal data):")
+        print(
+            "\nUnmapped (add to FIELD_TO_DATA_TYPE if these carry personal data):"
+        )
         print(f"  {sorted(set(unmapped))}")
 
     if args.write:
         from graph.graph_writer import GraphWriter
+
         writer = GraphWriter()
         try:
             result = writer.write_vendor_fields(mapped)

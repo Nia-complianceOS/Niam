@@ -29,7 +29,7 @@ class Gap(BaseModel):
     detected_at: str | None = None
     updated_at: str | None = None
 
-    @field_validator('detected_at', 'updated_at', mode='before')
+    @field_validator("detected_at", "updated_at", mode="before")
     @classmethod
     def parse_timestamps(cls, value):
         if isinstance(value, datetime):
@@ -39,6 +39,7 @@ class Gap(BaseModel):
 
 class GapsResponse(BaseModel):
     score: float
+    score_explanation: str | None = None
     score_delta: float
     open_gap_count: int
     gaps: List[Gap]

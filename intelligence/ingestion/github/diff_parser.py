@@ -18,34 +18,75 @@ from typing import List, Optional
 # precision is the classifier's job, not this filter's.
 DEFAULT_SIGNALS = [
     # PII-shaped fields
-    "email", "phone", "address", "ssn", "dob", "date_of_birth",
-    "full_name", "first_name", "last_name", "passport", "aadhaar",
-    "pan_number", "credit_card", "card_number", "ip_address",
+    "email",
+    "phone",
+    "address",
+    "ssn",
+    "dob",
+    "date_of_birth",
+    "full_name",
+    "first_name",
+    "last_name",
+    "passport",
+    "aadhaar",
+    "pan_number",
+    "credit_card",
+    "card_number",
+    "ip_address",
     # tracking / analytics
-    "track(", "analytics", "mixpanel", "segment.", "amplitude",
-    "user_id", "device_id", "session_id",
+    "track(",
+    "analytics",
+    "mixpanel",
+    "segment.",
+    "amplitude",
+    "user_id",
+    "device_id",
+    "session_id",
     # consent / minors
-    "consent", "age", "minor", "parental",
+    "consent",
+    "age",
+    "minor",
+    "parental",
     # storage / persistence
-    "insert into", ".save(", ".create(", ".update(", "db.collection",
-    "cursor.execute", "s3.put_object",
+    "insert into",
+    ".save(",
+    ".create(",
+    ".update(",
+    "db.collection",
+    "cursor.execute",
+    "s3.put_object",
     # outbound vendor calls
-    "stripe.", "firebase.", "requests.post", "fetch(", "axios.",
+    "stripe.",
+    "firebase.",
+    "requests.post",
+    "fetch(",
+    "axios.",
 ]
 
 CODE_FILE_EXTENSIONS = {
-    ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".rb",
-    ".php", ".cs", ".kt", ".swift",
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".go",
+    ".java",
+    ".rb",
+    ".php",
+    ".cs",
+    ".kt",
+    ".swift",
 }
 
 
 @dataclass
 class CandidateLine:
     """A single line flagged by the stage-1 pre-filter."""
+
     file_path: str
-    line_number: Optional[int]   # None for removed diff lines
+    line_number: Optional[int]  # None for removed diff lines
     content: str
-    change_type: str             # "added" | "removed" | "full_scan"
+    change_type: str  # "added" | "removed" | "full_scan"
     matched_signals: List[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -91,20 +132,24 @@ def parse_unified_diff(diff_text: str) -> List[dict]:
             continue  # still in the diff preamble (index/--- lines)
 
         if raw_line.startswith("+") and not raw_line.startswith("+++"):
-            records.append({
-                "file_path": current_file,
-                "line_number": new_line_no,
-                "content": raw_line[1:],
-                "change_type": "added",
-            })
+            records.append(
+                {
+                    "file_path": current_file,
+                    "line_number": new_line_no,
+                    "content": raw_line[1:],
+                    "change_type": "added",
+                }
+            )
             new_line_no = (new_line_no or 0) + 1
         elif raw_line.startswith("-") and not raw_line.startswith("---"):
-            records.append({
-                "file_path": current_file,
-                "line_number": None,  # removed line has no position in the new file
-                "content": raw_line[1:],
-                "change_type": "removed",
-            })
+            records.append(
+                {
+                    "file_path": current_file,
+                    "line_number": None,  # removed line has no position in the new file
+                    "content": raw_line[1:],
+                    "change_type": "removed",
+                }
+            )
         # context lines don't appear at --unified=0
 
     return records
@@ -124,13 +169,15 @@ def find_candidate_lines_in_diff(
             continue
         hits = _matched_signals(rec["content"], signals)
         if hits:
-            candidates.append(CandidateLine(
-                file_path=rec["file_path"],
-                line_number=rec["line_number"],
-                content=rec["content"],
-                change_type="added",
-                matched_signals=hits,
-            ))
+            candidates.append(
+                CandidateLine(
+                    file_path=rec["file_path"],
+                    line_number=rec["line_number"],
+                    content=rec["content"],
+                    change_type="added",
+                    matched_signals=hits,
+                )
+            )
     return candidates
 
 
@@ -146,11 +193,13 @@ def find_candidate_lines_in_file(
     for i, line in enumerate(content.splitlines(), start=1):
         hits = _matched_signals(line, signals)
         if hits:
-            candidates.append(CandidateLine(
-                file_path=file_path,
-                line_number=i,
-                content=line,
-                change_type="full_scan",
-                matched_signals=hits,
-            ))
+            candidates.append(
+                CandidateLine(
+                    file_path=file_path,
+                    line_number=i,
+                    content=line,
+                    change_type="full_scan",
+                    matched_signals=hits,
+                )
+            )
     return candidates

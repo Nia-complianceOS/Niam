@@ -5,56 +5,34 @@ A Compliance Operating System for India's DPDP Act 2023 — continuously maps a 
 ## Tech Stack
 
 - **Frontend** — React (Vite), Tailwind CSS, D3.js, Axios
-- **Backend** — FastAPI (Python), Neo4j, Anthropic Claude API
+- **Backend** — FastAPI (Python), Neo4j
+- **Intelligence** — Gemini API (LLM-assisted compliance extraction), Tree-sitter
 - **Database** — Neo4j (graph database)
 - **Integrations** — GitHub API, vendor APIs (Stripe / Mixpanel / Firebase)
 
 ## Project Structure
 
-```
+```text
 nia/
-├── backend/
-│   ├── api/                 # FastAPI app entrypoint + routes
-│   │   ├── main.py
-│   │   ├── routes/
-│   │   │   ├── graph.py
-│   │   │   ├── gaps.py
-│   │   │   └── webhook.py
-│   │   └── pr_service.py    # opens GitHub pull requests for compliance fixes
-│   ├── db/
-│   │   └── neo4j_connection.py
-│   ├── graph/                # graph schema + Neo4j client
-│   │   ├── neo4j_client.py
-│   │   └── schema.py
-│   ├── ingestion/            # code scanner + vendor ingestion
-│   │   ├── code_scanner.py
-│   │   └── vendor_ingest.py
-│   ├── legal/                # LLM-assisted privacy policy / clause parsing
-│   │   └── clause_parser.py
-│   ├── reconciliation/       # gap detection + remediation drafting
-│   │   ├── reconciler.py
-│   │   └── remediation_drafter.py
-│   ├── tests/
-│   └── .env                  # not committed
+├── backend/app/
+│   ├── api/          # FastAPI entrypoint + v1 endpoints (compliance, graph, github, etc.)
+│   ├── core/         # Configuration and security
+│   ├── db/           # Neo4j database connection
+│   ├── schemas/      # Pydantic models for API resources
+│   └── services/     # Business logic mapping to endpoints
 │
-├── frontend/
-│   ├── src/
-│   │   ├── api/
-│   │   │   └── client.js
-│   │   ├── components/
-│   │   │   ├── ScoreRing.jsx
-│   │   │   ├── NodeStatusList.jsx
-│   │   │   ├── GraphView.jsx
-│   │   │   ├── GapDetail.jsx
-│   │   │   └── GitBlameView.jsx
-│   │   ├── pages/
-│   │   │   ├── Dashboard.jsx
-│   │   │   ├── Graph.jsx
-│   │   │   └── Gaps.jsx
-│   │   └── App.jsx
-│   └── .env                  # not committed
+├── frontend/src/
+│   ├── components/   # UI components (graph, dashboard, layout, etc.)
+│   ├── hooks/        # React hooks for API data fetching
+│   ├── pages/        # Dashboard, Graph, Policies, Settings, etc.
+│   └── services/api/ # Axios client
 │
-└── README.md
+└── intelligence/
+    ├── demo/         # Scripts to seed demo data
+    ├── graph/        # Graph schema, node/edge builders, and Neo4j client
+    ├── ingestion/    # GitHub code scanning and vendor API ingestion
+    ├── legal/        # DPDP Act extraction and clause parsing
+    └── retrieval/    # Query generation and CLI
 ```
 
 ## Getting Started
@@ -65,22 +43,27 @@ nia/
 - Node.js 20.x (LTS)
 - A Neo4j instance (AuraDB free tier works fine)
 
-### Backend Setup
+### Backend & Intelligence Setup
 
 ```bash
-cd backend
+# Create virtual environment from the project root
 python -m venv nia_env
 source nia_env/bin/activate      # Windows: nia_env\Scripts\activate
 
-pip install fastapi uvicorn neo4j python-dotenv pygithub httpx pydantic requests beautifulsoup4 gitpython tree_sitter anthropic pandas tqdm
+# Install intelligence module (editable mode)
+pip install -e ./intelligence
+
+# Install backend dependencies
+cd backend
+pip install fastapi uvicorn neo4j python-dotenv httpx pydantic requests beautifulsoup4 gitpython tree_sitter pandas tqdm
 ```
 
-Create a `.env` file inside `backend/`:
+Create a `.env` file inside `backend/` (this file acts as the single source of truth for both backend and intelligence):
 
 Run the backend:
 
 ```bash
-uvicorn api.main:app --reload
+uvicorn app.main:app --reload
 ```
 
 The API will be live at `http://localhost:8000`.
@@ -90,8 +73,6 @@ The API will be live at `http://localhost:8000`.
 ```bash
 cd frontend
 npm install
-npm install -D tailwindcss postcss autoprefixer
-npm install d3 recharts lucide-react axios
 ```
 
 Create a `.env` file inside `frontend/`:
@@ -106,10 +87,9 @@ The app will be live at `http://localhost:5173`.
 
 ## How It Works
 
-1. **Ingestion** — scans the connected GitHub repo and one connected vendor (Stripe/Mixpanel/Firebase) for data-handling code paths and event schemas.
+1. **Ingestion** — scans the connected GitHub repo and connected vendors (Stripe/Mixpanel/Firebase) for data-handling code paths and event schemas.
 2. **Graph** — assembles ingested signals into a Neo4j graph: data → API → database → vendor → legal obligation → policy clause.
 3. **Reconciliation** — on every merge to `main`, a webhook triggers a diff-based re-check of the graph for gaps (a data flow with no matching legal clause).
-4. **Remediation** — for each gap, drafts the exact clause text needed and opens a real pull request against the policy repo for human review.
+4. **Remediation** — for each gap, drafts the exact clause text needed using Gemini, and opens a real pull request against the policy repo for human review.
 
 Nothing is auto-merged — every generated change goes through normal code review before it touches a real document.
-

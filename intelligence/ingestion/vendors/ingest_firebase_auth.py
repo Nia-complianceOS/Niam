@@ -12,20 +12,32 @@ import logging
 from ingestion.vendors.firebase_auth import FirebaseAuthIngestion
 from ingestion.vendors.firebase_auth_mapper import map_fields_to_data_types
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Ingest Firebase Authentication user schema into the compliance graph")
-    parser.add_argument("--max-results", type=int, default=500, help="max users to sample")
-    parser.add_argument("--write", action="store_true", help="write results into Neo4j (default: dry run)")
+    parser = argparse.ArgumentParser(
+        description="Ingest Firebase Authentication user schema into the compliance graph"
+    )
+    parser.add_argument(
+        "--max-results", type=int, default=500, help="max users to sample"
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="write results into Neo4j (default: dry run)",
+    )
     args = parser.parse_args()
 
     ingestion = FirebaseAuthIngestion()
     users = ingestion.fetch_users(max_results=args.max_results)
     if not users:
-        logger.warning("No users returned — check the service account and that the project actually has users.")
+        logger.warning(
+            "No users returned — check the service account and that the project actually has users."
+        )
         return
 
     field_rows = ingestion.extract_field_schema(users)
@@ -48,6 +60,7 @@ def main():
 
     if args.write:
         from graph.graph_writer import GraphWriter
+
         writer = GraphWriter()
         try:
             result = writer.write_vendor_fields(mapped)

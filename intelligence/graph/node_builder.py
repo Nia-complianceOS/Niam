@@ -4,7 +4,7 @@ ready for MERGE. No Neo4j calls here — this module is pure data shaping,
 easy to unit test without a live database.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 
@@ -62,7 +62,9 @@ def normalize_classifier_record(record) -> dict:
     required = ["file_path", "line_number", "data_type", "confidence"]
     missing = [f for f in required if record.get(f) is None]
     if missing:
-        raise ValueError(f"classifier record missing required fields: {missing}")
+        raise ValueError(
+            f"classifier record missing required fields: {missing}"
+        )
 
     raw_vendor = record.get("vendor")
     vendor = str(raw_vendor).strip() if raw_vendor else None
@@ -82,15 +84,17 @@ def normalize_classifier_record(record) -> dict:
     # arrays of primitives are allowed. Provenance gets JSON-serialized
     # here so edge_builder.py can append it as a plain string into the
     # `sources` array property, instead of an inline map literal.
-    result["source_json"] = json.dumps({
-        "origin": "code",
-        "file": result["file_path"],
-        "line": result["line_number"],
-        "repo": result["repo"],
-        "commit_sha": result["commit_sha"],
-        "confidence": result["confidence"],
-        "detected_at": detected_at,
-    })
+    result["source_json"] = json.dumps(
+        {
+            "origin": "code",
+            "file": result["file_path"],
+            "line": result["line_number"],
+            "repo": result["repo"],
+            "commit_sha": result["commit_sha"],
+            "confidence": result["confidence"],
+            "detected_at": detected_at,
+        }
+    )
     return result
 
 
@@ -103,7 +107,9 @@ def normalize_vendor_field_record(record: dict) -> dict:
     required = ["vendor", "data_type", "event_type", "field_path"]
     missing = [f for f in required if record.get(f) is None]
     if missing:
-        raise ValueError(f"vendor field record missing required fields: {missing}")
+        raise ValueError(
+            f"vendor field record missing required fields: {missing}"
+        )
 
     detected_at = datetime.now(timezone.utc).isoformat()
     result = {
@@ -113,13 +119,15 @@ def normalize_vendor_field_record(record: dict) -> dict:
         "field_path": record["field_path"],
         "detected_at": detected_at,
     }
-    result["source_json"] = json.dumps({
-        "origin": "vendor",
-        "vendor": result["vendor"],
-        "event_type": result["event_type"],
-        "field_path": result["field_path"],
-        "detected_at": detected_at,
-    })
+    result["source_json"] = json.dumps(
+        {
+            "origin": "vendor",
+            "vendor": result["vendor"],
+            "event_type": result["event_type"],
+            "field_path": result["field_path"],
+            "detected_at": detected_at,
+        }
+    )
     return result
 
 
@@ -140,7 +148,9 @@ def normalize_dpdp_clause_record(record: dict, data_type: str) -> dict:
     required = ["section", "title", "obligation_summary"]
     missing = [f for f in required if record.get(f) is None]
     if missing:
-        raise ValueError(f"DPDP clause record missing required fields: {missing}")
+        raise ValueError(
+            f"DPDP clause record missing required fields: {missing}"
+        )
 
     return {
         "clause_id": f"DPDP-s{record['section']}",
