@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class DPDPRetriever:
-    def __init__(self, client: Neo4jClient = None):
+    def __init__(self, client: Optional[Neo4jClient] = None):
         self.client = client or Neo4jClient()
 
     def close(self):
@@ -47,7 +47,10 @@ class DPDPRetriever:
     GENERAL_DATA_TYPE = "other_personal_data"
 
     def clauses_for_data_type(
-        self, data_type: str, include_upcoming: bool = True, include_general: bool = True
+        self,
+        data_type: str,
+        include_upcoming: bool = True,
+        include_general: bool = True,
     ) -> List[dict]:
         """
         All DPDP clauses governing a single data type.
@@ -78,10 +81,15 @@ class DPDPRetriever:
         if include_general and data_type != self.GENERAL_DATA_TYPE:
             general_rows = self.client.run_read(
                 CLAUSES_FOR_DATA_TYPE,
-                {"data_type": self.GENERAL_DATA_TYPE, "include_upcoming": include_upcoming},
+                {
+                    "data_type": self.GENERAL_DATA_TYPE,
+                    "include_upcoming": include_upcoming,
+                },
             )
             seen = {r["clause_id"] for r in rows}
-            rows = rows + [r for r in general_rows if r["clause_id"] not in seen]
+            rows = rows + [
+                r for r in general_rows if r["clause_id"] not in seen
+            ]
             rows.sort(key=lambda r: int(r["section"]))
 
         return rows
@@ -120,19 +128,25 @@ class DPDPRetriever:
 
         if include_general:
             general_clauses = self.clauses_for_data_type(
-                self.GENERAL_DATA_TYPE, include_upcoming=include_upcoming, include_general=False
+                self.GENERAL_DATA_TYPE,
+                include_upcoming=include_upcoming,
+                include_general=False,
             )
             for data_type, clauses in result.items():
                 if data_type == self.GENERAL_DATA_TYPE:
                     continue
                 seen = {c["clause_id"] for c in clauses}
-                result[data_type] = clauses + [c for c in general_clauses if c["clause_id"] not in seen]
+                result[data_type] = clauses + [
+                    c for c in general_clauses if c["clause_id"] not in seen
+                ]
                 result[data_type].sort(key=lambda c: int(c["section"]))
 
         return result
 
     def coverage_gaps(
-        self, system_name: str = DEFAULT_SYSTEM_NAME, include_general: bool = True
+        self,
+        system_name: str = DEFAULT_SYSTEM_NAME,
+        include_general: bool = True,
     ) -> List[str]:
         """
         DataTypes the System collects that have ZERO governing clauses
@@ -146,8 +160,12 @@ class DPDPRetriever:
         see gaps under the stricter "only exact-name matches count"
         reading instead.
         """
-        by_data_type = self.clauses_for_system(system_name, include_upcoming=True, include_general=include_general)
-        return sorted(dt for dt, clauses in by_data_type.items() if not clauses)
+        by_data_type = self.clauses_for_system(
+            system_name, include_upcoming=True, include_general=include_general
+        )
+        return sorted(
+            dt for dt, clauses in by_data_type.items() if not clauses
+        )
 
     def vendor_exposure_for_clause(self, clause_id: str) -> List[dict]:
         """
@@ -155,7 +173,9 @@ class DPDPRetriever:
         point this at the consent clause (DPDP-s6) to see every vendor
         receiving data that requires valid consent under that section.
         """
-        return self.client.run_read(VENDOR_EXPOSURE_FOR_CLAUSE, {"clause_id": clause_id})
+        return self.client.run_read(
+            VENDOR_EXPOSURE_FOR_CLAUSE, {"clause_id": clause_id}
+        )
 
     def clause_detail(self, clause_id: str) -> Optional[dict]:
         """Full detail for one clause: text, status, every data type it
@@ -167,7 +187,9 @@ class DPDPRetriever:
             return None
         return rows[0]
 
-    def upcoming_clauses(self, within_days: Optional[int] = None) -> List[dict]:
+    def upcoming_clauses(
+        self, within_days: Optional[int] = None
+    ) -> List[dict]:
         """
         Clauses not yet in force, soonest-effective first. Pass
         within_days to filter to only what's commencing soon (e.g.
@@ -183,8 +205,10 @@ class DPDPRetriever:
             return rows
         cutoff = date.today() + timedelta(days=within_days)
         return [
-            r for r in rows
-            if r.get("effective_from") and date.fromisoformat(r["effective_from"]) <= cutoff
+            r
+            for r in rows
+            if r.get("effective_from")
+            and date.fromisoformat(r["effective_from"]) <= cutoff
         ]
 
     def graph_summary(self) -> dict:
@@ -193,7 +217,15 @@ class DPDPRetriever:
         a quick health-check / dashboard-ready summary, not a substitute
         for coverage_gaps() when you need the actual list."""
         rows = self.client.run_read(GRAPH_SUMMARY)
-        return rows[0] if rows else {
-            "systems": 0, "data_types": 0, "vendors": 0, "clauses": 0,
-            "in_force_clauses": 0, "data_types_with_no_clause": 0,
-        }
+        return (
+            rows[0]
+            if rows
+            else {
+                "systems": 0,
+                "data_types": 0,
+                "vendors": 0,
+                "clauses": 0,
+                "in_force_clauses": 0,
+                "data_types_with_no_clause": 0,
+            }
+        )

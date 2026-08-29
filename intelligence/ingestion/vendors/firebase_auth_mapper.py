@@ -45,17 +45,20 @@ def map_fields_to_data_types(field_rows: list) -> tuple:
             unmapped.append(field_path)
             continue
 
-        mapped.append({
-            "vendor": VENDOR_NAME,
-            "data_type": data_type,
-            "event_type": row["event_type"],
-            "field_path": field_path,
-        })
+        mapped.append(
+            {
+                "vendor": VENDOR_NAME,
+                "data_type": data_type,
+                "event_type": row["event_type"],
+                "field_path": field_path,
+            }
+        )
 
     if unmapped:
         logger.warning(
             "%d Firebase Auth field(s) had no taxonomy mapping: %s",
-            len(set(unmapped)), sorted(set(unmapped)),
+            len(set(unmapped)),
+            sorted(set(unmapped)),
         )
 
     return mapped, unmapped

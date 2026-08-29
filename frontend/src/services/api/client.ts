@@ -18,6 +18,14 @@ const client = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1',
 })
 
+client.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token && config.headers) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
 // Every page-level hook does `.catch((err: Error) => setError(err.message))`
 // (see useAsync.ts / useGraph.ts). Without this interceptor, err.message for
 // an HTTP error response is axios's generic "Request failed with status code
@@ -60,5 +68,39 @@ export const getAuditTrail = () => client.get<AuditResponse>('/compliance/audit'
 
 export const getRepos = () => client.get<ReposResponse>('/github/repos').then((r) => r.data)
 export const getPullRequests = () => client.get<PRsResponse>('/github/prs').then((r) => r.data)
+
+export const startScan = (repoFullName: string, ref: string = 'main') =>
+  client.post<{ scan_id: string }>('/scan', { repo_full_name: repoFullName, ref }).then((r) => r.data)
+
+export const subscribeToScan = (
+  scanId: string,
+  onMessage: (event: any) => void,
+  onError: (error: Event) => void,
+  onComplete: () => void
+) => {
+  const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
+  const token = localStorage.getItem('token') || ''
+  const eventSource = new EventSource(`${baseURL}/scan/${scanId}/events?token=${token}`)
+
+  eventSource.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data)
+      onMessage(data)
+      if (data.event === 'completed' || data.event === 'failed') {
+        eventSource.close()
+        onComplete()
+      }
+    } catch (err) {
+      console.error('Failed to parse scan event', err)
+    }
+  }
+
+  eventSource.onerror = (e) => {
+    eventSource.close()
+    onError(e)
+  }
+
+  return () => eventSource.close()
+}
 
 export default client

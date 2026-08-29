@@ -14,21 +14,40 @@ import logging
 from ingestion.vendors.stripe import StripeIngestion
 from ingestion.vendors.mapper import map_fields_to_data_types
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Ingest Stripe event schema into the compliance graph")
-    parser.add_argument("--limit", type=int, default=100, help="max events to sample")
-    parser.add_argument("--event-types", nargs="*", default=None, help="restrict to specific Stripe event types")
-    parser.add_argument("--write", action="store_true", help="write results into Neo4j (default: dry run)")
+    parser = argparse.ArgumentParser(
+        description="Ingest Stripe event schema into the compliance graph"
+    )
+    parser.add_argument(
+        "--limit", type=int, default=100, help="max events to sample"
+    )
+    parser.add_argument(
+        "--event-types",
+        nargs="*",
+        default=None,
+        help="restrict to specific Stripe event types",
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="write results into Neo4j (default: dry run)",
+    )
     args = parser.parse_args()
 
     ingestion = StripeIngestion()
-    events = ingestion.fetch_recent_events(limit=args.limit, event_types=args.event_types)
+    events = ingestion.fetch_recent_events(
+        limit=args.limit, event_types=args.event_types
+    )
     if not events:
-        logger.warning("No events returned — check the API key and account activity.")
+        logger.warning(
+            "No events returned — check the API key and account activity."
+        )
         return
 
     field_rows = ingestion.extract_field_schema(events)
@@ -48,11 +67,14 @@ def main():
     for dt, fields in sorted(by_data_type.items()):
         print(f"  {dt}: {sorted(fields)}")
     if unmapped:
-        print(f"\nUnmapped (add to FIELD_TO_DATA_TYPE if these carry personal data):")
+        print(
+            "\nUnmapped (add to FIELD_TO_DATA_TYPE if these carry personal data):"
+        )
         print(f"  {sorted(set(unmapped))}")
 
     if args.write:
         from graph.graph_writer import GraphWriter
+
         writer = GraphWriter()
         try:
             result = writer.write_vendor_fields(mapped)

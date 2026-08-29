@@ -28,8 +28,26 @@ from datetime import date
 # tied to a specific data type, but they're included for completeness.
 TRANCHE_1_DATE = date(2025, 11, 13)
 TRANCHE_1_SECTIONS = {
-    "1", "2", "18", "19", "20", "21", "22", "23", "24", "25", "26",
-    "35", "36", "37", "38", "39", "40", "41", "42", "43",
+    "1",
+    "2",
+    "18",
+    "19",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25",
+    "26",
+    "35",
+    "36",
+    "37",
+    "38",
+    "39",
+    "40",
+    "41",
+    "42",
+    "43",
 }
 
 # Tranche 2 — commences 13 Nov 2026 (one year after Tranche 1). Only two
@@ -45,8 +63,27 @@ TRANCHE_2_SUBSECTIONS = {("6", "9"), ("27", "1(d)")}
 # transfer, exemptions, and the penalties/adjudication machinery.
 TRANCHE_3_DATE = date(2027, 5, 13)
 TRANCHE_3_SECTIONS = {
-    "3", "4", "5", "7", "8", "9", "10", "11", "12", "13", "14", "15",
-    "16", "17", "28", "29", "30", "31", "32", "33", "34",
+    "3",
+    "4",
+    "5",
+    "7",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "28",
+    "29",
+    "30",
+    "31",
+    "32",
+    "33",
+    "34",
 }
 
 # Sections 6, 27, and 44 are split across tranches at the sub-section
@@ -73,14 +110,17 @@ def status_for_section(section: str, as_of: date = None) -> dict:
         return "in_force" if as_of >= effective else "not_yet_commenced"
 
     if section in TRANCHE_1_SECTIONS:
-        return {"effective_from": TRANCHE_1_DATE.isoformat(), "status": _status(TRANCHE_1_DATE)}
+        return {
+            "effective_from": TRANCHE_1_DATE.isoformat(),
+            "status": _status(TRANCHE_1_DATE),
+        }
 
     if section == "6":
         return {
             "effective_from": TRANCHE_3_DATE.isoformat(),
             "status": _status(TRANCHE_3_DATE),
             "note": f"sub-section (9) only (Consent Manager registration) "
-                    f"commences separately on {TRANCHE_2_DATE.isoformat()}",
+            f"commences separately on {TRANCHE_2_DATE.isoformat()}",
         }
 
     if section == "27":
@@ -98,7 +138,10 @@ def status_for_section(section: str, as_of: date = None) -> dict:
         }
 
     if section in TRANCHE_3_SECTIONS:
-        return {"effective_from": TRANCHE_3_DATE.isoformat(), "status": _status(TRANCHE_3_DATE)}
+        return {
+            "effective_from": TRANCHE_3_DATE.isoformat(),
+            "status": _status(TRANCHE_3_DATE),
+        }
 
     # Unknown section number (e.g. Schedule/preamble noise that slipped
     # past dpdp_source.py's filter) — fail closed rather than guess.

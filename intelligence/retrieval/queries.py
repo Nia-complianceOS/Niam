@@ -64,6 +64,15 @@ RETURN d.name AS data_type
 ORDER BY d.name
 """
 
+# --- vendors receiving a specific data type -------------------------------
+# Used by the reconciliation engine to determine if data is actually
+# exiting the system or just sitting ungoverned.
+
+VENDORS_FOR_DATA_TYPE = """
+MATCH (d:DataType {name: $data_type})-[:SENT_TO]->(v:Vendor)
+RETURN collect(DISTINCT v.name) AS vendors
+"""
+
 # --- which vendors touch data governed by a specific clause --------------
 # Answers "which of our vendor integrations touch data covered by this
 # obligation" — e.g. point this at the consent clause and see every

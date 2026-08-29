@@ -22,21 +22,39 @@ import time
 import uuid
 
 import requests
-import os
 from dotenv import load_dotenv, find_dotenv
 
-load_dotenv(os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True)))
+load_dotenv(
+    os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True))
+)
 
 TOKEN = os.getenv("MIXPANEL_TOKEN")
 TRACK_URL = "https://api.mixpanel.com/track"
 
 if not TOKEN:
-    raise SystemExit("MIXPANEL_TOKEN not set in .env — get it from Mixpanel Project Settings -> Access Keys.")
+    raise SystemExit(
+        "MIXPANEL_TOKEN not set in .env — get it from Mixpanel Project Settings -> Access Keys."
+    )
 
 FAKE_USERS = [
-    {"distinct_id": "user_001", "email": "aisha.k@example.com", "name": "Aisha Khan", "city": "Bengaluru"},
-    {"distinct_id": "user_002", "email": "rohit.s@example.com", "name": "Rohit Sharma", "city": "Mumbai"},
-    {"distinct_id": "user_003", "email": "priya.n@example.com", "name": "Priya Nair", "city": "Bengaluru"},
+    {
+        "distinct_id": "user_001",
+        "email": "aisha.k@example.com",
+        "name": "Aisha Khan",
+        "city": "Bengaluru",
+    },
+    {
+        "distinct_id": "user_002",
+        "email": "rohit.s@example.com",
+        "name": "Rohit Sharma",
+        "city": "Mumbai",
+    },
+    {
+        "distinct_id": "user_003",
+        "email": "priya.n@example.com",
+        "name": "Priya Nair",
+        "city": "Bengaluru",
+    },
 ]
 
 now = int(time.time())
@@ -61,14 +79,46 @@ def build_events():
     events = []
     for i, user in enumerate(FAKE_USERS):
         base_offset = i * 20
-        events.append(event("Signed Up", user, {"signup_method": "email"}, minutes_ago=base_offset + 60))
-        events.append(event("Viewed Product", user, {"product_category": random.choice(["produce", "dairy", "snacks"])}, minutes_ago=base_offset + 40))
-        events.append(event("Added to Cart", user, {"item_count": random.randint(1, 5)}, minutes_ago=base_offset + 25))
-        events.append(event(
-            "Purchase Completed", user,
-            {"amount": round(random.uniform(150, 1200), 2), "currency": "INR", "payment_method": "upi"},
-            minutes_ago=base_offset + 10,
-        ))
+        events.append(
+            event(
+                "Signed Up",
+                user,
+                {"signup_method": "email"},
+                minutes_ago=base_offset + 60,
+            )
+        )
+        events.append(
+            event(
+                "Viewed Product",
+                user,
+                {
+                    "product_category": random.choice(
+                        ["produce", "dairy", "snacks"]
+                    )
+                },
+                minutes_ago=base_offset + 40,
+            )
+        )
+        events.append(
+            event(
+                "Added to Cart",
+                user,
+                {"item_count": random.randint(1, 5)},
+                minutes_ago=base_offset + 25,
+            )
+        )
+        events.append(
+            event(
+                "Purchase Completed",
+                user,
+                {
+                    "amount": round(random.uniform(150, 1200), 2),
+                    "currency": "INR",
+                    "payment_method": "upi",
+                },
+                minutes_ago=base_offset + 10,
+            )
+        )
     return events
 
 
@@ -80,7 +130,9 @@ def main():
         data=json.dumps(events),
     )
     print(f"Sent {len(events)} events, status {resp.status_code}: {resp.text}")
-    print("Give it a minute or two, then check Mixpanel's Events view in the dashboard to confirm they landed.")
+    print(
+        "Give it a minute or two, then check Mixpanel's Events view in the dashboard to confirm they landed."
+    )
 
 
 if __name__ == "__main__":

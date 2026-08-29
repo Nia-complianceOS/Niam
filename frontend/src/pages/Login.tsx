@@ -16,7 +16,7 @@ export default function Login() {
     
     setIsSubmitting(true)
     try {
-      await login(email)
+      await login(email, password)
     } catch (error) {
       console.error(error)
     } finally {

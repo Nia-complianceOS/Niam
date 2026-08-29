@@ -47,14 +47,18 @@ def run_query(query: str, params: dict | None = None) -> list[dict]:
             result = session.run(query, params or {})
             return [record.data() for record in result]
     except ServiceUnavailable as exc:
-        raise RuntimeError("Neo4j is unreachable — check NEO4J_URI and that the instance is running") from exc
+        raise RuntimeError(
+            "Neo4j is unreachable — check NEO4J_URI and that the instance is running"
+        ) from exc
     except Neo4jError as exc:
         raise RuntimeError(f"Neo4j query failed: {exc}") from exc
     except (ValueError, TypeError, OSError) as exc:
         # Driver construction itself can raise these for a malformed or
         # empty NEO4J_URI/credentials, before ServiceUnavailable would
         # ever apply.
-        raise RuntimeError(f"Neo4j is not configured correctly: {exc}") from exc
+        raise RuntimeError(
+            f"Neo4j is not configured correctly: {exc}"
+        ) from exc
 
 
 def verify_connectivity() -> bool:

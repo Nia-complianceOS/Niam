@@ -15,46 +15,48 @@ D3 layout) needs to change when the swap happens.
 
 from datetime import datetime, timezone
 
-from app.schemas.common import ComplianceStatus
+from app.db.database import run_query
 from app.schemas.graph import GraphEdge, GraphNode, GraphResponse
 
-_MOCK_NODES = [
-    GraphNode(id="db", label="Database", node_type="database", status=ComplianceStatus.COMPLIANT,
-              data_collected="Profile, order history", purpose="Persistent storage", retention="Account lifetime"),
-    GraphNode(id="aws", label="AWS", node_type="cloud", status=ComplianceStatus.COMPLIANT,
-              data_collected="Encrypted backups", purpose="Infrastructure hosting", retention="30 day snapshots"),
-    GraphNode(id="openai", label="OpenAI", node_type="vendor", status=ComplianceStatus.COMPLIANT,
-              data_collected="Support chat transcripts", purpose="AI assistant", retention="30 days"),
-    GraphNode(id="mixpanel", label="Mixpanel", node_type="vendor", status=ComplianceStatus.GAP,
-              status_detail="Gap: disclosure missing", data_collected="IP, Device ID, Purchase Events",
-              purpose="Product analytics", retention="12 months"),
-    GraphNode(id="privacy", label="Privacy Policy", node_type="legal_document", status=ComplianceStatus.WARNING,
-              status_detail="96% coverage", data_collected="Discloses all flows above", purpose="Legal disclosure"),
-    GraphNode(id="cookie", label="Cookie Banner", node_type="legal_document", status=ComplianceStatus.GAP,
-              status_detail="Missing analytics category", data_collected="Consent state", purpose="Consent capture",
-              retention="12 months"),
-    GraphNode(id="dpdp", label="DPDP", node_type="regulation", status=ComplianceStatus.WARNING,
-              status_detail="93% mapped", purpose="Regulatory framework"),
-    GraphNode(id="gdpr", label="GDPR", node_type="regulation", status=ComplianceStatus.WARNING,
-              status_detail="82% mapped", purpose="Regulatory framework"),
-]
+_QUERY_NODES = """
+MATCH (n) WHERE n:System OR n:DataType OR n:Vendor OR n:DPDPClause
+RETURN elementId(n) AS id, labels(n)[0] AS node_type,
+       coalesce(n.name, n.title, n.clause_id) AS label,
+       coalesce(n.status, 'unknown') AS status
+"""
 
-_MOCK_EDGES = [
-    GraphEdge(id="e1", source="db", target="aws", relationship="FLOWS_TO"),
-    GraphEdge(id="e2", source="db", target="openai", relationship="FLOWS_TO"),
-    GraphEdge(id="e3", source="db", target="mixpanel", relationship="FLOWS_TO"),
-    GraphEdge(id="e4", source="mixpanel", target="privacy", relationship="DISCLOSED_IN"),
-    GraphEdge(id="e5", source="mixpanel", target="cookie", relationship="DISCLOSED_IN"),
-    GraphEdge(id="e6", source="privacy", target="dpdp", relationship="GOVERNED_BY"),
-    GraphEdge(id="e7", source="privacy", target="gdpr", relationship="GOVERNED_BY"),
-    GraphEdge(id="e8", source="cookie", target="gdpr", relationship="GOVERNED_BY"),
-    GraphEdge(id="e9", source="aws", target="dpdp", relationship="GOVERNED_BY"),
-]
+_QUERY_EDGES = """
+MATCH (a)-[r]->(b) WHERE type(r) IN ['COLLECTS','SENT_TO','GOVERNED_BY']
+RETURN elementId(r) AS id, elementId(a) AS source, elementId(b) AS target, type(r) AS relationship
+"""
 
 
 def get_compliance_graph() -> GraphResponse:
+    node_records = run_query(_QUERY_NODES)
+    edge_records = run_query(_QUERY_EDGES)
+
+    nodes = [
+        GraphNode(
+            id=record["id"],
+            label=record["label"] or "Unknown",
+            node_type=record["node_type"],
+            status=record["status"],
+        )
+        for record in node_records
+    ]
+
+    edges = [
+        GraphEdge(
+            id=record["id"],
+            source=record["source"],
+            target=record["target"],
+            relationship=record["relationship"],
+        )
+        for record in edge_records
+    ]
+
     return GraphResponse(
-        nodes=_MOCK_NODES,
-        edges=_MOCK_EDGES,
+        nodes=nodes,
+        edges=edges,
         generated_at=datetime.now(timezone.utc).isoformat(),
     )

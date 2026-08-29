@@ -23,7 +23,9 @@ from pypdf import PdfReader
 
 logger = logging.getLogger(__name__)
 
-DPDP_ACT_PDF_URL = "https://www.indiacode.nic.in/bitstream/123456789/22037/1/a2023-22.pdf"
+DPDP_ACT_PDF_URL = (
+    "https://www.indiacode.nic.in/bitstream/123456789/22037/1/a2023-22.pdf"
+)
 
 # The Act's PDF opens with a table of contents ("ARRANGEMENT OF SECTIONS")
 # that repeats every section title — if this isn't skipped, the section
@@ -49,7 +51,7 @@ _ENACTING_FORMULA = "BE it enacted by Parliament"
 #      section 41 uses ".— Every rule made..." (single dash + space,
 #      not immediately followed by non-whitespace).
 _SECTION_RE = re.compile(
-    r'(?m)^\s*(\d{1,2})\.\s+([^.]+?)\.\s*[\u2013\u2014\-]+\s*'
+    r"(?m)^\s*(\d{1,2})\.\s+([^.]+?)\.\s*[\u2013\u2014\-]+\s*"
 )
 
 # Sections above this number belong to THE SCHEDULE (penalty amounts) or
@@ -74,7 +76,11 @@ def fetch_act_text(url: str = DPDP_ACT_PDF_URL, timeout: int = 30) -> str:
             f"({_ENACTING_FORMULA!r}) — the source may have changed format, "
             f"moved, or the download may be incomplete. Got {len(text)} chars."
         )
-    logger.info("Fetched DPDP Act text: %d characters across %d PDF pages", len(text), len(pages))
+    logger.info(
+        "Fetched DPDP Act text: %d characters across %d PDF pages",
+        len(text),
+        len(pages),
+    )
     return text
 
 
@@ -102,12 +108,20 @@ def split_into_sections(act_text: str) -> List[Dict]:
         except ValueError:
             continue
 
-        title = re.sub(r'\s+', ' ', m.group(2)).strip()
+        title = re.sub(r"\s+", " ", m.group(2)).strip()
         start = m.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(body_text)
+        end = (
+            matches[i + 1].start() if i + 1 < len(matches) else len(body_text)
+        )
         section_body = body_text[start:end].strip()
 
-        sections.append({"section": section_num, "title": title, "body": section_body})
+        sections.append(
+            {"section": section_num, "title": title, "body": section_body}
+        )
 
-    logger.info("Split Act text into %d sections (1-%d)", len(sections), _LAST_REAL_SECTION)
+    logger.info(
+        "Split Act text into %d sections (1-%d)",
+        len(sections),
+        _LAST_REAL_SECTION,
+    )
     return sections

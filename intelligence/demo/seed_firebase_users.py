@@ -11,16 +11,32 @@ Usage:
 import os
 
 import firebase_admin
-import os
 from dotenv import load_dotenv, find_dotenv
 from firebase_admin import auth, credentials
 
-load_dotenv(os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True)))
+load_dotenv(
+    os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True))
+)
 
 FAKE_USERS = [
-    {"email": "aisha.k@example.com", "password": "Demo-Pass-001!", "display_name": "Aisha Khan", "phone_number": "+919876500001"},
-    {"email": "rohit.s@example.com", "password": "Demo-Pass-002!", "display_name": "Rohit Sharma", "phone_number": "+919876500002"},
-    {"email": "priya.n@example.com", "password": "Demo-Pass-003!", "display_name": "Priya Nair", "phone_number": None},
+    {
+        "email": "aisha.k@example.com",
+        "password": "Demo-Pass-001!",
+        "display_name": "Aisha Khan",
+        "phone_number": "+919876500001",
+    },
+    {
+        "email": "rohit.s@example.com",
+        "password": "Demo-Pass-002!",
+        "display_name": "Rohit Sharma",
+        "phone_number": "+919876500002",
+    },
+    {
+        "email": "priya.n@example.com",
+        "password": "Demo-Pass-003!",
+        "display_name": "Priya Nair",
+        "phone_number": None,
+    },
 ]
 
 

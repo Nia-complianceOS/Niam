@@ -56,7 +56,7 @@ class CommitRef(BaseModel):
     branch: str = "main"
     committed_at: str
 
-    @field_validator('committed_at', mode='before')
+    @field_validator("committed_at", mode="before")
     @classmethod
     def parse_committed_at(cls, value):
         if isinstance(value, datetime):

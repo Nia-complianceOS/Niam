@@ -36,13 +36,14 @@ import json
 import logging
 import os
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
-import os
 from dotenv import load_dotenv, find_dotenv
 
-load_dotenv(os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True)))
+load_dotenv(
+    os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True))
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,18 +52,30 @@ MAX_RETRIES = 3
 
 
 class MixpanelIngestion:
-    def __init__(self, username: str = None, secret: str = None, project_id: str = None, api_host: str = None):
-        self.username = username or os.getenv("MIXPANEL_SERVICE_ACCOUNT_USERNAME")
+    def __init__(
+        self,
+        username: str = None,
+        secret: str = None,
+        project_id: str = None,
+        api_host: str = None,
+    ):
+        self.username = username or os.getenv(
+            "MIXPANEL_SERVICE_ACCOUNT_USERNAME"
+        )
         self.secret = secret or os.getenv("MIXPANEL_SERVICE_ACCOUNT_SECRET")
         self.project_id = project_id or os.getenv("MIXPANEL_PROJECT_ID")
-        self.api_host = api_host or os.getenv("MIXPANEL_API_HOST", DEFAULT_API_HOST)
+        self.api_host = api_host or os.getenv(
+            "MIXPANEL_API_HOST", DEFAULT_API_HOST
+        )
 
         missing = [
-            name for name, val in [
+            name
+            for name, val in [
                 ("MIXPANEL_SERVICE_ACCOUNT_USERNAME", self.username),
                 ("MIXPANEL_SERVICE_ACCOUNT_SECRET", self.secret),
                 ("MIXPANEL_PROJECT_ID", self.project_id),
-            ] if not val
+            ]
+            if not val
         ]
         if missing:
             raise ValueError(
@@ -74,7 +87,9 @@ class MixpanelIngestion:
 
     # --- fetching ---------------------------------------------------------
 
-    def fetch_recent_events(self, days_back: int = 7, event_names: list = None, limit: int = 500) -> list:
+    def fetch_recent_events(
+        self, days_back: int = 7, event_names: list = None, limit: int = 500
+    ) -> list:
         """
         Pulls raw events for the last `days_back` days via the Export API.
         `event_names` optionally restricts to specific event names (e.g.
@@ -103,7 +118,12 @@ class MixpanelIngestion:
         last_err = None
 
         for attempt in range(1, MAX_RETRIES + 1):
-            resp = requests.get(url, params=params, auth=(self.username, self.secret), stream=True)
+            resp = requests.get(
+                url,
+                params=params,
+                auth=(self.username, self.secret),
+                stream=True,
+            )
             if resp.status_code == 200:
                 for line in resp.iter_lines():
                     if not line:
@@ -116,8 +136,13 @@ class MixpanelIngestion:
                         break
                 break
             if resp.status_code == 429:
-                wait = 2 ** attempt
-                logger.warning("Mixpanel 429, backing off %ds (attempt %d/%d)", wait, attempt, MAX_RETRIES)
+                wait = 2**attempt
+                logger.warning(
+                    "Mixpanel 429, backing off %ds (attempt %d/%d)",
+                    wait,
+                    attempt,
+                    MAX_RETRIES,
+                )
                 time.sleep(wait)
                 last_err = resp
                 continue
@@ -126,12 +151,18 @@ class MixpanelIngestion:
                 # (bad project_id, service account lacks access to this
                 # project, wrong data-residency host, etc.) — surface it
                 # instead of a bare status code.
-                raise RuntimeError(f"Mixpanel export {resp.status_code}: {resp.text}")
+                raise RuntimeError(
+                    f"Mixpanel export {resp.status_code}: {resp.text}"
+                )
             resp.raise_for_status()
         else:
-            raise RuntimeError(f"Mixpanel export failed after {MAX_RETRIES} attempts: {last_err}")
+            raise RuntimeError(
+                f"Mixpanel export failed after {MAX_RETRIES} attempts: {last_err}"
+            )
 
-        logger.info("Fetched %d Mixpanel events (last %d days)", len(events), days_back)
+        logger.info(
+            "Fetched %d Mixpanel events (last %d days)", len(events), days_back
+        )
         return events
 
     # --- schema extraction --------------------------------------------------
@@ -163,10 +194,16 @@ class MixpanelIngestion:
                         nested_pair = (event_name, nested_path)
                         if nested_pair not in seen:
                             seen.add(nested_pair)
-                            rows.append({"event_type": event_name, "field_path": nested_path})
+                            rows.append(
+                                {
+                                    "event_type": event_name,
+                                    "field_path": nested_path,
+                                }
+                            )
 
         logger.info(
             "Extracted %d distinct (event, field_path) pairs from %d events",
-            len(rows), len(events),
+            len(rows),
+            len(events),
         )
         return rows

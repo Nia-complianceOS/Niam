@@ -20,6 +20,7 @@ scan is a handful of round trips, not 200.
 """
 
 import logging
+from typing import Optional
 
 from graph.neo4j_client import Neo4jClient
 from graph.node_builder import (
@@ -42,7 +43,11 @@ BATCH_SIZE = 200
 
 
 class GraphWriter:
-    def __init__(self, client: Neo4jClient = None, system_name: str = DEFAULT_SYSTEM_NAME):
+    def __init__(
+        self,
+        client: Optional[Neo4jClient] = None,
+        system_name: str = DEFAULT_SYSTEM_NAME,
+    ):
         self.client = client or Neo4jClient()
         self.system_name = system_name
 
@@ -107,7 +112,8 @@ class GraphWriter:
 
         logger.info(
             "Wrote %d code-scan candidates into graph (%d with a vendor edge)",
-            written, len(with_vendor),
+            written,
+            len(with_vendor),
         )
         return {
             "written": written,
@@ -148,7 +154,10 @@ class GraphWriter:
             written += len(batch)
 
         logger.info("Wrote %d vendor field mappings into graph", written)
-        return {"written": written, "skipped_invalid_taxonomy": len(skipped_invalid_taxonomy)}
+        return {
+            "written": written,
+            "skipped_invalid_taxonomy": len(skipped_invalid_taxonomy),
+        }
 
     def close(self):
         self.client.close()
@@ -165,17 +174,23 @@ class GraphWriter:
         fan-out only happens on the DataType-side edge).
         """
         rows = []
-        skipped_invalid_taxonomy, skipped_malformed, skipped_not_governing = [], [], []
+        skipped_invalid_taxonomy, skipped_malformed, skipped_not_governing = (
+            [],
+            [],
+            [],
+        )
 
         for record in extracted_clauses:
             if not record.get("is_data_governing"):
                 skipped_not_governing.append(record.get("section"))
                 continue
-            for dtype in (record.get("data_types_governed") or []):
+            for dtype in record.get("data_types_governed") or []:
                 try:
                     row = normalize_dpdp_clause_record(record, dtype)
                 except ValueError as exc:
-                    skipped_malformed.append({"record": record, "error": str(exc)})
+                    skipped_malformed.append(
+                        {"record": record, "error": str(exc)}
+                    )
                     continue
                 if not validate_data_type(row["data_type"]):
                     skipped_invalid_taxonomy.append(row)
@@ -185,7 +200,8 @@ class GraphWriter:
         if skipped_malformed:
             logger.warning(
                 "Skipped %d malformed DPDP clause row(s): %s",
-                len(skipped_malformed), [s["error"] for s in skipped_malformed],
+                len(skipped_malformed),
+                [s["error"] for s in skipped_malformed],
             )
         if skipped_invalid_taxonomy:
             logger.warning(
@@ -202,7 +218,8 @@ class GraphWriter:
         logger.info(
             "Wrote %d DataType-GOVERNED_BY-DPDPClause edge(s) (%d sections "
             "skipped as non-data-governing)",
-            written, len(skipped_not_governing),
+            written,
+            len(skipped_not_governing),
         )
         return {
             "written": written,

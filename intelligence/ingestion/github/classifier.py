@@ -16,17 +16,17 @@ import json
 import os
 import re
 import time
-from typing import List
+from typing import List, Optional
 
 from google import genai
 from google.genai import types
-import os
 from dotenv import load_dotenv, find_dotenv
 
-from .diff_parser import CandidateLine
 from .utils import get_logger
 
-load_dotenv(os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True)))
+load_dotenv(
+    os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True))
+)
 logger = get_logger(__name__)
 
 # Pinned explicitly — do NOT use "gemini-flash-latest". That alias
@@ -51,10 +51,14 @@ PREFERRED_MODELS = [
     "gemini-3.5-flash",
 ]
 
-BATCH_SIZE = 8            # candidates per Gemini call
-REQUESTS_PER_MINUTE = 12  # stays under Flash-Lite's ~15 RPM free-tier cap with headroom
-MAX_OUTPUT_TOKENS = 4096  # batches of 10 were getting truncated mid-JSON at 1500
-MAX_RETRIES = 3           # per batch, for transient 429/503 errors
+BATCH_SIZE = 8  # candidates per Gemini call
+REQUESTS_PER_MINUTE = (
+    12  # stays under Flash-Lite's ~15 RPM free-tier cap with headroom
+)
+MAX_OUTPUT_TOKENS = (
+    4096  # batches of 10 were getting truncated mid-JSON at 1500
+)
+MAX_RETRIES = 3  # per batch, for transient 429/503 errors
 BASE_BACKOFF_SECONDS = 5.0
 
 _RETRY_DELAY_RE = re.compile(r"retry in (\d+(?:\.\d+)?)s", re.IGNORECASE)
@@ -68,28 +72,29 @@ ALLOWED_DATA_TYPES = [
     "phone",
     "address",
     "date_of_birth",
-    "government_id",       # SSN, Aadhaar, passport, PAN, etc.
+    "government_id",  # SSN, Aadhaar, passport, PAN, etc.
     "credit_card",
     "ip_address",
-    "user_id",              # any user/account identifier, incl. foreign keys to it
+    "user_id",  # any user/account identifier, incl. foreign keys to it
     "username",
     "password",
     "session_token",
     "device_id",
     "location",
-    "message_content",      # DMs, posts, comments, any free-text user content
+    "message_content",  # DMs, posts, comments, any free-text user content
     "search_query",
     "locale_or_language",
-    "activity_timestamp",   # last-seen, last-read, activity logs
+    "activity_timestamp",  # last-seen, last-read, activity logs
     "consent_or_age",
-    "profile_data",         # bio, avatar, display name, other profile fields
+    "profile_data",  # bio, avatar, display name, other profile fields
     "notification_metadata",
     "internal_job_metadata",  # background job/task IDs — infra, not personal data,
-                               # but still worth tracking as a distinct bucket
+    # but still worth tracking as a distinct bucket
     "other_personal_data",  # genuine personal data that doesn't fit above
 ]
 
-_SYSTEM_PROMPT = """You are the second stage of a code scanner for a data-privacy \
+_SYSTEM_PROMPT = (
+    """You are the second stage of a code scanner for a data-privacy \
 compliance tool. You'll be given short code snippets that a keyword filter has \
 already flagged as *possibly* touching personal data, a tracking/consent path, or \
 a storage/vendor call.
@@ -103,7 +108,9 @@ low confidence rather than a hard yes/no).
 When is_data_handling is true, data_type MUST be exactly one value from this fixed \
 list — do not invent new labels, do not combine two values, pick the single closest \
 match:
-""" + ", ".join(ALLOWED_DATA_TYPES) + """
+"""
+    + ", ".join(ALLOWED_DATA_TYPES)
+    + """
 
 Respond with ONLY a JSON array, one object per input snippet, in the same order, \
 with exactly this shape:
@@ -120,6 +127,7 @@ data_type must be null when is_data_handling is false, and otherwise must be one
 the exact values listed above — never a value outside that list. vendor is free text \
 (e.g. "Stripe", "Redis", "Firebase") or null if no external vendor is involved. Keep \
 reasoning under 10 words. No prose outside the JSON array."""
+)
 
 
 def _as_dict(candidate) -> dict:
@@ -149,10 +157,13 @@ def _parse_retry_delay(error_str: str, default: float) -> float:
     """Gemini's 429 errors often include 'Please retry in 38.9s' — use
     that instead of guessing when we can."""
     match = _RETRY_DELAY_RE.search(error_str)
-    return float(match.group(1)) + 1.0 if match else default  # +1s safety margin
+    # +1s safety margin
+    return float(match.group(1)) + 1.0 if match else default
 
 
-def _resolve_available_model(client, preferred: List[str] = PREFERRED_MODELS) -> str:
+def _resolve_available_model(
+    client, preferred: List[str] = PREFERRED_MODELS
+) -> str:
     """Asks the Gemini API which models this key can actually call, and
     returns the first match from PREFERRED_MODELS. Falls back to any
     other flash-ish model if none of the preferred ones are available,
@@ -162,7 +173,9 @@ def _resolve_available_model(client, preferred: List[str] = PREFERRED_MODELS) ->
     except Exception as exc:
         logger.warning(
             "Could not list available models (%s). Falling back to %r untested — "
-            "this may 404.", exc, preferred[0],
+            "this may 404.",
+            exc,
+            preferred[0],
         )
         return preferred[0]
 
@@ -176,7 +189,9 @@ def _resolve_available_model(client, preferred: List[str] = PREFERRED_MODELS) ->
         logger.warning(
             "None of the preferred models (%s) are available to this API key. "
             "Using %s instead — output quality/rate limits may differ from what "
-            "this code was tuned for.", preferred, flash_models[0],
+            "this code was tuned for.",
+            preferred,
+            flash_models[0],
         )
         return flash_models[0]
 
@@ -191,15 +206,19 @@ class DataHandlingClassifier:
 
     def __init__(
         self,
-        api_key: str = None,
+        api_key: Optional[str] = None,
         model: str = CLASSIFIER_MODEL,
         requests_per_minute: int = REQUESTS_PER_MINUTE,
     ):
         key = api_key or os.getenv("GEMINI_API_KEY")
         if not key:
-            raise EnvironmentError("GEMINI_API_KEY not set. Add it to your .env file.")
+            raise EnvironmentError(
+                "GEMINI_API_KEY not set. Add it to your .env file."
+            )
         self.client = genai.Client(api_key=key)
-        self.model = _resolve_available_model(self.client) if model == "auto" else model
+        self.model = (
+            _resolve_available_model(self.client) if model == "auto" else model
+        )
         self._min_interval = 60.0 / requests_per_minute
         self._last_call_at = 0.0
 
@@ -210,12 +229,21 @@ class DataHandlingClassifier:
         returns each merged with its classification."""
         results = []
         total_batches = (len(candidates) + BATCH_SIZE - 1) // BATCH_SIZE
-        for batch_num, start in enumerate(range(0, len(candidates), BATCH_SIZE), start=1):
-            batch = candidates[start:start + BATCH_SIZE]
+        for batch_num, start in enumerate(
+            range(0, len(candidates), BATCH_SIZE), start=1
+        ):
+            batch = candidates[start : start + BATCH_SIZE]
             batch_dicts = [_as_dict(c) for c in batch]
-            logger.info("Classifying batch %d/%d (%d candidates)...", batch_num, total_batches, len(batch_dicts))
+            logger.info(
+                "Classifying batch %d/%d (%d candidates)...",
+                batch_num,
+                total_batches,
+                len(batch_dicts),
+            )
             classifications = self._classify_batch(batch_dicts)
-            for candidate_dict, classification in zip(batch_dicts, classifications):
+            for candidate_dict, classification in zip(
+                batch_dicts, classifications
+            ):
                 merged = dict(candidate_dict)
                 merged.update(classification)
                 results.append(merged)
@@ -261,33 +289,60 @@ class DataHandlingClassifier:
                     raise ValueError(
                         f"Classifier returned {len(parsed)} results for {len(batch)} candidates"
                     )
-                _validate_taxonomy(parsed)  # raises ValueError -> retry, same as above
+                # raises ValueError -> retry, same as above
+                _validate_taxonomy(parsed)
                 return parsed
 
             except Exception as exc:
                 last_error = exc
                 error_str = str(exc)
-                is_rate_limited = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
-                is_overloaded = "503" in error_str or "UNAVAILABLE" in error_str
+                is_rate_limited = (
+                    "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
+                )
+                is_overloaded = (
+                    "503" in error_str or "UNAVAILABLE" in error_str
+                )
 
                 if attempt == MAX_RETRIES:
                     break  # out of retries, fall through to fallback below
 
                 if is_rate_limited:
-                    delay = _parse_retry_delay(error_str, default=BASE_BACKOFF_SECONDS * attempt)
-                    logger.warning("Rate limited (attempt %d/%d), retrying in %.1fs...", attempt, MAX_RETRIES, delay)
+                    delay = _parse_retry_delay(
+                        error_str, default=BASE_BACKOFF_SECONDS * attempt
+                    )
+                    logger.warning(
+                        "Rate limited (attempt %d/%d), retrying in %.1fs...",
+                        attempt,
+                        MAX_RETRIES,
+                        delay,
+                    )
                 elif is_overloaded:
-                    delay = BASE_BACKOFF_SECONDS * (2 ** (attempt - 1))  # exponential: 5s, 10s, 20s
-                    logger.warning("Model overloaded (attempt %d/%d), retrying in %.1fs...", attempt, MAX_RETRIES, delay)
+                    delay = BASE_BACKOFF_SECONDS * (
+                        2 ** (attempt - 1)
+                    )  # exponential: 5s, 10s, 20s
+                    logger.warning(
+                        "Model overloaded (attempt %d/%d), retrying in %.1fs...",
+                        attempt,
+                        MAX_RETRIES,
+                        delay,
+                    )
                 else:
                     # JSON parse errors etc — usually not worth a long wait, short retry
                     delay = 2.0
-                    logger.warning("Batch failed (attempt %d/%d): %s — retrying in %.1fs...",
-                                   attempt, MAX_RETRIES, exc, delay)
+                    logger.warning(
+                        "Batch failed (attempt %d/%d): %s — retrying in %.1fs...",
+                        attempt,
+                        MAX_RETRIES,
+                        exc,
+                        delay,
+                    )
                 time.sleep(delay)
 
-        logger.error("Classification batch failed after %d attempts, marking for manual review: %s",
-                      MAX_RETRIES, last_error)
+        logger.error(
+            "Classification batch failed after %d attempts, marking for manual review: %s",
+            MAX_RETRIES,
+            last_error,
+        )
         return [self._fallback() for _ in batch]
 
     @staticmethod

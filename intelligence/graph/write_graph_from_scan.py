@@ -20,14 +20,26 @@ import logging
 
 from graph.graph_writer import GraphWriter
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Write classifier output into the compliance graph")
-    parser.add_argument("--input", required=True, help="path to a JSON file of classifier records")
-    parser.add_argument("--system", default=None, help="override the default system/product name")
+    parser = argparse.ArgumentParser(
+        description="Write classifier output into the compliance graph"
+    )
+    parser.add_argument(
+        "--input",
+        required=True,
+        help="path to a JSON file of classifier records",
+    )
+    parser.add_argument(
+        "--system",
+        default=None,
+        help="override the default system/product name",
+    )
     args = parser.parse_args()
 
     with open(args.input) as f:
