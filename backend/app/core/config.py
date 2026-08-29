@@ -17,14 +17,21 @@ checking app/intelligence/ first.
 """
 
 from functools import lru_cache
+from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Absolute path to backend/.env so settings load identically no matter
+# which directory uvicorn was started from (a bare ".env" is resolved
+# against the CWD, which silently yields an unconfigured app when the
+# server is launched from the repo root instead of backend/).
+_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -64,7 +71,15 @@ class Settings(BaseSettings):
     # Neo4j
     # -------------------------
     neo4j_uri: str = Field(default="", alias="NEO4J_URI")
-    neo4j_user: str = Field(default="", alias="NEO4J_USER")
+    # Accepts either spelling: NEO4J_USER, or NEO4J_USERNAME as shipped in
+    # AuraDB's downloaded credentials file (which is what .env.example and
+    # intelligence/graph/neo4j_client.py both use). Reading only NEO4J_USER
+    # here left this empty and made every query fail with
+    # Neo.ClientError.Security.Unauthorized.
+    neo4j_user: str = Field(
+        default="",
+        validation_alias=AliasChoices("NEO4J_USER", "NEO4J_USERNAME"),
+    )
     neo4j_password: str = Field(default="", alias="NEO4J_PASSWORD")
 
     # -------------------------
