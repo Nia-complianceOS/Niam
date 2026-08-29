@@ -1,0 +1,9 @@
+# Dependencies for the intelligence pipeline (run from the intelligence/ dir).
+# Pinned loosely on purpose — mirror backend/requirements.txt versions when
+# the two are installed into the same environment.
+google-genai>=1.0.0
+neo4j>=5.18.0
+python-dotenv>=1.0.1
+requests>=2.31.0
+pypdf>=4.0.0          # legal/dpdp_source.py — was missing from every req file
+firebase-admin>=6.5.0 # ingestion/vendors/firebase_auth.py

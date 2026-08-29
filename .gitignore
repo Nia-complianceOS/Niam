@@ -119,3 +119,12 @@ credentials/
 # Miscellaneous
 # ==========================
 .cache/-
+
+
+# Docker
+Dockerfile
+Dockerfile.*
+docker-compose.yml
+docker-compose.yaml
+.dockerignore
+docker-compose.override.yml
