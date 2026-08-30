@@ -1,4 +1,3 @@
-nia_env/
 # ==========================
 # Python
 # ==========================
@@ -118,13 +117,18 @@ credentials/
 # ==========================
 # Miscellaneous
 # ==========================
-.cache/-
+.cache/
 
 
+# ==========================
 # Docker
-Dockerfile
-Dockerfile.*
-docker-compose.yml
-docker-compose.yaml
-.dockerignore
+# ==========================
+# Dockerfiles, compose files and .dockerignore are part of the project and
+# MUST be committed. Only local-machine overrides are ignored.
 docker-compose.override.yml
+docker-compose.override.yaml
+
+# ==========================
+# Smoke-test rig (see KAMRAN_RUNBOOK.md Phase S)
+# ==========================
+smoke/

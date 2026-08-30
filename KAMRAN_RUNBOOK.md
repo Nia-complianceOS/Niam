@@ -92,8 +92,62 @@ npm run dev
 docker --version
 ```
 - ✅ prints a version → continue.
-- ❌ *"not recognized"* → Docker Desktop isn't installed or isn't running. Start Docker
-  Desktop and retry. If you'd rather not install it, **skip to S1-ALT** below.
+- ❌ *"not recognized"* → the Docker CLI isn't installed. **Skip to S1-ALT.**
+
+### S1-FIX — "failed to connect to the docker API at npipe:…dockerDesktopLinuxEngine"
+
+A version number from `docker --version` only proves the **CLI** is installed. This error means
+the **engine** (Docker Desktop) isn't running. Fix it in order:
+
+**1. Find Docker Desktop.** Do **not** just test `C:\Program Files\Docker\` — recent versions
+install per-user, so that path is often absent even on a perfectly working install. Search properly:
+```powershell
+$lnk = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu",
+                     "$env:ProgramData\Microsoft\Windows\Start Menu" `
+       -Recurse -Filter "Docker Desktop.lnk" -ErrorAction SilentlyContinue |
+       Select-Object -First 1
+
+if ($lnk) {
+    $exe = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk.FullName).TargetPath
+    Write-Host "Found: $exe" -ForegroundColor Green
+} else {
+    Write-Host "Docker Desktop not installed - use S1-ALT" -ForegroundColor Yellow
+}
+```
+- Found → continue to step 2.
+- Not found → you have the CLI without the Desktop app. Install it from
+  <https://www.docker.com/products/docker-desktop/>, or **go to S1-ALT and use Neo4j Desktop**
+  — honestly the faster path if you just want the smoke DB working today.
+
+**2. Start it and wait for the engine.** Docker Desktop takes 30–90 seconds to come up, and the
+CLI fails with this exact npipe error the entire time it is starting. `Start-Process` launches a
+`.lnk` fine, so the Start-menu shortcut is a valid target — you never need the resolved exe path.
+```powershell
+Start-Process $lnk.FullName        # or just search "Docker Desktop" in the Start menu
+
+foreach ($i in 1..36) {
+    docker info *> $null
+    if ($LASTEXITCODE -eq 0) { Write-Host "Docker engine is up" -ForegroundColor Green; break }
+    Start-Sleep -Seconds 5
+}
+```
+Watch the whale icon in your system tray — it stops animating and the Desktop window reads
+**"Engine running"** when it's ready.
+
+**3. If it never comes up,** the usual cause on Windows is the WSL2 backend:
+```powershell
+wsl --status
+wsl --update
+```
+Then restart Docker Desktop. If it still fails — Windows Home without virtualisation enabled,
+or a corporate policy blocking Hyper-V/WSL — **stop here and use Neo4j Desktop (S1-ALT
+option 1)**. Every command in this runbook works unchanged against it. Don't spend an evening
+on Docker; it isn't what you're building.
+
+**4. Once `docker info` succeeds,** re-run the two commands below.
+
+> The `the attribute 'version' is obsolete` warning is harmless — modern Compose ignores the
+> `version:` key. Deleting that one line from `docker-compose.yml` silences it.
 
 Start **only** the neo4j service (not the backend/frontend ones — those are the containers
 that never worked, per D2):
