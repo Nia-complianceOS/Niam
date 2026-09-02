@@ -159,6 +159,32 @@ You can also scan straight from the UI: the Repositories page takes an
 
 ---
 
+## Running with Docker
+
+```bash
+docker compose up -d          # neo4j + backend + frontend
+docker compose up -d neo4j    # just the database
+```
+
+The backend image builds from the repository root, not from `backend/`,
+because it installs the `intelligence` package rather than relying on a
+copy of it being present. Render builds the same `Dockerfile`, so the
+container path is exercised by every deployment rather than rotting
+quietly.
+
+`docker compose up -d neo4j` on its own is also the local database used
+for verification — a scan under a separate `:System` name can then be run
+against it without touching a production graph.
+
+Secrets are passed through from your shell rather than written into
+`docker-compose.yml`:
+
+```bash
+GEMINI_API_KEY=... GITHUB_TOKEN=... docker compose up -d
+```
+
+---
+
 ## Verification
 
 The project ships a throwaway rig so nothing is ever verified against the demo

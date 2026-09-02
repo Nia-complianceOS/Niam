@@ -58,9 +58,13 @@ uvicorn.log
 # ==========================
 # VS Code
 # ==========================
-.vscode/
+# .vscode/* not .vscode/ -- git does not descend into an ignored DIRECTORY,
+# so the negations below had no effect and settings.json could never be
+# committed no matter what they said.
+.vscode/*
 !.vscode/extensions.json
-!.vscode/settings.json
+# settings.json is NOT negated: ours pins an absolute interpreter path on
+# one machine, which is wrong for everybody else who clones this.
 
 # ==========================
 # JetBrains
@@ -132,3 +136,22 @@ docker-compose.override.yaml
 # Smoke-test rig (see KAMRAN_RUNBOOK.md Phase S)
 # ==========================
 smoke/
+
+# ==========================
+# Internal working documents
+# ==========================
+# The public repository should show the code and one README that explains
+# the project. The audit, the phased action plan, the operator runbook and
+# the session handoffs are how the work got done, not what was built --
+# they name internal decisions, terminal layouts and machine paths, and
+# they are noise (at best) to anyone arriving from a CV.
+#
+# Keep them on disk. They are still the reference for this project.
+CODEBASE_AUDIT.md
+ACTION_PLAN.md
+KAMRAN_RUNBOOK.md
+SESSION_HANDOFF.md
+IMPLEMENTATION_ROADMAP.md
+NIAM_PULL_GUIDE.md
+*_HANDOFF.md
+*_RUNBOOK.md
