@@ -6,14 +6,15 @@ services, API routes, db layer — should read settings from here via
 get_settings() rather than calling os.getenv() directly, so there is
 exactly one place to add or rename a variable.
 
-Note: the Data & Graph Intelligence pipeline under app/intelligence/
-reads several of these same env vars (NEO4J_URI, NEO4J_USER,
-NEO4J_PASSWORD, MIXPANEL_*, FIREBASE_*) directly via os.getenv() in
-its own modules rather than importing this Settings class — that's
-intentional per the team boundary (it's a self-contained module), but
-it does mean field names here must match the env var names their code
-already expects. Don't rename NEO4J_USER-family fields without
-checking app/intelligence/ first.
+Note: the intelligence package (installed from intelligence/, imported
+as graph.*, ingestion.*, legal.*, reasoning.*, reconciliation.* and
+retrieval.*) reads several of these same env vars — NEO4J_URI,
+NEO4J_USER/NEO4J_USERNAME, NEO4J_PASSWORD, GEMINI_API_KEY, GITHUB_TOKEN,
+MIXPANEL_*, FIREBASE_* — directly via os.getenv() rather than importing
+this Settings class. That is deliberate: it is a self-contained package
+that also runs standalone from the CLI. It does mean field names here
+must match the env var names it already expects, so don't rename the
+NEO4J_USER family without checking intelligence/ first.
 """
 
 from functools import lru_cache

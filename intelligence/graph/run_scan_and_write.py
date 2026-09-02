@@ -1,15 +1,13 @@
 """
-run_scan_and_write.py — closes the gap between scan_remote_repo.py and
-write_graph_from_scan.py.
+run_scan_and_write.py — scan a GitHub repository and write the result
+into the graph, in one command.
 
-write_graph_from_scan.py's docstring says to run:
-    python scan_remote_repo.py --json > candidates.json
-    python write_graph_from_scan.py --input candidates.json
-
-...but scan_remote_repo.py has no --json flag (it only prints a
-human-readable summary to stdout). This script takes the second
-documented path instead: call GitHubScanner directly and hand its
-in-memory output straight to GraphWriter, no JSON round trip.
+Calls GitHubScanner directly and hands its in-memory output to
+GraphWriter, with no JSON round trip. It replaces graph/
+write_graph_from_scan.py, which was deleted in Phase G5: that script
+documented a two-step flow starting with `scan_remote_repo.py --json`,
+and scan_remote_repo.py has no --json flag, so its documented entry
+point could not be run at all.
 
 Usage:
     python -m graph.run_scan_and_write miguelgrinberg/microblog --ref main --yes

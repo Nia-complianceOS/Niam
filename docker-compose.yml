@@ -1,11 +1,18 @@
-version: '3.8'
+# The neo4j service is the smoke database used by every verification step
+# in KAMRAN_RUNBOOK.md. The backend service now builds too: it was broken
+# because it used `context: ./backend`, which does not contain the
+# intelligence packages -- Phase G1 moved the Dockerfile to the repository
+# root and installs intelligence/ properly, so the image resolves its
+# imports the same way a deployment does.
+#
+# `version:` is deliberately absent -- modern Compose ignores it and warns.
 
 services:
   neo4j:
     image: neo4j:5
     container_name: niam-neo4j
     ports:
-      - "7474:7474" # HTTP
+      - "7474:7474" # HTTP / Neo4j Browser
       - "7687:7687" # Bolt
     environment:
       - NEO4J_AUTH=neo4j/testpassword
@@ -19,7 +26,7 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: .          # repository root -- backend/ alone is not enough
       dockerfile: Dockerfile
     container_name: niam-backend
     ports:
@@ -27,12 +34,19 @@ services:
     environment:
       - APP_ENV=development
       - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+      # This stack talks to the LOCAL neo4j above, never to Aura.
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=neo4j
       - NEO4J_PASSWORD=testpassword
-      # - GITHUB_TOKEN=your_token
-      # - GITHUB_WEBHOOK_SECRET=your_secret
-      # - GEMINI_API_KEY=your_key
+      # Passed through from your shell so no secret is written into this
+      # file. Unset values arrive empty, which every guard treats as off.
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
+      - JWT_SECRET=${JWT_SECRET:-}
+      # Both PR guards stay closed unless deliberately opened.
+      - GITHUB_DRY_RUN=true
+      - PR_ALLOWED_REPOS=
     depends_on:
       neo4j:
         condition: service_healthy
@@ -45,7 +59,7 @@ services:
         - VITE_API_BASE_URL=http://localhost:8000/api/v1
     container_name: niam-frontend
     ports:
-      - "3000:80" # Map host port 3000 to container port 80 (Nginx)
+      - "3000:80" # host 3000 -> nginx 80
     depends_on:
       - backend
 

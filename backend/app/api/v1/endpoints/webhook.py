@@ -1,10 +1,13 @@
 """
 POST /api/v1/webhook/github
 
-Receives GitHub push events. On a push to main, hands off to the
-Data & Graph Intelligence module's reconciliation entrypoint — that
-function doesn't exist yet (it's their code, under app/intelligence/),
-so trigger_reconciliation() below is a stub that just logs for now.
+Receives GitHub push events. A push to main queues a real background
+scan through app/services/scan_service.py: GitHubScanner -> GraphWriter
+-> Reconciler, the same pipeline POST /api/v1/scan runs.
+
+(The previous version of this docstring described trigger_reconciliation()
+as "a stub that just logs for now" living under app/intelligence/ -- a
+directory that has never existed in this tree.)
 
 Signature verification uses core/security.py's verify_github_signature()
 against GITHUB_WEBHOOK_SECRET. Left permissive (warns but doesn't

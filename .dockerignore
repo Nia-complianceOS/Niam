@@ -1,0 +1,29 @@
+# Build context is the repository root (see Dockerfile).
+.git/
+.github/
+.vscode/
+
+# Never bake secrets into an image.
+.env
+.env.*
+!.env.example
+
+# Virtualenvs and caches -- a Windows venv in a Linux image is both broken
+# and ~400 MB of context upload.
+backend/venv/
+niam_env/
+nia_env/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Frontend is built and deployed separately (Vercel).
+frontend/
+
+# Verification rig, gitignored anyway.
+smoke/
+
+# Docs
+*.md
