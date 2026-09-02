@@ -1,95 +1,203 @@
-# Nia
+# Niam
 
-A Compliance Operating System for India's DPDP Act 2023 — continuously maps a company's engineering, legal, and business stack into one living graph, and keeps code, infrastructure, vendors, and legal documents synchronised automatically instead of producing a report that goes stale.
+**DPDP readiness for engineering teams.** Niam scans a codebase for the places
+it actually handles personal data, builds a graph of what is collected and
+where it is sent, reconciles that against the Digital Personal Data Protection
+Act 2023, and drafts the policy language each gap needs.
 
-## Tech Stack
+The framing matters, and it is deliberate. Most of the DPDP Act is **not in
+force yet** — the substantive obligations commence **13 November 2026** and
+**13 May 2027**. A tool that reported today's codebase as "non-compliant"
+would be wrong. Niam reports *readiness*: what you collect, which obligations
+will apply to it, when they start, and what is still ungoverned.
 
-- **Frontend** — React (Vite), Tailwind CSS, D3.js, Axios
-- **Backend** — FastAPI (Python), Neo4j
-- **Intelligence** — Gemini API (LLM-assisted compliance extraction), Tree-sitter
-- **Database** — Neo4j (graph database)
-- **Integrations** — GitHub API, vendor APIs (Stripe / Mixpanel / Firebase)
+---
 
-## Project Structure
+## What it does
+
+1. **Scan** — reads a GitHub repository through the API and runs a two-stage
+   pipeline over it: a zero-cost keyword pre-filter for recall, then a
+   taxonomy-constrained Gemini classifier for precision. The taxonomy is fixed
+   and validated in code, so the model cannot invent a data category.
+2. **Graph** — writes `(System)-[:COLLECTS]->(DataType)-[:SENT_TO]->(Vendor)`
+   into Neo4j, with file, line and resolved commit SHA kept as provenance on
+   every edge.
+3. **Legal** — parses the DPDP Act from the India Code publication into
+   `:DPDPClause` nodes, each carrying its commencement date and status from a
+   structured model of the Gazette notification.
+4. **Reconcile** — derives `:Gap` nodes by comparing the two: data leaving the
+   system with nothing governing it, data governed by obligations that have
+   not commenced, data collected and ungoverned entirely.
+5. **Remediate** — drafts the policy amendment each gap needs with Gemini, then
+   runs three graph-grounded checks against the draft: the cited clause exists,
+   a `GOVERNED_BY` edge really connects the gap's data type to it, and the
+   clause's commencement status is known. A citation that fails is rejected.
+
+Every number in the UI traces to a node, an edge, or a live API call. Where
+there is no data, the interface says so rather than showing a placeholder.
+
+---
+
+## Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, Vite, TypeScript, Tailwind, D3 |
+| Backend | FastAPI, Pydantic v2, Uvicorn |
+| Graph | Neo4j (AuraDB) |
+| Intelligence | Google Gemini (`google-genai`), PyGithub, pypdf |
+
+**On the code scanner:** it is a keyword pre-filter feeding an LLM classifier,
+not an AST parser. That is a deliberate trade — the pre-filter costs nothing
+and catches broadly, the classifier resolves precision, and the fixed taxonomy
+stops the model inventing labels. Real dataflow analysis is the right long-term
+answer and is not what this does today.
+
+---
+
+## Repository layout
 
 ```text
-nia/
-├── backend/app/
-│   ├── api/          # FastAPI entrypoint + v1 endpoints (compliance, graph, github, etc.)
-│   ├── core/         # Configuration and security
-│   ├── db/           # Neo4j database connection
-│   ├── schemas/      # Pydantic models for API resources
-│   └── services/     # Business logic mapping to endpoints
+Niam/
+├── backend/
+│   ├── app/
+│   │   ├── api/v1/endpoints/   # auth, dashboard, graph, gaps, compliance,
+│   │   │                       # github, scan (SSE), webhook, health
+│   │   ├── core/               # settings, JWT, webhook signatures
+│   │   ├── db/                 # Neo4j driver lifecycle
+│   │   ├── schemas/            # Pydantic request/response models
+│   │   └── services/           # dashboard, gap, graph, github, scan, scoring
+│   └── {demo,graph,ingestion,legal,reasoning,reconciliation,retrieval}/
+│                               # copy of the intelligence tree (see note)
+│
+├── intelligence/               # the analysis engine, an installable package
+│   ├── graph/                  # schema, node/edge builders, Neo4j client, CLIs
+│   ├── ingestion/
+│   │   ├── github/             # scanner, diff parser, Gemini classifier
+│   │   └── vendors/            # Stripe / Mixpanel / Firebase ingestion
+│   ├── legal/                  # DPDP Act fetch, extraction, commencement model
+│   ├── reasoning/              # remediation drafter, meta-verifier
+│   ├── reconciliation/         # the gap engine
+│   ├── retrieval/              # Cypher query layer + query CLI
+│   └── demo/                   # seed scripts
 │
 ├── frontend/src/
-│   ├── components/   # UI components (graph, dashboard, layout, etc.)
-│   ├── hooks/        # React hooks for API data fetching
-│   ├── pages/        # Dashboard, Graph, Policies, Settings, etc.
-│   └── services/api/ # Axios client
+│   ├── components/             # graph canvas, dashboard panels, layout, ui
+│   ├── hooks/                  # data fetching per page
+│   ├── pages/                  # Dashboard, Graph, Vendors, Regulations,
+│   │                           # Repositories, Policies, PRs, Audit, Settings
+│   └── services/api/           # Axios client
 │
-└── intelligence/
-    ├── demo/         # Scripts to seed demo data
-    ├── graph/        # Graph schema, node/edge builders, and Neo4j client
-    ├── ingestion/    # GitHub code scanning and vendor API ingestion
-    ├── legal/        # DPDP Act extraction and clause parsing
-    └── retrieval/    # Query generation and CLI
+└── smoke/                      # throwaway verification rig (gitignored)
 ```
 
-## Getting Started
+> **Note on the duplicated tree.** `backend/{graph,ingestion,legal,…}` is a copy
+> of `intelligence/`, created before the package was installable so that
+> `backend`-as-CWD could resolve the imports. `intelligence/` is now installed
+> with `pip install -e ./intelligence`, which makes the copies redundant;
+> removing them is tracked as a cleanup task. Until then, **any change to one
+> must be mirrored to the other.**
 
-### Prerequisites
+---
 
-- Python 3.11+
-- Node.js 20.x (LTS)
-- A Neo4j instance (AuraDB free tier works fine)
+## Getting started
 
-### Backend & Intelligence Setup
+**Prerequisites:** Python 3.11+, Node.js 20 LTS, a Neo4j instance (AuraDB free
+tier is enough), a GitHub token, and a Gemini API key.
+
+### Backend and intelligence
 
 ```bash
-# Create virtual environment from the project root
-python -m venv nia_env
-source nia_env/bin/activate      # Windows: nia_env\Scripts\activate
+python -m venv backend/venv
+backend\venv\Scripts\activate      # macOS/Linux: source backend/venv/bin/activate
 
-# Install intelligence module (editable mode)
+pip install -r backend/requirements.txt
 pip install -e ./intelligence
-
-# Install backend dependencies
-cd backend
-pip install fastapi uvicorn neo4j python-dotenv httpx pydantic requests beautifulsoup4 gitpython tree_sitter pandas tqdm
 ```
 
-Create a `.env` file inside `backend/` (this file acts as the single source of truth for both backend and intelligence):
+### Environment
 
-Run the backend:
+Create `backend/.env` — it is the single source of truth for both the backend
+and the intelligence package. See `backend/.env.example` for the full list:
+
+```
+NEO4J_URI / NEO4J_USERNAME / NEO4J_PASSWORD
+GITHUB_TOKEN            # fine-grained, contents + PR read/write, demo repos only
+GEMINI_API_KEY
+APP_ENV=development
+JWT_SECRET
+GITHUB_WEBHOOK_SECRET
+GITHUB_DRY_RUN=true     # log intended PRs instead of opening them
+PR_ALLOWED_REPOS=       # comma-separated allow-list; empty means no repo
+```
+
+Both PR guards default to the safe value, so a fresh checkout cannot open a
+pull request by accident.
+
+### Load the Act and scan a repository
 
 ```bash
-uvicorn app.main:app --reload
+cd intelligence
+python -m graph.apply_schema
+python -m legal.load_dpdp_clauses --yes
+python -m graph.run_scan_and_write OWNER/REPO --system my-system --yes
+python -m reconciliation.run_reconciliation --system my-system --yes
+python -m retrieval.query_cli summary
 ```
 
-The API will be live at `http://localhost:8000`.
-
-### Frontend Setup
+### Run it
 
 ```bash
-cd frontend
-npm install
+cd backend  && uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+cd frontend && npm install && npm run dev
 ```
 
-Create a `.env` file inside `frontend/`:
+Frontend on `:5173`, API on `:8000`, OpenAPI docs at `/docs`.
 
-Run the frontend:
+You can also scan straight from the UI: the Repositories page takes an
+`owner/repo`, and the scan streams progress over SSE.
+
+---
+
+## Verification
+
+The project ships a throwaway rig so nothing is ever verified against the demo
+graph. It is a local Neo4j container plus a synthetic fixture repository, and a
+scan is scoped to its own `:System` node — `gap` ids are system-scoped, so a
+test run cannot merge into real data. `smoke/` holds the diagnostics:
+pre-flight checks, a scan-access diagnoser, an Act-parse dumper, and a
+reconciler explainer.
 
 ```bash
-npm run dev
+python -m pytest reconciliation/test_reconciler.py reasoning/test_verifier.py -q
 ```
 
-The app will be live at `http://localhost:5173`.
+---
 
-## How It Works
+## Current state
 
-1. **Ingestion** — scans the connected GitHub repo and connected vendors (Stripe/Mixpanel/Firebase) for data-handling code paths and event schemas.
-2. **Graph** — assembles ingested signals into a Neo4j graph: data → API → database → vendor → legal obligation → policy clause.
-3. **Reconciliation** — on every merge to `main`, a webhook triggers a diff-based re-check of the graph for gaps (a data flow with no matching legal clause).
-4. **Remediation** — for each gap, drafts the exact clause text needed using Gemini, and opens a real pull request against the policy repo for human review.
+Working end to end: repository scan, graph write with commit provenance, DPDP
+clause loading with commencement status, gap detection, remediation drafting,
+the graph-grounded verifier, SSE scan streaming, and a pull-request path that
+is dry-run and allow-listed by default.
 
-Nothing is auto-merged — every generated change goes through normal code review before it touches a real document.
+Known limitations, stated plainly:
+
+- **Authentication is a development bypass.** Real JWT machinery and a Neo4j
+  user store both exist; the frontend does not yet call them. The bypass is
+  refused unless `APP_ENV=development`. This must be closed before any public
+  deployment.
+- **Scan state is in memory.** Scan progress and opened PRs are held in process
+  dictionaries and do not survive a restart or a second instance.
+- **The Act's clause tagging is coarse.** Most DPDP sections are written about
+  personal data as such rather than about categories of it, so most clauses
+  attach generally rather than to a named data type. The API reports which
+  basis a finding rests on rather than pretending to a precision it does not
+  have.
+- **DPDP only.** GDPR, SOC 2 and HIPAA appear in the UI as explicitly disabled.
+
+---
+
+## License
+
+Not yet licensed. All rights reserved.

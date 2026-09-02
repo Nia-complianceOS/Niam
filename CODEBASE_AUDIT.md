@@ -1,4 +1,4 @@
-# NIA — Codebase Audit
+# Niam — Codebase Audit
 
 Read-only scan. **No code was changed for this report.** The only edit made in this
 session was yesterday's `backend/app/core/config.py` Neo4j credential fix.

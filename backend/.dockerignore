@@ -3,7 +3,7 @@
 !.env.example
 venv/
 .venv/
-nia_env/
+niam_env/
 __pycache__/
 *.pyc
 .pytest_cache/

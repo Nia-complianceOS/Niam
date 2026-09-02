@@ -3,7 +3,7 @@ version: '3.8'
 services:
   neo4j:
     image: neo4j:5
-    container_name: nia-neo4j
+    container_name: niam-neo4j
     ports:
       - "7474:7474" # HTTP
       - "7687:7687" # Bolt
@@ -21,7 +21,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: nia-backend
+    container_name: niam-backend
     ports:
       - "8000:8000"
     environment:
@@ -43,7 +43,7 @@ services:
       dockerfile: Dockerfile
       args:
         - VITE_API_BASE_URL=http://localhost:8000/api/v1
-    container_name: nia-frontend
+    container_name: niam-frontend
     ports:
       - "3000:80" # Map host port 3000 to container port 80 (Nginx)
     depends_on:

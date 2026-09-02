@@ -8,6 +8,10 @@ Phases alternate between **[CLAUDE]** (code changes in this repo) and **[KAMRAN]
 **Smoke Check** that you run and sign off manually, on a throwaway rig that cannot touch
 your demo graph. Do not start a phase before the previous Smoke Check is signed.
 
+> **Start at `KAMRAN_RUNBOOK.md` → Step 0 (Pre-flight).** It verifies the venv, deps, `gh`,
+> the Docker engine and both GitHub identities in one block, catching every failure this
+> project has actually hit before you spend time on a phase.
+>
 > **Every [KAMRAN] step and every Smoke Check is expanded into exact terminals,
 > directories and PowerShell commands in `KAMRAN_RUNBOOK.md`.** This file is the *what
 > and why*; that one is the *how*. Keep the runbook open while you work — it also covers
@@ -39,6 +43,22 @@ your demo graph. Do not start a phase before the previous Smoke Check is signed.
 
 ## Decisions — resolved
 
+> ### ✅ D1 CLOSED — 2026-09-02
+> Done. The bypass is deleted from `deps.py`, `AuthContext.tsx` calls
+> `POST /auth/login` and `/auth/signup` for real, `GET /auth/me` validates a
+> stored token on load, and the login/signup pages surface the API's error
+> instead of swallowing it. Phase I.0 is satisfied.
+>
+> ### ⚠️ D1 REOPENED — 2026-08-31
+> D1 was agreed on the premise "a hackathon with no real customers". That
+> premise no longer holds: this is a six-month hackathon judged on a
+> production-grade result, and the project is being deployed and linked
+> publicly. **Dummy auth cannot ship to a public URL** — see runbook §I.0
+> for why, and for why closing it is an afternoon rather than a sprint
+> (`core/auth.py` and `services/user_service.py` are both already real;
+> only `AuthContext.tsx` needs wiring). Treat the text below as the
+> historical local-development decision.
+
 **D1 — Auth: dummy auth stays.** Agreed for a hackathon with no real customers. Two conditions
 make that safe rather than sloppy, both cheap:
 
@@ -61,6 +81,15 @@ cannot resolve inside the image. Compose also passes no `GEMINI_API_KEY`, and po
 have shown an empty app. Not worth fixing before the demo. **But the `neo4j` service alone is
 exactly the smoke database Phase S needs** — that part will work.
 
+**D4 — Which GitHub account owns the repos you scan?** *(open — answer before Phase B3)*
+`gh` is authenticated as `kamran-rashid`; `GITHUB_TOKEN` in `.env` belongs to `niacomplianceos`.
+The scanner only ever uses `GITHUB_TOKEN`, and GitHub returns **404, not 403**, for a private
+repo that token cannot see — so this looks like a missing repo, not a permissions problem. It
+already cost a debugging cycle on the smoke repo, and Phase B1's real scan will hit it too if
+the demo repos aren't visible to that same account. Settle it once: put the smoke repo (and
+ideally the demo repos) under whichever account issues `GITHUB_TOKEN`, and rotate the PAT from
+that account in B3. Runbook S2 has the decision table.
+
 **D3 — Full rename, org excepted.** Repo, package, folder, system name, env var, display
 strings — all renamed. The GitHub **org** (`Nia-complianceOS`) stays as-is for now; renaming
 the **repo** (`NIA` → `Niam`) is a separate, easy settings toggle with automatic redirects,
@@ -81,10 +110,13 @@ docker compose up -d neo4j        # or: docker run -d --name niam-smoke-neo4j \
 Confirm at `http://localhost:7474`. This is a completely separate database from Aura.
 
 ### S2 — [KAMRAN] A junk GitHub repo
-Create a private repo — call it `niam-smoke-repo` — with ~6 small files containing obvious
-data-handling patterns (a signup handler with `email`/`phone`, a Stripe call, a Mixpanel
-`track()`, a DB insert). Keep it tiny: scans are fast, Gemini quota is cheap, and PR tests
-land somewhere harmless. **Never point a Smoke Check at a repo you care about.**
+**Done — fixtures written.** Six files live at `D:\niamm\Niam\smoke\fixtures\`, tuned to
+`diff_parser.DEFAULT_SIGNALS` and dry-run verified at 71 stage-1 candidate lines: 12–16 data
+types, 5–7 vendors, and one vendor-free file so the `ungoverned_collection` branch is
+exercised. Create the repo **outside** `D:\niamm\Niam` (a nested empty repo breaks `git add .`
+in the parent), copy the fixtures in, push. It must be readable by `GITHUB_TOKEN`'s account —
+public, or owned by that account (see **D4**).
+**Never point a Smoke Check at a repo you care about.** Full commands: runbook S2.
 
 ### S3 — [KAMRAN] Redirect a single command without touching any file
 `python-dotenv` and `pydantic-settings` both let real environment variables win over `.env`,
@@ -94,7 +126,7 @@ edited or read**:
 ```bash
 # one-off CLI run against the smoke DB
 NEO4J_URI=bolt://localhost:7687 NEO4J_USERNAME=neo4j NEO4J_PASSWORD=testpassword \
-  python -m graph.run_scan_and_write <you>/niam-smoke-repo --system niam-smoke --yes
+  python -m graph.run_scan_and_write niacomplianceos/niam-smoke-repo --system niam-smoke --yes
 
 # a second API instance on a different port, pointed at the smoke DB
 NEO4J_URI=bolt://localhost:7687 NEO4J_USERNAME=neo4j NEO4J_PASSWORD=testpassword \
@@ -209,7 +241,7 @@ cd intelligence && python -m retrieval.query_cli summary
 ```
 - `clauses = 0` → `python -m legal.load_dpdp_clauses --yes`. Until this runs, the compliance
   score and Regulations page are meaningless.
-- `systems = 0` → `python -m graph.apply_schema` then `python -m graph.run_scan_and_write <owner/repo> --yes`.
+- `systems = 0` → `python -m graph.apply_schema` then `python -m graph.run_scan_and_write OWNER/REPO --yes`.
 - **Auth error again** → your Aura Free instance was paused or recreated (free instances pause
   when idle, and are **deleted after 30 days of inactivity** — Neo4j's own FAQ). Resume it in
   the console; if deleted, create a new
@@ -343,7 +375,7 @@ These unlock real UI rather than hide fake UI. ~3 h.
 > ### ✅ Smoke Check E — full pipeline, entirely on the rig
 > ```bash
 > NEO4J_URI=bolt://localhost:7687 ... \
->   python -m graph.run_scan_and_write <you>/niam-smoke-repo --system niam-smoke --yes
+>   python -m graph.run_scan_and_write niacomplianceos/niam-smoke-repo --system niam-smoke --yes
 > NEO4J_URI=bolt://localhost:7687 ... \
 >   python -m reconciliation.run_reconciliation --system niam-smoke --yes
 > ```
@@ -407,7 +439,7 @@ API still returns gaps). Do neither before S5's baseline exists.
 |---|---|---|
 | **GitHub repo** `NIA` → `Niam` | Settings → rename, then `git remote set-url origin …` | Low — GitHub auto-redirects the old URL |
 | **GitHub org** `Nia-complianceOS` | **Deferred** per D3 | — |
-| **Local folder** `D:\nia\NIA` → `D:\niam\Niam` | Rename **after the demo** | ⚠️ Breaks `.vscode/settings.json`'s hardcoded `D:\nia\NIA\backend\venv\Scripts\python.exe` **and your venv's absolute paths — you must delete and recreate `backend/venv` afterwards.** Do this in the same sitting as G1 |
+| **Local folder** `D:\niamm\Niam` → `D:\niamm\Niam` | Rename **after the demo** | ⚠️ Breaks `.vscode/settings.json`'s hardcoded `D:\niamm\Niam\backend\venv\Scripts\python.exe` **and your venv's absolute paths — you must delete and recreate `backend/venv` afterwards.** Do this in the same sitting as G1 |
 | **`package.json`** `NIA-frontend` → `niam-frontend` | Claude edits; you run `npm install` to regenerate the lockfile | Low |
 | **`backend/.env`** `APP_NAME=` | Yours to edit, or leave | Cosmetic. Claude will not touch this file |
 | **Aura instance name** | Rename in the console | Cosmetic — **does not change the URI or password**, so no `.env` edit |
@@ -512,3 +544,28 @@ built  + no false    graph      fiction     off    gaps    everywhere
 ```
 
 F2–F4 and G–H are post-demo. Nothing in them makes the demo more true; S through F1 do.
+
+
+---
+
+# Phase I — [BOTH] Deployment
+
+**Scope change, 2026-08-31.** Six-month hackathon, production-grade
+expectation, public link. Deployment moves from "post-hackathon, probably
+not" to a phase of its own. Full step-by-step in `KAMRAN_RUNBOOK.md` §I.
+
+| # | Item | Owner | Note |
+|---|---|---|---|
+| I.0 | ✅ **DONE 2026-09-02.** Close D1. Wire `AuthContext.login()`/`signup()` to `POST /auth/login` and `/auth/signup`, store the returned JWT, delete the bypass from `deps.py` | Claude | **Blocks everything else.** `core/auth.py` (JWT) and `user_service.py` (`:User` nodes in Neo4j, hashed passwords) are already real — this is a frontend wiring job, not a backend build |
+| I.1 | Move `Dockerfile` to the repo root; install `intelligence/` rather than relying on `backend/`'s copies; bind `${PORT}` | Claude | Today's Dockerfile works only because the duplicated tree exists. **G1 deletes those copies and breaks every deployed build** — do I.1 before G1, or ship a broken image |
+| I.2 | Backend on **Render** (Docker, long-lived process) | Kamran | Not Vercel and not GitHub Pages: `BackgroundTasks` + in-memory `SCANS` + a minutes-long SSE stream cannot survive serverless. Runbook §I.1 has the three specific failure modes |
+| I.3 | Frontend on **Vercel** (root `frontend`, preset Vite) | Kamran | `VITE_API_BASE_URL` is baked in at build time |
+| I.4 | `CORS_ORIGINS` on Render ← the Vercel URL | Kamran | The classic first-deploy failure |
+| I.5 | Persistence for `SCANS` and `_PRS` (roadmap 5.2) | Claude | In-memory today: scan state and opened PRs vanish on restart and cannot work across two instances. Survivable for a demo, not for "production-grade" |
+| I.6 | Rate-limit `POST /scan` | Claude | Publicly reachable, and every call spends Gemini quota and GitHub API budget |
+| I.7 | Aura capacity | Kamran | Free tier pauses when idle and is **deleted after 30 days of inactivity** — a paused instance renders the whole site "Graph unreachable" |
+| I.8 | Rotate `GITHUB_TOKEN` after the first deploy | Kamran | It will have passed through build logs |
+
+**Sequencing:** I.0 → I.1 → I.2/I.3/I.4 → I.5–I.8. I.1 must land **before**
+Phase G1, or the first cloud build after the cleanup fails with
+`ModuleNotFoundError: No module named 'graph'` — in CI, not on your machine.
