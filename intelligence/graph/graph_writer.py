@@ -129,10 +129,18 @@ class GraphWriter:
         (vendor field -> data_type) mapping discovered during vendor
         schema ingestion.
         """
-        normalized, skipped_invalid_taxonomy = [], []
+        normalized, skipped_invalid_taxonomy, skipped_malformed = [], [], []
 
         for raw in records:
-            row = normalize_vendor_field_record(raw)
+            try:
+                row = normalize_vendor_field_record(raw)
+            except ValueError as exc:
+                # Same fail-closed-per-item pattern as
+                # write_classifier_output(). Without this, a single
+                # malformed row raised and discarded the entire vendor
+                # ingestion run.
+                skipped_malformed.append({"record": raw, "error": str(exc)})
+                continue
             if not validate_data_type(row["data_type"]):
                 skipped_invalid_taxonomy.append(row)
                 continue
@@ -153,10 +161,18 @@ class GraphWriter:
             self.client.run_write_batch(MERGE_SENT_TO_FROM_VENDOR, batch)
             written += len(batch)
 
+        if skipped_malformed:
+            logger.warning(
+                "Skipped %d malformed vendor field record(s): %s",
+                len(skipped_malformed),
+                [s["error"] for s in skipped_malformed],
+            )
+
         logger.info("Wrote %d vendor field mappings into graph", written)
         return {
             "written": written,
             "skipped_invalid_taxonomy": len(skipped_invalid_taxonomy),
+            "skipped_malformed": len(skipped_malformed),
         }
 
     def close(self):

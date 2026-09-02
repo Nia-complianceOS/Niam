@@ -33,7 +33,11 @@ from ingestion.github.classifier import (
 from legal.commencement import status_for_section
 
 load_dotenv(
-    os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True))
+    # NIAM_ENV_PATH is the current name; NIA_ENV_PATH is still honoured so
+    # this keeps working whether or not backend/.env has been updated.
+    os.getenv("NIAM_ENV_PATH")
+    or os.getenv("NIA_ENV_PATH")
+    or find_dotenv("../backend/.env", usecwd=True)
 )
 logger = logging.getLogger(__name__)
 
@@ -68,8 +72,22 @@ EVERY value is exactly one from this fixed list — do not invent new labels:
     + ", ".join(ALLOWED_DATA_TYPES)
     + """
 
-If a section applies broadly to all personal data rather than one specific \
-category, use ["other_personal_data"] rather than trying to list everything.
+Choose data_types_governed like this:
+
+- The section singles out particular categories (e.g. children's data, \
+identifiers used for a specific purpose) -> list exactly those categories, \
+and nothing else.
+- The section is written about personal data as such -- notice, consent, \
+the rights of a Data Principal, cross-border transfer -> use \
+["other_personal_data"]. Do not try to enumerate every category; the graph \
+treats this as "applies to all personal data" and propagates it.
+- The section applies broadly AND gives one category special treatment -> \
+list that category AND "other_personal_data".
+
+Getting this right matters: a category listed by name is reported as a \
+clause that specifically governs that data, while "other_personal_data" is \
+reported as a general obligation that happens to cover it. Listing a \
+category the section does not actually single out overstates the finding.
 
 Respond with ONLY a JSON array, one object per input section, in the same \
 order, with exactly this shape:
@@ -179,12 +197,44 @@ class DPDPClauseExtractor:
                 )
                 raw = (response.text or "").strip()
                 parsed = json.loads(raw)
-                if len(parsed) != len(batch):
+
+                # Match results back to sections BY SECTION NUMBER, not by
+                # list position. The model legitimately returns more than
+                # one object for a section that contains several distinct
+                # provisions -- section 44 ("Amendments to certain Acts")
+                # amends the TRAI, IT and RTI Acts and comes back split
+                # into its constituent amendments. The old strict
+                # `len(parsed) != len(batch)` check treated that as a
+                # protocol error, retried the identical prompt three times,
+                # and dropped both sections in the batch.
+                wanted = [str(sec.get("section")) for sec in batch]
+                by_section = {}
+                for item in parsed:
+                    key = str(item.get("section"))
+                    # First object wins: for a split section the first
+                    # carries the section's own title and lead provision.
+                    by_section.setdefault(key, item)
+
+                missing = [s for s in wanted if s not in by_section]
+                if missing:
                     raise ValueError(
-                        f"Extractor returned {len(parsed)} results for {len(batch)} sections"
+                        f"Extractor returned no result for section(s) "
+                        f"{missing} (got {sorted(by_section)} for a batch of "
+                        f"{len(batch)})"
                     )
-                _validate_taxonomy(parsed)
-                return parsed
+
+                ordered = [by_section[s] for s in wanted]
+                if len(parsed) != len(batch):
+                    logger.info(
+                        "Extractor returned %d objects for %d sections; "
+                        "matched by section number (%s). Extra objects are "
+                        "sub-provisions of a multi-part section.",
+                        len(parsed),
+                        len(batch),
+                        wanted,
+                    )
+                _validate_taxonomy(ordered)
+                return ordered
 
             except Exception as exc:
                 last_error = exc

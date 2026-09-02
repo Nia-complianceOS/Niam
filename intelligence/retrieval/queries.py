@@ -111,16 +111,47 @@ RETURN DISTINCT c.clause_id AS clause_id, c.section AS section,
 ORDER BY c.effective_from, toInteger(c.section)
 """
 
+# --- provenance behind a collected data type / an egress ------------------
+# The `sources` array on COLLECTS / SENT_TO is the only record of WHERE in
+# the code a data type was seen, and (since the scanner started resolving
+# refs to commits) WHICH commit it was seen at. The reconciler reads it so
+# a :Gap can carry a real source commit instead of none -- which is what
+# gives open-pr a target repository and the audit trail something to cite.
+# Entries are JSON strings; parse them caller-side.
+
+PROVENANCE_FOR_COLLECTION = """
+MATCH (s:System {name: $system_name})-[r:COLLECTS]->(d:DataType {name: $data_type})
+RETURN coalesce(r.sources, []) AS sources
+"""
+
+PROVENANCE_FOR_EGRESS = """
+MATCH (d:DataType {name: $data_type})-[r:SENT_TO]->(v:Vendor {name: $vendor})
+RETURN coalesce(r.sources, []) AS sources
+"""
+
 # --- lightweight graph health-check / dashboard summary ------------------
 
+# Each count is an independent subquery on purpose. The previous version
+# chained plain MATCHes -- MATCH (s:System) WITH ... MATCH (d:DataType) --
+# where only the FIRST aggregation is safe over an empty label. From the
+# second MATCH on there is a grouping key, so zero rows in means zero rows
+# out: a single empty label (no DPDPClause nodes before the Act is loaded,
+# say) made the WHOLE query return nothing, and callers reported "Graph
+# unreachable" while Neo4j was perfectly healthy. A legitimately empty
+# graph must read as zeros, not as an outage.
+#
+# COUNT {} subquery expressions (Neo4j 5.5+) rather than CALL {} scoped
+# subqueries (which need 5.23+ for the CALL () form) -- this has to run on
+# whatever 5.x the local container pulled as well as on Aura.
 GRAPH_SUMMARY = """
-MATCH (s:System) WITH count(s) AS systems
-MATCH (d:DataType) WITH systems, count(d) AS data_types
-MATCH (v:Vendor) WITH systems, data_types, count(v) AS vendors
-MATCH (c:DPDPClause) WITH systems, data_types, vendors, count(c) AS clauses
-OPTIONAL MATCH (c2:DPDPClause) WHERE c2.status = 'in_force'
-WITH systems, data_types, vendors, clauses, count(c2) AS in_force_clauses
-OPTIONAL MATCH (d2:DataType) WHERE NOT (d2)-[:GOVERNED_BY]->(:DPDPClause)
-RETURN systems, data_types, vendors, clauses, in_force_clauses,
-       count(d2) AS data_types_with_no_clause
+RETURN
+  COUNT { MATCH (s:System) }     AS systems,
+  COUNT { MATCH (d:DataType) }   AS data_types,
+  COUNT { MATCH (v:Vendor) }     AS vendors,
+  COUNT { MATCH (c:DPDPClause) } AS clauses,
+  COUNT { MATCH (c:DPDPClause) WHERE c.status = 'in_force' }
+        AS in_force_clauses,
+  COUNT { MATCH (d:DataType)
+          WHERE NOT (d)-[:GOVERNED_BY]->(:DPDPClause) }
+        AS data_types_with_no_clause
 """

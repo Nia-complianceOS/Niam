@@ -78,6 +78,14 @@ def normalize_classifier_record(record) -> dict:
         "confidence": float(record["confidence"]),
         "repo": record.get("repo"),
         "commit_sha": record.get("commit_sha"),
+        # Resolved by GitHubScanner.resolve_commit() and stamped onto every
+        # candidate. Carried through provenance so the reconciler can put a
+        # real commit on a :Gap without going back to GitHub -- which is
+        # what gives open-pr a target repo and the audit trail a source.
+        "commit_message": record.get("commit_message"),
+        "commit_author": record.get("commit_author"),
+        "commit_branch": record.get("commit_branch"),
+        "commit_committed_at": record.get("commit_committed_at"),
         "detected_at": detected_at,
     }
     # Neo4j rejects maps/objects as property values — only primitives and
@@ -91,9 +99,22 @@ def normalize_classifier_record(record) -> dict:
             "line": result["line_number"],
             "repo": result["repo"],
             "commit_sha": result["commit_sha"],
+            "commit_message": result["commit_message"],
+            "commit_author": result["commit_author"],
+            "commit_branch": result["commit_branch"],
+            "commit_committed_at": result["commit_committed_at"],
             "confidence": result["confidence"],
             "detected_at": detected_at,
         }
+    )
+    # Identity of this observation, WITHOUT detected_at. edge_builder
+    # dedupes on this. The JSON above can never be compared directly
+    # because it carries a fresh timestamp on every run, which is exactly
+    # why re-scanning the same repo used to append a duplicate provenance
+    # entry to every edge, forever.
+    result["source_key"] = (
+        f"code|{result['file_path']}|{result['line_number']}"
+        f"|{result['commit_sha']}"
     )
     return result
 
@@ -127,6 +148,10 @@ def normalize_vendor_field_record(record: dict) -> dict:
             "field_path": result["field_path"],
             "detected_at": detected_at,
         }
+    )
+    result["source_key"] = (
+        f"vendor|{result['vendor']}|{result['event_type']}"
+        f"|{result['field_path']}"
     )
     return result
 

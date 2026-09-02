@@ -114,11 +114,13 @@ def main():
         print("Nothing left to write.")
         return
 
-    # scan_repo_remote() doesn't stamp repo/commit_sha onto candidates —
-    # add them here so provenance in the graph shows which repo this came from.
-    for c in confirmed:
-        c.setdefault("repo", args.repo)
-        c.setdefault("commit_sha", args.ref)
+    # Provenance is stamped inside scan_repo_remote() now, from a resolved
+    # commit -- repo, sha, message, author, branch and date. This used to
+    # be done here instead, and set commit_sha to whatever was passed as
+    # --ref, so a scan of "main" recorded the literal string "main" as its
+    # commit. Worse, doing it here meant the OTHER caller
+    # (app/services/scan_service.py, behind the Scan button) stamped
+    # nothing at all.
 
     kwargs = {"system_name": args.system} if args.system else {}
     writer = GraphWriter(**kwargs)

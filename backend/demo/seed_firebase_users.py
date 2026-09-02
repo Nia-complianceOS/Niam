@@ -15,7 +15,11 @@ from dotenv import load_dotenv, find_dotenv
 from firebase_admin import auth, credentials
 
 load_dotenv(
-    os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True))
+    # NIAM_ENV_PATH is the current name; NIA_ENV_PATH is still honoured so
+    # this keeps working whether or not backend/.env has been updated.
+    os.getenv("NIAM_ENV_PATH")
+    or os.getenv("NIA_ENV_PATH")
+    or find_dotenv("../backend/.env", usecwd=True)
 )
 
 FAKE_USERS = [
@@ -46,7 +50,7 @@ def main():
         raise SystemExit("FIREBASE_SERVICE_ACCOUNT_PATH not set in .env")
 
     cred = credentials.Certificate(path)
-    app = firebase_admin.initialize_app(cred, name="nia-seed-script")
+    app = firebase_admin.initialize_app(cred, name="niam-seed-script")
 
     created, skipped = 0, 0
     for u in FAKE_USERS:

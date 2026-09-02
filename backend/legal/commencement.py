@@ -91,6 +91,43 @@ TRANCHE_3_SECTIONS = {
 # than being placed in a single tranche set.
 
 
+# --- which sections actually oblige a Data Fiduciary -------------------
+#
+# Commencement is not the only question this module has to answer. The
+# reconciler needs to know whether a clause imposes a DATA-HANDLING DUTY
+# at all, because "is this data type governed?" was being answered by
+# counting any in-force clause -- and the only sections in force today
+# are ss.36 and 37, the Central Government's powers to call for
+# information and to issue directions. Those bind the regulator, not the
+# fiduciary. Counting them as coverage marked every data type in the
+# graph as governed and silenced the gap engine completely.
+#
+# Defined POSITIVELY, as the substantive duties in Chapters II and III:
+# grounds for processing (3-5), consent and consent managers (6),
+# legitimate uses (7), general obligations of a Data Fiduciary (8),
+# children's data (9), Significant Data Fiduciaries (10), the rights of
+# a Data Principal that a fiduciary must honour (11-14), duties of a
+# Data Principal (15), cross-border transfer (16) and the exemptions
+# that qualify all of the above (17).
+#
+# A positive set on purpose: a section number nobody has classified
+# falls OUTSIDE it and therefore does not close a gap. For a compliance
+# tool, an unrecognised clause should leave a finding standing for a
+# human to dismiss, never quietly clear one.
+FIDUCIARY_OBLIGATION_SECTIONS = {str(n) for n in range(3, 18)}
+
+
+def imposes_data_obligation(section: str) -> bool:
+    """True if this section places a data-handling duty on a fiduciary.
+
+    Everything else in the Act -- definitions (1-2), the Data Protection
+    Board's constitution and procedure (18-28), appeals and penalties
+    (29-34), and the Government's own powers (35-44) -- matters, but not
+    as an answer to "is this data type covered?".
+    """
+    return str(section).strip() in FIDUCIARY_OBLIGATION_SECTIONS
+
+
 def status_for_section(section: str, as_of: date = None) -> dict:
     """
     Returns {"effective_from": "YYYY-MM-DD" | None, "status": str} for a

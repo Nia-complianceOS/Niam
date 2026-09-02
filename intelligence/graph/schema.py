@@ -67,7 +67,13 @@ DATA_TYPE_TAXONOMY = {
     "other_personal_data",
 }
 
-DEFAULT_SYSTEM_NAME = "nia-demo-system"  # single-system default for Track 1;
+# F3 (ACTION_PLAN.md). This is a graph KEY, not a label: MERGE (s:System
+# {name: ...}) on a new value creates a SECOND :System node and orphans
+# every COLLECTS edge hanging off the old one. Renaming it therefore
+# requires either a migration Cypher on the existing graph or one fresh
+# scan -- a re-scan was chosen, so delete the old :System node before the
+# next scan or you will have two.
+DEFAULT_SYSTEM_NAME = "niam-demo-system"  # single-system default for Track 1;
 # multi-repo/system support is not
 # needed until Track 1 scope expands
 

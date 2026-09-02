@@ -38,6 +38,11 @@ def main():
         default=0.0,
         help="drop data-governing sections below this confidence before writing (default: 0.0, keep all)",
     )
+    parser.add_argument(
+        "--url",
+        default=None,
+        help="override the Act PDF source URL (default: try DPDP_ACT_PDF_URLS in order)",
+    )
     args = parser.parse_args()
 
     cache_dir = Path(__file__).parent / ".cache"
@@ -50,9 +55,9 @@ def main():
             extracted = json.load(f)
 
     if not extracted:
-        print("Fetching the DPDP Act 2023 from India Code...")
+        print("Fetching the DPDP Act 2023...")
         try:
-            act_text = fetch_act_text()
+            act_text = fetch_act_text(url=args.url)
             sections = split_into_sections(act_text)
         except Exception as exc:
             print(f"Failed to fetch/parse the Act: {exc}")

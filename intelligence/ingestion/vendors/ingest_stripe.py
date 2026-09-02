@@ -12,7 +12,7 @@ import argparse
 import logging
 
 from ingestion.vendors.stripe import StripeIngestion
-from ingestion.vendors.mapper import map_fields_to_data_types
+from ingestion.vendors.stripe_mapper import map_fields_to_data_types
 
 logging.basicConfig(
     level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"

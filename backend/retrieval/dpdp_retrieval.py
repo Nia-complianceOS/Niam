@@ -46,6 +46,38 @@ class DPDPRetriever:
     # any of your actually-collected, specifically-named data types.
     GENERAL_DATA_TYPE = "other_personal_data"
 
+    # How a clause reaches a data type. Both are real coverage; they are
+    # not the same claim, and flattening them is why this graph could not
+    # answer "which clause governs credit_card specifically?" -- every
+    # data type came back with an identical list.
+    #
+    #   "specific" -- the extractor tagged this clause with THIS data
+    #                 type by name (s.9 and children's data, say).
+    #   "general"  -- the clause applies to all personal data, so it
+    #                 applies here too. Most of the DPDP Act is like
+    #                 this: notice, consent, rights and cross-border
+    #                 transfer are written about personal data as such,
+    #                 not about categories of it. That is a property of
+    #                 the Act, not a weakness in the extraction -- but a
+    #                 tool that cannot say which it is sounds like it is
+    #                 guessing.
+    APPLIES_SPECIFIC = "specific"
+    APPLIES_GENERAL = "general"
+
+    @staticmethod
+    def _as_clause(record, applies_via: str) -> dict:
+        """One clause as a plain dict, tagged with how it applies.
+
+        Also normalises shape: CLAUSES_FOR_SYSTEM returns whole :DPDPClause
+        nodes via collect(), CLAUSES_FOR_DATA_TYPE returns aliased columns,
+        and callers were left handling both (json.dumps cannot serialise a
+        Node at all, which quietly broke `query_cli for-system` without
+        --summary).
+        """
+        clause = dict(record)
+        clause["applies_via"] = applies_via
+        return clause
+
     def clauses_for_data_type(
         self,
         data_type: str,
@@ -73,10 +105,13 @@ class DPDPRetriever:
                 f"{data_type!r} is not in DATA_TYPE_TAXONOMY — check for a typo, "
                 f"or schema.py/classifier.py's taxonomy may be out of sync."
             )
-        rows = self.client.run_read(
-            CLAUSES_FOR_DATA_TYPE,
-            {"data_type": data_type, "include_upcoming": include_upcoming},
-        )
+        rows = [
+            self._as_clause(r, self.APPLIES_SPECIFIC)
+            for r in self.client.run_read(
+                CLAUSES_FOR_DATA_TYPE,
+                {"data_type": data_type, "include_upcoming": include_upcoming},
+            )
+        ]
 
         if include_general and data_type != self.GENERAL_DATA_TYPE:
             general_rows = self.client.run_read(
@@ -86,9 +121,14 @@ class DPDPRetriever:
                     "include_upcoming": include_upcoming,
                 },
             )
+            # A clause that named this data type explicitly stays
+            # "specific" even though it is also generally applicable --
+            # the stronger claim wins.
             seen = {r["clause_id"] for r in rows}
             rows = rows + [
-                r for r in general_rows if r["clause_id"] not in seen
+                self._as_clause(r, self.APPLIES_GENERAL)
+                for r in general_rows
+                if r["clause_id"] not in seen
             ]
             rows.sort(key=lambda r: int(r["section"]))
 
@@ -124,7 +164,9 @@ class DPDPRetriever:
         result = {}
         for row in rows:
             clauses = [c for c in (row.get("clauses") or []) if c]
-            result[row["data_type"]] = clauses
+            result[row["data_type"]] = [
+                self._as_clause(c, self.APPLIES_SPECIFIC) for c in clauses
+            ]
 
         if include_general:
             general_clauses = self.clauses_for_data_type(
@@ -137,7 +179,9 @@ class DPDPRetriever:
                     continue
                 seen = {c["clause_id"] for c in clauses}
                 result[data_type] = clauses + [
-                    c for c in general_clauses if c["clause_id"] not in seen
+                    self._as_clause(c, self.APPLIES_GENERAL)
+                    for c in general_clauses
+                    if c["clause_id"] not in seen
                 ]
                 result[data_type].sort(key=lambda c: int(c["section"]))
 

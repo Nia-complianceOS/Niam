@@ -1,5 +1,5 @@
 """
-Run this against your own Nia repo (per the onboarding doc's Week 1-2
+Run this against your own Niam repo (per the onboarding doc's Week 1-2
 instructions) to sanity-check the scanner end to end.
 
     python -m ingestion.github.example_usage /path/to/repo <since_commit>

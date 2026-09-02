@@ -41,7 +41,8 @@ SKIP_DIR_NAMES = {
     ".git",
     "node_modules",
     "venv",
-    "nia_env",
+    "niam_env",
+    "nia_env",  # pre-rename venv name; harmless to keep skipping
     "__pycache__",
     "dist",
     "build",
@@ -159,8 +160,67 @@ class GitHubScanner:
 
     # ---------- remote (GitHub API) scan ----------
 
+    def resolve_commit(self, ref: str = "main") -> dict:
+        """Resolve a ref (branch, tag or sha) to the commit it points at.
+
+        One API call, and it is what makes provenance in the graph real.
+        Before this existed, `commit_sha` was set by the CLI to whatever
+        the user typed as --ref -- so a graph scanned at "main" recorded
+        the literal string "main" as its commit, and the API scan path
+        (scan_service.run_scan) never set repo or commit_sha at all. A
+        :Gap could therefore never carry a source commit, which is why
+        open-pr had no target and the dashboard's remediation panel could
+        not be reached.
+
+        Returns the shape node_builder/reconciler expect. `branch` echoes
+        the ref that was asked for, which is only meaningful when the ref
+        WAS a branch -- it is provenance about the request, not a claim
+        the commit is the branch head today.
+        """
+        if not self.repo_full_name:
+            raise ValueError("resolve_commit requires repo_full_name.")
+        headers = github_headers(self.github_token)
+        owner, repo = self.repo_full_name.split("/", 1)
+
+        url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/commits/{ref}"
+        resp = requests.get(url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        payload = resp.json()
+
+        commit = payload.get("commit") or {}
+        author = commit.get("author") or {}
+        # The GitHub account, when the commit is linked to one; otherwise
+        # the name from the commit object itself. Never invented.
+        login = (payload.get("author") or {}).get("login")
+
+        return {
+            "repo": self.repo_full_name,
+            "commit_sha": payload.get("sha") or ref,
+            "commit_message": (commit.get("message") or "").split("\n")[0],
+            "commit_author": login or author.get("name") or "unknown",
+            "commit_branch": ref,
+            "commit_committed_at": author.get("date") or "",
+        }
+
+    @staticmethod
+    def _stamp_provenance(records: List[dict], commit: dict) -> List[dict]:
+        """Attach the resolved commit to every candidate.
+
+        Done here rather than in the callers because BOTH callers need it
+        and only one of them ever did it: graph/run_scan_and_write.py
+        stamped repo/ref by hand, and app/services/scan_service.py -- the
+        path behind the Scan button in the UI -- did not.
+        """
+        for record in records:
+            for key, value in commit.items():
+                record.setdefault(key, value)
+        return records
+
     def scan_repo_remote(
-        self, ref: str = "main", classify: bool = True
+        self,
+        ref: str = "main",
+        classify: bool = True,
+        max_file_bytes: int = 200_000,
     ) -> List[dict]:
         """Same as scan_repo(), but pulls file contents via the GitHub
         API instead of reading a local clone."""
@@ -169,12 +229,21 @@ class GitHubScanner:
         headers = github_headers(self.github_token)
         owner, repo = self.repo_full_name.split("/", 1)
 
-        tree_url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git/trees/{ref}?recursive=1"
+        # Resolve first, then read the tree AT THE RESOLVED SHA. Reading
+        # the tree at a branch name and recording the sha separately would
+        # let a push land between the two calls and produce provenance
+        # that points at code we never actually read.
+        commit = self.resolve_commit(ref)
+        tree_ref = commit["commit_sha"]
+        logger.info("Scanning %s at %s", self.repo_full_name, tree_ref[:12])
+
+        tree_url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git/trees/{tree_ref}?recursive=1"
         resp = requests.get(tree_url, headers=headers, timeout=30)
         resp.raise_for_status()
         tree = resp.json().get("tree", [])
 
         all_candidates = []
+        skipped_large = 0
         for entry in tree:
             if entry["type"] != "blob":
                 continue
@@ -182,6 +251,15 @@ class GitHubScanner:
             if Path(path).suffix not in CODE_FILE_EXTENSIONS:
                 continue
             if SKIP_DIR_NAMES & set(Path(path).parts):
+                continue
+
+            # The local scanner has capped file size since it was written;
+            # this one did not, so a single vendored bundle or checked-in
+            # dataset could pull megabytes through the API and into the
+            # keyword pre-filter. The tree listing already carries `size`,
+            # so this costs no extra request.
+            if (entry.get("size") or 0) > max_file_bytes:
+                skipped_large += 1
                 continue
 
             blob_url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git/blobs/{entry['sha']}"
@@ -201,6 +279,12 @@ class GitHubScanner:
 
             all_candidates.extend(find_candidate_lines_in_file(path, content))
 
+        if skipped_large:
+            logger.info(
+                "Skipped %d file(s) larger than %d bytes",
+                skipped_large,
+                max_file_bytes,
+            )
         logger.info(
             "Stage 1: %d candidate lines across remote repo",
             len(all_candidates),
@@ -208,9 +292,13 @@ class GitHubScanner:
         if not all_candidates:
             return []
         if not classify:
-            return [c.to_dict() for c in all_candidates]
+            return self._stamp_provenance(
+                [c.to_dict() for c in all_candidates], commit
+            )
 
-        return self._classify_and_log(all_candidates)
+        return self._stamp_provenance(
+            self._classify_and_log(all_candidates), commit
+        )
 
     # ---------- shared ----------
 

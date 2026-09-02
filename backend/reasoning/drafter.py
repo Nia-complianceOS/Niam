@@ -21,7 +21,11 @@ from retrieval.dpdp_retrieval import DPDPRetriever
 from reasoning.verifier import verify_remediation
 
 load_dotenv(
-    os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True))
+    # NIAM_ENV_PATH is the current name; NIA_ENV_PATH is still honoured so
+    # this keeps working whether or not backend/.env has been updated.
+    os.getenv("NIAM_ENV_PATH")
+    or os.getenv("NIA_ENV_PATH")
+    or find_dotenv("../backend/.env", usecwd=True)
 )
 logger = logging.getLogger(__name__)
 
@@ -72,7 +76,11 @@ ON CREATE SET rd.section_title = $section_title,
               rd.confidence_score = $confidence_score,
               rd.rationale = $rationale,
               rd.status = $status,
-              rd.verification_reasons = $verification_reasons
+              rd.verification_reasons = $verification_reasons,
+              // "violation" | "future_obligation" | "unverified" -- see
+              // reasoning/verifier.py. A draft can be verified AND a
+              // future obligation; the UI needs both to say so.
+              rd.classification = $classification
 MERGE (g)-[:HAS_DRAFT {order: 0}]->(rd)
 """
 
@@ -211,6 +219,7 @@ class RemediationDrafter:
             "confidence_score": float(draft.get("confidence_score", 0.0)),
             "status": "verified" if verif["verified"] else "needs_review",
             "verification_reasons": verif["reasons"],
+            "classification": verif.get("classification", "unverified"),
         }
 
         self.neo4j_client.run_write(_QUERY_WRITE_DRAFT, params)

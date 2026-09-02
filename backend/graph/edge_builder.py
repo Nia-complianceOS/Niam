@@ -22,6 +22,22 @@ unchanged repo/vendor schema is a no-op rather than a duplicate-node
 factory. Where a given (System, DataType) pair is detected at multiple
 call sites, the relationship is merged once and provenance is appended
 to `sources` rather than creating parallel edges.
+
+DEDUPE: appending to `sources` used to be unconditional, so scanning the
+same repo five times left five identical copies of every provenance
+record on every edge -- unbounded growth against an AuraDB Free node/
+property budget, and a `sources` array that got slower to parse on every
+run. The entries cannot be compared directly because each carries its own
+`detected_at`, so node_builder.py also emits a `source_key` -- the same
+observation without the timestamp (origin|file|line|commit_sha for code,
+origin|vendor|event_type|field_path for vendor ingestion) -- and it is
+kept alongside in a parallel `source_keys` array. An entry whose key is
+already present is not appended again.
+
+Note for edges written before this change: they have `sources` but no
+`source_keys`, so the first run after upgrading appends one more entry
+and seeds the key array. Every run after that is stable. If you would
+rather start clean, re-scan into an empty graph.
 """
 
 from graph.schema import (
@@ -39,8 +55,15 @@ UNWIND $rows AS row
 MERGE (s:{LABEL_SYSTEM} {{name: row.system}})
 MERGE (d:{LABEL_DATA_TYPE} {{name: row.data_type}})
 MERGE (s)-[r:{REL_COLLECTS}]->(d)
-ON CREATE SET r.sources = [row.source_json]
-ON MATCH SET r.sources = r.sources + [row.source_json]
+ON CREATE SET r.sources = [row.source_json],
+              r.source_keys = [row.source_key]
+ON MATCH SET
+  r.sources = CASE WHEN row.source_key IN coalesce(r.source_keys, [])
+                   THEN r.sources
+                   ELSE coalesce(r.sources, []) + [row.source_json] END,
+  r.source_keys = CASE WHEN row.source_key IN coalesce(r.source_keys, [])
+                       THEN r.source_keys
+                       ELSE coalesce(r.source_keys, []) + [row.source_key] END
 """
 
 # --- SENT_TO: DataType -> Vendor, from code-scan output ------------------
@@ -50,8 +73,15 @@ UNWIND $rows AS row
 MERGE (d:{LABEL_DATA_TYPE} {{name: row.data_type}})
 MERGE (v:{LABEL_VENDOR} {{name: row.vendor}})
 MERGE (d)-[r:{REL_SENT_TO}]->(v)
-ON CREATE SET r.sources = [row.source_json]
-ON MATCH SET r.sources = r.sources + [row.source_json]
+ON CREATE SET r.sources = [row.source_json],
+              r.source_keys = [row.source_key]
+ON MATCH SET
+  r.sources = CASE WHEN row.source_key IN coalesce(r.source_keys, [])
+                   THEN r.sources
+                   ELSE coalesce(r.sources, []) + [row.source_json] END,
+  r.source_keys = CASE WHEN row.source_key IN coalesce(r.source_keys, [])
+                       THEN r.source_keys
+                       ELSE coalesce(r.source_keys, []) + [row.source_key] END
 """
 
 # --- COLLECTS + SENT_TO from vendor ingestion (Mixpanel, Firebase, etc.) -
@@ -61,8 +91,15 @@ UNWIND $rows AS row
 MERGE (s:{LABEL_SYSTEM} {{name: row.system}})
 MERGE (d:{LABEL_DATA_TYPE} {{name: row.data_type}})
 MERGE (s)-[r:{REL_COLLECTS}]->(d)
-ON CREATE SET r.sources = [row.source_json]
-ON MATCH SET r.sources = r.sources + [row.source_json]
+ON CREATE SET r.sources = [row.source_json],
+              r.source_keys = [row.source_key]
+ON MATCH SET
+  r.sources = CASE WHEN row.source_key IN coalesce(r.source_keys, [])
+                   THEN r.sources
+                   ELSE coalesce(r.sources, []) + [row.source_json] END,
+  r.source_keys = CASE WHEN row.source_key IN coalesce(r.source_keys, [])
+                       THEN r.source_keys
+                       ELSE coalesce(r.source_keys, []) + [row.source_key] END
 """
 
 MERGE_SENT_TO_FROM_VENDOR = f"""
@@ -70,8 +107,15 @@ UNWIND $rows AS row
 MERGE (d:{LABEL_DATA_TYPE} {{name: row.data_type}})
 MERGE (v:{LABEL_VENDOR} {{name: row.vendor}})
 MERGE (d)-[r:{REL_SENT_TO}]->(v)
-ON CREATE SET r.sources = [row.source_json]
-ON MATCH SET r.sources = r.sources + [row.source_json]
+ON CREATE SET r.sources = [row.source_json],
+              r.source_keys = [row.source_key]
+ON MATCH SET
+  r.sources = CASE WHEN row.source_key IN coalesce(r.source_keys, [])
+                   THEN r.sources
+                   ELSE coalesce(r.sources, []) + [row.source_json] END,
+  r.source_keys = CASE WHEN row.source_key IN coalesce(r.source_keys, [])
+                       THEN r.source_keys
+                       ELSE coalesce(r.source_keys, []) + [row.source_key] END
 """
 
 # --- GOVERNED_BY: DataType -> DPDPClause, from the DPDP clause loader ----

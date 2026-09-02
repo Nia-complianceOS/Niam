@@ -21,7 +21,11 @@ from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable
 
 load_dotenv(
-    os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True))
+    # NIAM_ENV_PATH is the current name; NIA_ENV_PATH is still honoured so
+    # this keeps working whether or not backend/.env has been updated.
+    os.getenv("NIAM_ENV_PATH")
+    or os.getenv("NIA_ENV_PATH")
+    or find_dotenv("../backend/.env", usecwd=True)
 )
 
 logger = logging.getLogger(__name__)

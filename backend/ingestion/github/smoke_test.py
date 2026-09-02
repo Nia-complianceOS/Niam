@@ -3,7 +3,7 @@ Standalone smoke test for classifier.py — isolates the Gemini call
 from everything else so a failure here means "API setup problem",
 not "scanner logic problem".
 
-Run from the nia/ project root:
+Run from the niam/ project root:
     python -m ingestion.github.smoke_test
 
 Requires: pip install google-genai python-dotenv

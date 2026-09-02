@@ -25,7 +25,11 @@ from dotenv import load_dotenv, find_dotenv
 from .utils import get_logger
 
 load_dotenv(
-    os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True))
+    # NIAM_ENV_PATH is the current name; NIA_ENV_PATH is still honoured so
+    # this keeps working whether or not backend/.env has been updated.
+    os.getenv("NIAM_ENV_PATH")
+    or os.getenv("NIA_ENV_PATH")
+    or find_dotenv("../backend/.env", usecwd=True)
 )
 logger = get_logger(__name__)
 
@@ -112,10 +116,14 @@ match:
     + ", ".join(ALLOWED_DATA_TYPES)
     + """
 
-Respond with ONLY a JSON array, one object per input snippet, in the same order, \
-with exactly this shape:
+Each input snippet is prefixed with its number ("0. ", "1. ", ...). Respond with \
+ONLY a JSON array containing EXACTLY ONE object per input snippet, and echo that \
+snippet's number back in the "i" field so results can be matched even if the order \
+changes. Never merge two snippets into one object, never split one snippet across \
+two objects. Shape:
 [
   {
+    "i": 0,
     "is_data_handling": true,
     "data_type": "email",
     "vendor": "Stripe",
@@ -282,16 +290,58 @@ class DataHandlingClassifier:
                 )
                 raw = (response.text or "").strip()
                 parsed = json.loads(raw)
-                if len(parsed) != len(batch):
-                    # Retryable, same as a 429/503 — a second attempt usually
-                    # gets the model to return the right count. Only pad with
-                    # fallbacks if we're out of retries (handled below).
+
+                # Match results back to candidates by the echoed "i" index,
+                # not by list position. The model occasionally returns
+                # fewer objects than snippets (merging two adjacent lines,
+                # or skipping one it considers uninteresting). The old
+                # strict length check treated that as a protocol error and,
+                # after three identical retries, threw away the ENTIRE
+                # batch -- eight candidates lost because of one.
+                by_index = {}
+                for item in parsed:
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        by_index.setdefault(int(item.get("i")), item)
+                    except (TypeError, ValueError):
+                        continue
+
+                # Fall back to positional matching only when the model
+                # ignored "i" entirely AND returned the right count --
+                # i.e. an older-style well-formed response.
+                if not by_index and len(parsed) == len(batch):
+                    by_index = dict(enumerate(parsed))
+
+                matched = [by_index.get(i) for i in range(len(batch))]
+                missing = [i for i, m in enumerate(matched) if m is None]
+
+                if len(missing) == len(batch):
+                    # Nothing usable at all -- worth a retry.
                     raise ValueError(
-                        f"Classifier returned {len(parsed)} results for {len(batch)} candidates"
+                        f"Classifier returned {len(parsed)} unusable results "
+                        f"for {len(batch)} candidates"
                     )
-                # raises ValueError -> retry, same as above
-                _validate_taxonomy(parsed)
-                return parsed
+
+                _validate_taxonomy([m for m in matched if m is not None])
+
+                if missing:
+                    # Salvage: keep what came back, mark only the gaps for
+                    # review. One unclassified line should cost one line.
+                    logger.warning(
+                        "Classifier returned %d results for %d candidates; "
+                        "keeping %d matched, marking indices %s for manual "
+                        "review.",
+                        len(parsed),
+                        len(batch),
+                        len(batch) - len(missing),
+                        missing,
+                    )
+                    matched = [
+                        m if m is not None else self._fallback()
+                        for m in matched
+                    ]
+                return matched
 
             except Exception as exc:
                 last_error = exc

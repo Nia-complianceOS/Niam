@@ -41,7 +41,11 @@ from firebase_admin import auth as firebase_auth_module
 from firebase_admin import credentials
 
 load_dotenv(
-    os.getenv("NIA_ENV_PATH", find_dotenv("../backend/.env", usecwd=True))
+    # NIAM_ENV_PATH is the current name; NIA_ENV_PATH is still honoured so
+    # this keeps working whether or not backend/.env has been updated.
+    os.getenv("NIAM_ENV_PATH")
+    or os.getenv("NIA_ENV_PATH")
+    or find_dotenv("../backend/.env", usecwd=True)
 )
 
 logger = logging.getLogger(__name__)
@@ -53,7 +57,7 @@ class FirebaseAuthIngestion:
     def __init__(
         self,
         service_account_path: str = None,
-        app_name: str = "nia-firebase-auth",
+        app_name: str = "niam-firebase-auth",
     ):
         cred = self._load_credentials(service_account_path)
         try:
