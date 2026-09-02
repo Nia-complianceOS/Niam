@@ -38,11 +38,11 @@ const NAV_ITEMS: NavItem[] = [
 export function Sidebar() {
   const { user, logout } = useAuth()
   const [isCollapsed, setIsCollapsed] = useState(() => {
-    return localStorage.getItem('nia_sidebar_collapsed') === 'true'
+    return localStorage.getItem('niam_sidebar_collapsed') === 'true'
   })
 
   useEffect(() => {
-    localStorage.setItem('nia_sidebar_collapsed', String(isCollapsed))
+    localStorage.setItem('niam_sidebar_collapsed', String(isCollapsed))
   }, [isCollapsed])
 
   function navLinkClass(isActive: boolean): string {
@@ -66,7 +66,7 @@ export function Sidebar() {
         <div className="relative w-[26px] h-[26px] rounded-[7px] bg-grad-primary flex-shrink-0">
           <div className="absolute inset-1.5 rounded-sm bg-bg opacity-90" />
         </div>
-        {!isCollapsed && <div className="font-display font-bold text-[15.5px] tracking-wide whitespace-nowrap overflow-hidden">NIA</div>}
+        {!isCollapsed && <div className="font-display font-bold text-[15.5px] tracking-wide whitespace-nowrap overflow-hidden">Niam</div>}
       </div>
 
       <nav className="flex flex-col gap-0.5 flex-1 overflow-y-auto overflow-x-hidden no-scrollbar">
@@ -103,7 +103,10 @@ export function Sidebar() {
           {!isCollapsed && (
             <div className="flex flex-col leading-tight overflow-hidden flex-1">
               <b className="text-[12.5px] font-semibold truncate">{user?.name || 'Admin Workspace'}</b>
-              <span className="text-[11px] text-text-faint truncate">{user?.plan || 'Growth plan'}</span>
+              {/* No billing system exists, so no plan is displayed. This
+                  previously read "Growth plan" / "Free plan" -- invented at
+                  signup and shown as though it meant something. */}
+              <span className="text-[11px] text-text-faint truncate">{user?.email}</span>
             </div>
           )}
           

@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/Badge'
 import { LoadingState, ErrorState, EmptyState, PageHeader } from '@/components/shared/PageStates'
 import { useRepos } from '@/hooks/useRepos'
 import { useScan } from '@/hooks/useScan'
+import { ScanPanel } from '@/components/repositories/ScanPanel'
 
 function RepoItem({ repo }: { repo: any }) {
   const { status, logs, error, triggerScan } = useScan()
@@ -76,12 +77,15 @@ export default function Repositories() {
       <PageHeader
         eyebrow="Code Inventory"
         title="Repositories"
-        subtitle="Track the repos that feed your compliance signals and review activity."
+        subtitle="Scan a repository to map the personal data its code handles."
       />
+
+      <ScanPanel />
+
       {!data || data.repositories.length === 0 ? (
         <EmptyState
-          title="No repositories connected yet"
-          message="Connect a GitHub repository to start tracking compliance signals from your codebase."
+          title="No scan history yet"
+          message="Scan history is not stored yet, so previously scanned repositories are not listed here. Use the panel above to scan one now."
         />
       ) : (
         <div className="grid gap-3">

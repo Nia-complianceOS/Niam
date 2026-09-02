@@ -38,6 +38,11 @@ export interface GraphEdge {
 export interface GraphResponse {
   nodes: GraphNode[]
   edges: GraphEdge[]
+  // The node query is capped. These say how much of the graph you are
+  // looking at, so a bounded view never passes for the whole thing.
+  total_nodes: number
+  node_limit: number
+  truncated: boolean
   generated_at: string
 }
 
@@ -50,11 +55,21 @@ export interface RemediationDraft {
   diff_text: string | null
 }
 
+export type GapSeverity = 'high' | 'medium' | 'low'
+export type GapKind = 'ungoverned_egress' | 'future_obligation' | 'ungoverned_collection'
+
 export interface Gap {
   id: string
   title: string
   status: GapStatus
+  // Written by the reconciler, dropped by the API until now.
+  severity: GapSeverity | null
+  kind: GapKind | null
+  // "specific" when a clause names this data type, "general" when only
+  // the Act's all-personal-data obligations reach it.
+  coverage_basis: 'specific' | 'general' | 'none' | null
   source_commit: CommitRef | null
+  source_file: string | null
   vendor: string | null
   data_types: string[]
   affected_documents: string[]
@@ -67,8 +82,11 @@ export interface Gap {
 }
 
 export interface GapsResponse {
-  score: number
-  score_delta: number
+  // null when there is nothing to score (empty graph) or the graph could
+  // not be read -- render "not applicable", never a number.
+  score: number | null
+  // null until a previous score exists to compare against.
+  score_delta: number | null
   open_gap_count: number
   gaps: Gap[]
 }
@@ -98,7 +116,11 @@ export interface TimelineStep {
 export interface CommitActivity {
   commit: CommitRef
   has_compliance_impact: boolean
+  // Only the illustrative samples carry a diff stat; a commit rebuilt
+  // from :Gap provenance has no diff behind it.
   diff_stat: string
+  // Gaps that trace back to this commit. Real and countable.
+  gap_count: number
 }
 
 export interface DashboardSummaryResponse {
@@ -106,6 +128,9 @@ export interface DashboardSummaryResponse {
   timeline: TimelineStep[]
   recent_commits: CommitActivity[]
   synced_at: string
+  // true when timeline/recent_commits are illustrative samples rather
+  // than real events. Must be surfaced in the UI when set.
+  sample_panels: boolean
 }
 
 // --- repos.py -----------------------------------------------------------
@@ -129,11 +154,16 @@ export interface ReposResponse {
 export interface Vendor {
   id: string
   name: string
-  category: string
+  // null when the graph never recorded a category. Do not substitute a
+  // placeholder like "Third Party" -- that asserts something unknown.
+  category: string | null
   data_collected: string
   coverage_status: ComplianceStatus
   coverage_detail: string
+  // true ONLY when a vendor-API ingestion actually ran against this
+  // vendor. A name the code scanner spotted in source is not a connection.
   connection_active: boolean
+  discovered_via: 'vendor_api' | 'code_scan'
 }
 
 export interface VendorsResponse {
@@ -144,11 +174,18 @@ export interface VendorsResponse {
 
 export interface RegulationCoverage {
   code: RegulationCode
-  score_label: string
+  // null for a framework that is listed but not enabled -- the backend
+  // sends no score for those, and rendering the literal string "null" is
+  // worse than rendering nothing.
+  score_label: string | null
   enabled: boolean
   missing_requirements: string[]
   mapped_controls: string[]
   affected_systems: string[]
+  // Next tranche of the Act that has not commenced yet, from
+  // legal/commencement.py. null for frameworks with no schedule.
+  next_commencement_date: string | null
+  next_commencement_days: number | null
 }
 
 export interface RegulationsResponse {

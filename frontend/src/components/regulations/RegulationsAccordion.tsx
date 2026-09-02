@@ -3,8 +3,8 @@ import { ChevronDown } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import type { RegulationCoverage } from '@/types/api'
 
-function scoreColor(scoreLabel: string, enabled: boolean): string {
-  if (!enabled) return '#5e5e72'
+function scoreColor(scoreLabel: string | null, enabled: boolean): string {
+  if (!enabled || !scoreLabel) return '#5e5e72'
   const pct = parseInt(scoreLabel, 10)
   if (Number.isNaN(pct)) return '#5e5e72'
   if (pct >= 90) return '#33d17a'
@@ -25,7 +25,7 @@ function AccordionItem({ regulation }: { regulation: RegulationCoverage }) {
       >
         <div className="flex items-center gap-3.5">
           <div className="font-display text-xl font-bold" style={{ color }}>
-            {regulation.score_label}
+            {regulation.score_label ?? '—'}
           </div>
           <div className="text-[14.5px] font-semibold">{regulation.code}</div>
         </div>

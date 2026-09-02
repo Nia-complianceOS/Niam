@@ -40,8 +40,18 @@ export default function Graph() {
         <>
           <ComplianceGraphCanvas nodes={graph.nodes} edges={graph.edges} />
           <div className="text-text-faint text-[11px] font-mono mt-3">
-            {graph.nodes.length} nodes · {graph.edges.length} edges · generated {new Date(graph.generated_at).toLocaleString()}
+            {graph.truncated
+              ? `${graph.nodes.length} of ${graph.total_nodes} nodes (limit ${graph.node_limit})`
+              : `${graph.nodes.length} nodes`}{' '}
+            · {graph.edges.length} edges · generated{' '}
+            {new Date(graph.generated_at).toLocaleString()}
           </div>
+          {graph.truncated && (
+            <div className="text-accent-amber text-[11px] mt-1.5">
+              Showing a bounded slice of the graph. DPDP clause nodes are dropped first, so the
+              system → data type → vendor flow stays intact.
+            </div>
+          )}
         </>
       )}
     </div>

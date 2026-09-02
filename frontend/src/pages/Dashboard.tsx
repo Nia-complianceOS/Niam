@@ -70,14 +70,40 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <div className="grid grid-cols-[1.15fr_1fr] gap-4 mb-4 items-start">
-        <ComplianceTimeline steps={summary.timeline} />
-        <GitHubActivityFeed
-          commits={summary.recent_commits}
-          selectedSha={selectedCommitSha}
-          onSelect={selectCommit}
-        />
-      </div>
+      {/* These two panels have no real data source yet (no commit-history
+          store, no webhook event log), so the backend returns them empty
+          unless USE_MOCKS=true. When it does send samples, sample_panels
+          is set and we label them -- unlabelled fiction on the front page
+          is the fastest way to lose a reviewer's trust. */}
+      {(summary.timeline.length > 0 || summary.recent_commits.length > 0) && (
+        <div className="mb-4">
+          {summary.sample_panels && (
+            <div className="mb-2 inline-flex items-center gap-2 rounded-md border border-accent-amber/40 bg-accent-amber/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-accent-amber">
+              Sample data — not from your graph
+            </div>
+          )}
+          {/* The two panels have independent sources now -- the commit
+              feed is real whenever gaps carry provenance, the timeline is
+              samples-only -- so the layout has to survive either one being
+              absent rather than rendering an empty card beside a full one. */}
+          <div
+            className={
+              summary.timeline.length > 0 && summary.recent_commits.length > 0
+                ? 'grid grid-cols-[1.15fr_1fr] gap-4 items-start'
+                : 'grid grid-cols-1 gap-4 items-start'
+            }
+          >
+            {summary.timeline.length > 0 && <ComplianceTimeline steps={summary.timeline} />}
+            {summary.recent_commits.length > 0 && (
+              <GitHubActivityFeed
+                commits={summary.recent_commits}
+                selectedSha={selectedCommitSha}
+                onSelect={selectCommit}
+              />
+            )}
+          </div>
+        </div>
+      )}
 
       <ComplianceImpactPanel
         gap={selectedGap}

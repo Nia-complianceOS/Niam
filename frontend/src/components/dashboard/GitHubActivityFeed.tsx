@@ -10,8 +10,15 @@ interface Props {
 export function GitHubActivityFeed({ commits, selectedSha, onSelect }: Props) {
   return (
     <Card className="p-5">
-      <div className="font-display text-[15px] font-semibold mb-1">GitHub Activity</div>
-      <div className="text-xs text-text-faint mb-[18px]">{commits[0]?.commit.repo}</div>
+      <div className="font-display text-[15px] font-semibold mb-1">Commits with compliance impact</div>
+      {/* Not "GitHub Activity". This is not a git log -- there is no
+          commit-history store. It is the set of commits that produced at
+          least one gap, grouped from :Gap provenance, so a commit that
+          changed nothing relevant never appears. Naming it after what it
+          actually contains stops it reading as an incomplete feed. */}
+      <div className="text-xs text-text-faint mb-[18px]">
+        {commits[0]?.commit.repo || 'No commits have produced a gap yet'}
+      </div>
       <div>
         {commits.map((c) => {
           const isSelected = c.commit.sha === selectedSha
@@ -29,7 +36,13 @@ export function GitHubActivityFeed({ commits, selectedSha, onSelect }: Props) {
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-medium font-mono truncate">{c.commit.message}</div>
                 <div className="text-[11px] text-text-faint mt-0.5">
-                  {c.commit.sha} · {c.diff_stat}
+                  <span className="font-mono">{c.commit.sha.slice(0, 7)}</span>
+                  {c.commit.author ? ` · ${c.commit.author}` : ''}
+                  {c.gap_count > 0
+                    ? ` · ${c.gap_count} gap${c.gap_count === 1 ? '' : 's'}`
+                    : c.diff_stat
+                      ? ` · ${c.diff_stat}`
+                      : ''}
                 </div>
               </div>
               <span
