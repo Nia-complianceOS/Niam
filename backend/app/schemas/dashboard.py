@@ -25,7 +25,14 @@ class TimelineStep(BaseModel):
 class CommitActivity(BaseModel):
     commit: CommitRef
     has_compliance_impact: bool
-    diff_stat: str
+    # Lines added/removed. Only the illustrative samples have this -- a
+    # commit reconstructed from :Gap provenance carries no diff, and
+    # inventing one would be exactly the kind of plausible-looking detail
+    # this pass is removing.
+    diff_stat: str = ""
+    # How many gaps trace back to this commit. Real, countable, and what
+    # the feed shows in place of a diff stat.
+    gap_count: int = 0
 
 
 class DashboardSummaryResponse(BaseModel):
@@ -33,6 +40,14 @@ class DashboardSummaryResponse(BaseModel):
     timeline: List[TimelineStep]
     recent_commits: List[CommitActivity]
     synced_at: str
+
+    # True when `timeline` / `recent_commits` are illustrative sample data
+    # rather than anything that happened. The UI MUST label them when this
+    # is set. Previously these two panels were hardcoded fiction returned
+    # unconditionally -- not even behind USE_MOCKS -- so a fresh, empty
+    # instance still showed a developer pushing a Mixpanel commit to
+    # nova-labs/checkout-service.
+    sample_panels: bool = False
 
     @field_validator("synced_at", mode="before")
     @classmethod

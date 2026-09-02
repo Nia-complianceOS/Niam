@@ -1,31 +1,31 @@
 """
 Assembles the Dashboard page's stat cards, timeline, and commit feed.
 
-Partially wired to real Neo4j data: "Connected Vendors" now reflects
-the actual count of :Vendor nodes written by the Data & Graph
-Intelligence module's graph_writer.py. Everything else on this page
-(compliance score, drift count, open PR count, the reconciliation
-timeline, recent commit feed) stays mock data on purpose — none of it
-has a real backing data source in Neo4j yet:
+All five stat cards are live from Neo4j.
 
-  - Score/drift/open-gap-count need Gap or DPDPClause reconciliation
-    nodes, which app/intelligence/ doesn't populate yet (see
-    graph_service.py's module docstring for the same caveat).
-  - PR count needs real PyGithub wiring in github_service.py (still a
-    stub as of Phase 2).
-  - The timeline and commit feed need real GitHub webhook/commit
-    history storage, which doesn't exist yet either.
+The COMMIT FEED is now real too, and it is worth being precise about
+what "real" means here. There is still no commit-history store and no
+webhook event log. What there is, since the reconciler started writing
+source_commit_* onto :Gap nodes, is a record of the exact commit each
+gap was detected at -- so the feed is built by grouping gaps by their
+source commit. Every row therefore describes a commit we actually read,
+carrying a count of gaps that actually exist. Nothing is reconstructed
+or estimated: a commit that produced no gap does not appear, which makes
+this a compliance-impact feed rather than a git log, and the panel is
+labelled accordingly.
 
-Swap each of those in as their real data sources land — the response
-shape (DashboardSummaryResponse) doesn't need to change when that
-happens, only the function bodies below.
+The TIMELINE has no such source. A reconciliation timeline needs
+per-stage event history that nothing records, so it stays empty unless
+USE_MOCKS is on, and sample_panels then tells the UI to label it.
 """
 
 import logging
 from datetime import datetime, timedelta, timezone
 
+from app.core.config import get_settings
 from app.db.database import run_query
 from app.schemas.common import CommitRef
+from app.services.scoring import compliance_score
 from app.schemas.dashboard import (
     CommitActivity,
     DashboardSummaryResponse,
@@ -33,24 +33,70 @@ from app.schemas.dashboard import (
     TimelineStep,
 )
 
-logger = logging.getLogger("continuum.dashboard_service")
+logger = logging.getLogger("niam.dashboard_service")
 
 
 def _NOW():
     return datetime.now(timezone.utc)  # noqa: E731
 
 
-_QUERY_GRAPH_SUMMARY = """
-MATCH (s:System) WITH count(s) AS systems
-MATCH (d:DataType) WITH systems, count(d) AS data_types
-MATCH (v:Vendor) WITH systems, data_types, count(v) AS vendors
-MATCH (c:DPDPClause) WITH systems, data_types, vendors, count(c) AS clauses
-OPTIONAL MATCH (c2:DPDPClause) WHERE c2.status = 'in_force'
-WITH systems, data_types, vendors, clauses, count(c2) AS in_force_clauses
-OPTIONAL MATCH (d2:DataType) WHERE NOT (d2)-[:GOVERNED_BY]->(:DPDPClause)
-RETURN systems, data_types, vendors, clauses, in_force_clauses,
-       count(d2) AS data_types_with_no_clause
+# Imported, not duplicated. This Cypher used to exist verbatim in two
+# files that had to be kept in sync by hand; retrieval/queries.py is now
+# the single definition. The alias keeps the old module-level name so
+# gap_service.py's `from ...dashboard_service import _QUERY_GRAPH_SUMMARY`
+# import keeps working.
+from retrieval.queries import GRAPH_SUMMARY as _QUERY_GRAPH_SUMMARY
+
+
+# One row per commit that produced at least one gap. gaps[0] is safe --
+# every gap sharing a sha shares all six source_commit_* values, because
+# they are copied from the same provenance entry.
+_QUERY_RECENT_COMMITS = """
+MATCH (g:Gap) WHERE g.source_commit_sha IS NOT NULL
+WITH g.source_commit_sha AS sha, collect(g) AS gaps
+WITH sha, gaps[0] AS g, size(gaps) AS gap_count
+RETURN sha,
+       coalesce(g.source_commit_message, '') AS message,
+       coalesce(g.source_commit_author, 'unknown') AS author,
+       coalesce(g.source_commit_repo, '') AS repo,
+       coalesce(g.source_commit_branch, 'main') AS branch,
+       coalesce(g.source_commit_committed_at, '') AS committed_at,
+       gap_count
+ORDER BY committed_at DESC, sha
+LIMIT 8
 """
+
+
+def _live_recent_commits() -> list[CommitActivity]:
+    """Commits that produced gaps, newest first.
+
+    Returns an empty list -- not samples, not an exception -- when the
+    graph has no gaps carrying a commit. That is the honest state for a
+    fresh instance, and for any graph scanned before the reconciler
+    started recording provenance.
+    """
+    try:
+        rows = run_query(_QUERY_RECENT_COMMITS)
+    except RuntimeError as exc:
+        logger.warning("Could not read recent commits from Neo4j: %s", exc)
+        return []
+
+    return [
+        CommitActivity(
+            commit=CommitRef(
+                sha=row["sha"],
+                message=row["message"],
+                author=row["author"],
+                repo=row["repo"],
+                branch=row["branch"],
+                committed_at=row["committed_at"],
+            ),
+            # Every commit in this feed is here BECAUSE it produced a gap.
+            has_compliance_impact=True,
+            gap_count=row["gap_count"],
+        )
+        for row in rows
+    ]
 
 
 def _live_graph_summary() -> dict | None:
@@ -70,94 +116,12 @@ def _live_graph_summary() -> dict | None:
         return None
 
 
-def get_dashboard_summary() -> DashboardSummaryResponse:
-    now = _NOW()
+# ---------------------------------------------------------------------------
+# ILLUSTRATIVE SAMPLE DATA -- shown only when USE_MOCKS=true, and always
+# flagged to the UI via sample_panels. Nothing here describes a real event.
+# ---------------------------------------------------------------------------
 
-    summary = _live_graph_summary()
-
-    if summary is not None:
-        ungoverned = summary["data_types_with_no_clause"]
-        total = summary["data_types"]
-        score = round(100 * (1 - ungoverned / max(total, 1)))
-
-        score_card = StatCard(
-            label="Overall Compliance Score",
-            value=f"{score}%",
-            sub_label="Live from graph",
-            sub_tone="neutral",
-            score_explanation=f"Calculated as 100 * (1 - {ungoverned} ungoverned / {max(total, 1)} total)",
-        )
-        systems_card = StatCard(
-            label="Mapped Systems",
-            value=str(summary["systems"]),
-            sub_label=f"{summary['data_types']} data types mapped",
-            sub_tone="neutral",
-        )
-        clauses_card = StatCard(
-            label="In-Force Clauses",
-            value=str(summary["in_force_clauses"]),
-            sub_label=f"Out of {summary['clauses']} total",
-            sub_tone="neutral",
-        )
-        gaps_card = StatCard(
-            label="Coverage Gaps",
-            value=str(summary["data_types_with_no_clause"]),
-            sub_label="Ungoverned data types",
-            sub_tone=(
-                "warn"
-                if summary["data_types_with_no_clause"] > 0
-                else "neutral"
-            ),
-        )
-        vendor_card = StatCard(
-            label="Connected Vendors",
-            value=str(summary["vendors"]),
-            sub_label="Live from graph",
-            sub_tone="neutral",
-        )
-    else:
-        # Neo4j unreachable — degrade these cards rather than fail
-        # the entire dashboard endpoint over a single stat.
-        score_card = StatCard(
-            label="Overall Compliance Score",
-            value="—",
-            sub_label="Graph unreachable",
-            sub_tone="warn",
-        )
-        systems_card = StatCard(
-            label="Mapped Systems",
-            value="—",
-            sub_label="Graph unreachable",
-            sub_tone="warn",
-        )
-        clauses_card = StatCard(
-            label="In-Force Clauses",
-            value="—",
-            sub_label="Graph unreachable",
-            sub_tone="warn",
-        )
-        gaps_card = StatCard(
-            label="Coverage Gaps",
-            value="—",
-            sub_label="Graph unreachable",
-            sub_tone="warn",
-        )
-        vendor_card = StatCard(
-            label="Connected Vendors",
-            value="—",
-            sub_label="Graph unreachable",
-            sub_tone="warn",
-        )
-
-    return DashboardSummaryResponse(
-        stat_cards=[
-            score_card,
-            systems_card,
-            clauses_card,
-            gaps_card,
-            vendor_card,
-        ],
-        timeline=[
+_SAMPLE_TIMELINE = [
             TimelineStep(
                 title="Developer pushed commit",
                 meta="a3f92c1 · main · 2 hours ago",
@@ -187,8 +151,11 @@ def get_dashboard_summary() -> DashboardSummaryResponse:
                 tag="Not started",
                 tag_tone="wait",
             ),
-        ],
-        recent_commits=[
+]
+
+
+def _sample_commits(now):
+    return [
             CommitActivity(
                 commit=CommitRef(
                     sha="a3f92c1",
@@ -222,6 +189,124 @@ def get_dashboard_summary() -> DashboardSummaryResponse:
                 has_compliance_impact=True,
                 diff_stat="+88 -0",
             ),
+        ]
+
+
+def get_dashboard_summary() -> DashboardSummaryResponse:
+    now = _NOW()
+
+    summary = _live_graph_summary()
+
+    if summary is not None:
+        ungoverned = summary["data_types_with_no_clause"]
+        total = summary["data_types"]
+        score, score_explanation = compliance_score(ungoverned, total)
+
+        score_card = StatCard(
+            label="Overall Compliance Score",
+            # None means "nothing to score", not 0% and not 100%.
+            value=f"{score:.0f}%" if score is not None else "—",
+            sub_label=(
+                "Live from graph" if score is not None
+                else "No data types mapped yet"
+            ),
+            sub_tone="neutral",
+            score_explanation=score_explanation,
+        )
+        systems_card = StatCard(
+            label="Mapped Systems",
+            value=str(summary["systems"]),
+            sub_label=f"{summary['data_types']} data types mapped",
+            sub_tone="neutral",
+        )
+        clauses_card = StatCard(
+            label="In-Force Clauses",
+            value=str(summary["in_force_clauses"]),
+            sub_label=f"Out of {summary['clauses']} total",
+            sub_tone="neutral",
+        )
+        gaps_card = StatCard(
+            label="Coverage Gaps",
+            value=str(summary["data_types_with_no_clause"]),
+            sub_label="Ungoverned data types",
+            sub_tone=(
+                "warn"
+                if summary["data_types_with_no_clause"] > 0
+                else "neutral"
+            ),
+        )
+        # NOT "Connected Vendors". These are :Vendor nodes, and the vast
+        # majority are names the code scanner's LLM wrote down while
+        # reading source -- Redis, AWS, a payment SDK it recognised. We
+        # have an integration with almost none of them. Calling a count of
+        # mentions "connected" was the single most misleading number on
+        # this page.
+        vendor_card = StatCard(
+            label="Vendors detected",
+            value=str(summary["vendors"]),
+            sub_label="Found in scanned code",
+            sub_tone="neutral",
+        )
+    else:
+        # Neo4j unreachable — degrade these cards rather than fail
+        # the entire dashboard endpoint over a single stat.
+        score_card = StatCard(
+            label="Overall Compliance Score",
+            value="—",
+            sub_label="Graph unreachable",
+            sub_tone="warn",
+        )
+        systems_card = StatCard(
+            label="Mapped Systems",
+            value="—",
+            sub_label="Graph unreachable",
+            sub_tone="warn",
+        )
+        clauses_card = StatCard(
+            label="In-Force Clauses",
+            value="—",
+            sub_label="Graph unreachable",
+            sub_tone="warn",
+        )
+        gaps_card = StatCard(
+            label="Coverage Gaps",
+            value="—",
+            sub_label="Graph unreachable",
+            sub_tone="warn",
+        )
+        vendor_card = StatCard(
+            label="Vendors detected",
+            value="—",
+            sub_label="Graph unreachable",
+            sub_tone="warn",
+        )
+
+    # The commit feed is real when the graph has gaps carrying a source
+    # commit. The timeline still has no data source at all, so it stays
+    # empty unless USE_MOCKS is on.
+    use_mocks = get_settings().use_mocks
+    recent_commits = _live_recent_commits()
+
+    # Real data always wins. Falling back to samples while real commits
+    # exist would put invented rows on top of measured ones, and
+    # sample_panels would then be lying about which is which.
+    sample_commits = not recent_commits and use_mocks
+    if sample_commits:
+        recent_commits = _sample_commits(now)
+
+    timeline = _SAMPLE_TIMELINE if use_mocks else []
+    use_samples = bool(timeline) or sample_commits
+
+    return DashboardSummaryResponse(
+        stat_cards=[
+            score_card,
+            systems_card,
+            clauses_card,
+            gaps_card,
+            vendor_card,
         ],
+        timeline=timeline,
+        recent_commits=recent_commits,
+        sample_panels=use_samples,
         synced_at=now,
     )

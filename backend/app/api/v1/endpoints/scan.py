@@ -9,7 +9,7 @@ from pydantic import BaseModel, field_validator
 
 from app.services import scan_service
 
-logger = logging.getLogger("continuum.scan")
+logger = logging.getLogger("niam.scan")
 
 router = APIRouter()
 
@@ -17,6 +17,10 @@ router = APIRouter()
 class ScanRequest(BaseModel):
     repo_full_name: str
     ref: str = "main"
+    # Which :System node this scan attaches to. Omit for the module
+    # default. Set it to keep a throwaway/smoke scan separable from
+    # demo data -- gap ids are scoped by it (see reconciler.py).
+    system_name: str | None = None
 
     @field_validator("repo_full_name")
     @classmethod
@@ -32,6 +36,18 @@ class ScanRequest(BaseModel):
             raise ValueError("Invalid ref format")
         return v
 
+    @field_validator("system_name")
+    @classmethod
+    def validate_system_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip()
+        if not re.match(r"^[A-Za-z0-9._\-]{1,64}$", v):
+            raise ValueError(
+                "Invalid system_name (allowed: letters, digits, . _ -, max 64)"
+            )
+        return v
+
 
 class ScanStartedResponse(BaseModel):
     scan_id: str
@@ -42,7 +58,11 @@ def start_scan(body: ScanRequest, background: BackgroundTasks):
     scan_id = uuid4().hex
     scan_service.SCANS[scan_id] = {"status": "queued", "log": []}
     background.add_task(
-        scan_service.run_scan, scan_id, body.repo_full_name, body.ref
+        scan_service.run_scan,
+        scan_id,
+        body.repo_full_name,
+        body.ref,
+        body.system_name,
     )
     return ScanStartedResponse(scan_id=scan_id)
 

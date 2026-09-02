@@ -25,8 +25,16 @@ same reconciliation state and don't warrant their own service files
 yet — split out later if any of them grows real logic.
 """
 
+import json
+
 from app.schemas.audit import AuditEvent, AuditResponse
+# One definition of "a clause that obliges a Data Fiduciary", shared with
+# the reconciler and graph_service. ss.36/37 are the only sections in
+# force today and they bind the regulator, not the fiduciary -- counting
+# them badged every vendor "Covered" while the gap engine disagreed.
+from legal.commencement import FIDUCIARY_OBLIGATION_SECTIONS
 from app.services.dashboard_service import _QUERY_GRAPH_SUMMARY
+from app.services.scoring import compliance_score
 from app.db.database import run_query
 from app.schemas.vendors import Vendor, VendorsResponse
 from app.schemas.regulations import RegulationCoverage, RegulationsResponse
@@ -94,20 +102,48 @@ MATCH (g:Gap {id: $gap_id})-[:HAS_DRAFT]->(rd:RemediationDraft)
 RETURN count(rd) AS draft_count
 """
 
+# The systems actually in the graph. "Affected systems" used to be the
+# literal list ["Signup Form", "Database", "AWS"] -- three strings nobody
+# had measured, printed under a heading that implies they were found.
+_QUERY_SYSTEMS = """
+MATCH (s:System)-[:COLLECTS]->(:DataType)
+RETURN collect(DISTINCT s.name) AS systems
+"""
+
 _QUERY_DPDP_GAPS = """
 MATCH (d:DataType) WHERE NOT (d)-[:GOVERNED_BY]->(:DPDPClause)
 RETURN collect(d.name) AS missing_requirements
 """
 
+# `sources` is the provenance array edge_builder.py writes onto SENT_TO:
+# each entry is a JSON string carrying {"origin": "code"} or
+# {"origin": "vendor"}. That distinction is the ONLY thing separating a
+# vendor we have actually integrated with from a name Gemini read in a
+# source file -- so the query has to return it.
 _QUERY_VENDORS = """
 MATCH (v:Vendor)
-OPTIONAL MATCH (d:DataType)-[:SENT_TO]->(v)
-OPTIONAL MATCH (d)-[:GOVERNED_BY]->(c:DPDPClause) WHERE c.status = 'in_force'
-WITH v, d, count(c) > 0 AS dt_governed
-WITH v, collect(d.name) AS data_types, collect(dt_governed) AS governed_list
+OPTIONAL MATCH (d:DataType)-[st:SENT_TO]->(v)
+WITH v, d, st,
+     COUNT { MATCH (d)-[:GOVERNED_BY]->(c:DPDPClause)
+             WHERE c.status = 'in_force'
+               AND c.section IN $obligation_sections } > 0 AS dt_governed
+WITH v,
+     collect(DISTINCT {name: d.name, governed: dt_governed}) AS dts,
+     reduce(acc = [], r IN collect(DISTINCT st) |
+            acc + coalesce(r.sources, [])) AS sources
 RETURN elementId(v) AS id, v.name AS name, v.category AS category,
-       data_types, governed_list
+       dts, sources
 ORDER BY name
+"""
+
+
+# Clauses that apply to all personal data, and so to every data type,
+# even though only the other_personal_data node carries the edge. Most of
+# the DPDP Act is written this way.
+_QUERY_GENERAL_IN_FORCE = """
+MATCH (:DataType {name: 'other_personal_data'})-[:GOVERNED_BY]->(c:DPDPClause)
+WHERE c.status = 'in_force' AND c.section IN $obligation_sections
+RETURN count(c) AS in_force
 """
 
 
@@ -136,14 +172,24 @@ def _gap_from_graph_row(row: dict) -> Gap:
         id=node["id"],
         title=node["title"],
         status=node["status"],
+        severity=node.get("severity"),
+        kind=node.get("kind"),
+        coverage_basis=node.get("coverage_basis"),
+        source_file=node.get("source_file"),
         source_commit=(
             CommitRef(
                 sha=node["source_commit_sha"],
-                message=node["source_commit_message"],
-                author=node["source_commit_author"],
-                repo=node["source_commit_repo"],
-                branch=node.get("source_commit_branch", "main"),
-                committed_at=node["source_commit_committed_at"],
+                # .get() throughout, with honest placeholders. Direct
+                # indexing raised KeyError on any gap written before the
+                # reconciler carried commit metadata -- and a repo scanned
+                # before that change still has those gaps in it. A gap with
+                # a sha but no author is worth showing; it is not worth a
+                # 500.
+                message=node.get("source_commit_message") or "",
+                author=node.get("source_commit_author") or "unknown",
+                repo=node.get("source_commit_repo") or "",
+                branch=node.get("source_commit_branch") or "main",
+                committed_at=node.get("source_commit_committed_at") or "",
             )
             if node.get("source_commit_sha")
             else None
@@ -175,23 +221,26 @@ def list_gaps() -> GapsResponse:
 
     open_count = sum(1 for g in gaps if g.status != GapStatus.RESOLVED)
 
-    score = 73.0
-    score_explanation = "Graph unreachable (mock score)"
+    # No invented default. If the graph cannot be read we say so, rather
+    # than shipping 73.0 -- a number with no provenance that looked
+    # exactly like a real measurement.
+    score = None
+    score_explanation = "Graph unreachable — no score available"
     try:
         score_rows = run_query(_QUERY_GRAPH_SUMMARY)
         if score_rows:
             summary = score_rows[0]
-            ungoverned = summary["data_types_with_no_clause"]
-            total = summary["data_types"]
-            score = float(round(100 * (1 - ungoverned / max(total, 1))))
-            score_explanation = f"Calculated as 100 * (1 - {ungoverned} ungoverned / {max(total, 1)} total)"
+            score, score_explanation = compliance_score(
+                summary["data_types_with_no_clause"], summary["data_types"]
+            )
     except RuntimeError:
         pass
 
     return GapsResponse(
         score=score,
         score_explanation=score_explanation,
-        score_delta=-4.0,
+        # No score_delta: nothing stores a previous score, so there is no
+        # movement to report. Omitting it leaves the field None.
         open_gap_count=open_count,
         gaps=gaps,
     )
@@ -277,15 +326,41 @@ def mark_pr_opened(gap_id: str, pr_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _vendor_is_connected(sources: list) -> bool:
+    """True only if an actual vendor-API ingestion produced one of these
+    edges. Anything that came from the code scanner is a *mention*, not a
+    connection -- see ingestion/github/classifier.py, where `vendor` is
+    free text the model writes ("Stripe", "Redis", "Firebase") with no
+    taxonomy validation and no API call behind it."""
+    for entry in sources or []:
+        try:
+            if json.loads(entry).get("origin") == "vendor":
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 def list_vendors() -> VendorsResponse:
+    sections = sorted(FIDUCIARY_OBLIGATION_SECTIONS)
     try:
-        rows = run_query(_QUERY_VENDORS)
+        general_rows = run_query(
+            _QUERY_GENERAL_IN_FORCE, {"obligation_sections": sections}
+        )
+        general_in_force = bool(
+            general_rows and general_rows[0]["in_force"]
+        )
+
+        rows = run_query(_QUERY_VENDORS, {"obligation_sections": sections})
         vendors = []
         for row in rows:
-            data_types = [dt for dt in row["data_types"] if dt]
-            governed_list = (
-                row["governed_list"][: len(data_types)] if data_types else []
-            )
+            pairs = [d for d in (row.get("dts") or []) if d and d.get("name")]
+            data_types = [d["name"] for d in pairs]
+            # A general in-force obligation governs every data type.
+            governed_list = [
+                d["governed"] or general_in_force for d in pairs
+            ]
+            connected = _vendor_is_connected(row.get("sources"))
 
             if not data_types:
                 status = ComplianceStatus.COMPLIANT
@@ -304,12 +379,14 @@ def list_vendors() -> VendorsResponse:
                 Vendor(
                     id=row["id"],
                     name=row["name"] or "Unknown",
-                    category=row["category"] or "Third Party",
+                    category=row["category"],
                     data_collected=(
                         ", ".join(data_types) if data_types else "None"
                     ),
                     coverage_status=status,
                     coverage_detail=detail,
+                    connection_active=connected,
+                    discovered_via="vendor_api" if connected else "code_scan",
                 )
             )
         return VendorsResponse(vendors=vendors)
@@ -318,21 +395,30 @@ def list_vendors() -> VendorsResponse:
 
 
 def list_regulations() -> RegulationsResponse:
-    dpdp_score = "0%"
+    # Not "0%". An unread graph is not a graph scoring zero -- that is a
+    # measurement, and we do not have one until the query returns.
+    dpdp_score = "—"
     missing_reqs = []
+    affected_systems: list[str] = []
 
     try:
         rows = run_query(_QUERY_GRAPH_SUMMARY)
         if rows:
             summary = rows[0]
-            ungoverned = summary["data_types_with_no_clause"]
-            total = summary["data_types"]
-            score = round(100 * (1 - ungoverned / max(total, 1)))
-            dpdp_score = f"{score}%"
+            score, _ = compliance_score(
+                summary["data_types_with_no_clause"], summary["data_types"]
+            )
+            dpdp_score = f"{score:.0f}%" if score is not None else "—"
 
         gap_rows = run_query(_QUERY_DPDP_GAPS)
         if gap_rows:
             missing_reqs = gap_rows[0]["missing_requirements"]
+
+        system_rows = run_query(_QUERY_SYSTEMS)
+        if system_rows:
+            affected_systems = [
+                s for s in (system_rows[0]["systems"] or []) if s
+            ]
     except RuntimeError:
         dpdp_score = "Graph unreachable"
         missing_reqs = ["Graph unreachable"]
@@ -344,15 +430,29 @@ def list_regulations() -> RegulationsResponse:
         import sys
         import os
 
-        sys.path.append(os.path.abspath(".."))
-        from intelligence.legal.commencement import TRANCHE_3_DATE
+        # Guard the append. The sibling call site in generate_fix() already
+        # did; this one ran on every request to /compliance/regulations and
+        # grew sys.path by one entry each time.
+        _parent = os.path.abspath("..")
+        if _parent not in sys.path:
+            sys.path.append(_parent)
+        from intelligence.legal.commencement import (
+            TRANCHE_2_DATE,
+            TRANCHE_3_DATE,
+        )
     except ImportError:
+        TRANCHE_2_DATE = date(2026, 11, 13)
         TRANCHE_3_DATE = date(2027, 5, 13)
 
+    # "Next commencement" means the next one that has not happened yet.
+    # This previously hardcoded TRANCHE_3 and so counted down to 13 May
+    # 2027 while Tranche 2 (13 Nov 2026) was still ahead of it -- roughly
+    # six months wrong, and contradicted by our own commencement.py.
     today = date.today()
-    days_remaining = (TRANCHE_3_DATE - today).days
-    next_commencement_days = max(0, days_remaining)
-    next_commencement_date = TRANCHE_3_DATE.isoformat()
+    upcoming = sorted(d for d in (TRANCHE_2_DATE, TRANCHE_3_DATE) if d >= today)
+    next_date = upcoming[0] if upcoming else TRANCHE_3_DATE
+    next_commencement_days = max(0, (next_date - today).days)
+    next_commencement_date = next_date.isoformat()
 
     return RegulationsResponse(
         regulations=[
@@ -360,12 +460,13 @@ def list_regulations() -> RegulationsResponse:
                 code=RegulationCode.DPDP,
                 score_label=dpdp_score,
                 missing_requirements=missing_reqs,
-                mapped_controls=[
-                    "Purpose limitation",
-                    "Consent capture",
-                    "Data minimisation",
-                ],
-                affected_systems=["Signup Form", "Database", "AWS"],
+                # Empty on purpose. A "mapped control" would have to be a
+                # control we had mapped -- there is no control register in
+                # the graph and nothing maps clauses to one. The accordion
+                # renders an empty column as "—", which is the truth.
+                mapped_controls=[],
+                # Real :System nodes that collect at least one data type.
+                affected_systems=affected_systems,
                 next_commencement_date=next_commencement_date,
                 next_commencement_days=next_commencement_days,
             ),
@@ -377,7 +478,13 @@ def list_regulations() -> RegulationsResponse:
 
 
 def list_policies() -> PoliciesResponse:
-    _check_mocks()
+    # Returning 503 here surfaced "Not yet implemented — see
+    # IMPLEMENTATION_ROADMAP.md Phase N" to the user as a red error
+    # banner, leaking an internal filename and making a not-built feature
+    # look like an outage. There is no policy-document store yet, so the
+    # honest answer is an empty list and the page's own empty state.
+    if not get_settings().use_mocks:
+        return PoliciesResponse(policies=[])
     return PoliciesResponse(
         policies=[
             Policy(
@@ -416,8 +523,66 @@ def list_policies() -> PoliciesResponse:
     )
 
 
+_QUERY_AUDIT = """
+MATCH (g:Gap)
+OPTIONAL MATCH (g)-[:AFFECTS]->(v:Vendor)
+RETURN g.id AS id, g.title AS title, g.status AS status,
+       g.severity AS severity, g.kind AS kind, g.pr_id AS pr_id,
+       g.detected_at AS detected_at, g.updated_at AS updated_at,
+       v.name AS vendor
+ORDER BY coalesce(g.updated_at, g.detected_at) DESC
+LIMIT 100
+"""
+
+
 def list_audit_events() -> AuditResponse:
-    _check_mocks()
+    """Real audit trail, derived from :Gap nodes.
+
+    Every event here is backed by a property the reconciler actually
+    wrote. The previous version returned invented entries -- a named
+    person on a "Legal Team" merging pull request #241 -- which is the
+    kind of detail that makes an audit trail look authoritative while
+    being entirely fictional.
+    """
+    if not get_settings().use_mocks:
+        try:
+            rows = run_query(_QUERY_AUDIT)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+
+        events: list[AuditEvent] = []
+        for row in rows:
+            if row.get("detected_at"):
+                vendor = f" · {row['vendor']}" if row.get("vendor") else ""
+                events.append(
+                    AuditEvent(
+                        id=f"{row['id']}-detected",
+                        occurred_at=row["detected_at"],
+                        event_type="gap_detected",
+                        title="Compliance gap detected",
+                        description=(
+                            f"{row.get('title') or row['id']}"
+                            f" ({row.get('severity') or 'unknown'} severity"
+                            f", {row.get('kind') or 'unclassified'})"
+                        ),
+                        actor=f"Reconciler{vendor}",
+                    )
+                )
+            if row.get("pr_id"):
+                events.append(
+                    AuditEvent(
+                        id=f"{row['id']}-pr",
+                        occurred_at=row.get("updated_at")
+                        or row["detected_at"],
+                        event_type="pr_opened",
+                        title="Pull request opened",
+                        description=f"{row['pr_id']} for {row['id']}",
+                        actor="niam-bot",
+                    )
+                )
+        events.sort(key=lambda e: e.occurred_at, reverse=True)
+        return AuditResponse(events=events)
+
     now = _NOW()
     return AuditResponse(
         events=[
@@ -435,7 +600,7 @@ def list_audit_events() -> AuditResponse:
                 event_type="policy_updated",
                 title="Policy updated",
                 description="Privacy Policy drafted with Mixpanel disclosure",
-                actor="CONTINUUM AI",
+                actor="Niam AI",
             ),
             AuditEvent(
                 id="a3",
@@ -443,7 +608,7 @@ def list_audit_events() -> AuditResponse:
                 event_type="vendor_added",
                 title="Vendor added",
                 description="Mixpanel added to vendor register",
-                actor="CONTINUUM AI",
+                actor="Niam AI",
             ),
             AuditEvent(
                 id="a4",

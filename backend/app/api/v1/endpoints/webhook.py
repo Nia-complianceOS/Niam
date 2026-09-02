@@ -21,7 +21,7 @@ from app.core.config import get_settings
 from app.core.security import verify_github_signature
 from app.services import scan_service
 
-logger = logging.getLogger("continuum.webhook")
+logger = logging.getLogger("niam.webhook")
 
 router = APIRouter()
 

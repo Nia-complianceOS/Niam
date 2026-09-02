@@ -18,7 +18,25 @@ class Gap(BaseModel):
     id: str
     title: str
     status: str
+    # The reconciler has always written both of these onto :Gap nodes and
+    # the API has always dropped them, so the UI could not distinguish a
+    # high-severity ungoverned egress from a low-severity collection, or a
+    # present violation from an obligation that commences in 2027.
+    # "high" | "medium" | "low".
+    severity: str | None = None
+    # "ungoverned_egress" | "future_obligation" | "ungoverned_collection".
+    kind: str | None = None
+    # How this data type is covered: "specific" when a clause names it,
+    # "general" when only the Act's all-personal-data obligations reach
+    # it, "none" when nothing does. Most DPDP obligations are general, so
+    # stating a general finding as though the Act singled this data out
+    # would overstate it.
+    coverage_basis: str | None = None
     source_commit: CommitRef | None = None
+    # File the provenance points at, when the reconciler found one. Not the
+    # same as affected_documents (policy documents), which has no real
+    # source yet and therefore stays empty.
+    source_file: str | None = None
     vendor: str | None = None
     data_types: List[str] = []
     affected_documents: List[str] = []
@@ -38,9 +56,15 @@ class Gap(BaseModel):
 
 
 class GapsResponse(BaseModel):
-    score: float
+    # None when there is nothing to score (empty graph) or the graph could
+    # not be read. Never substitute a number for "unknown".
+    score: float | None = None
     score_explanation: str | None = None
-    score_delta: float
+    # None until there is a previous measurement to compare against. This
+    # used to be a required float and list_gaps() satisfied it with a
+    # hardcoded -4.0 -- a movement the app had never observed, rendered
+    # next to real numbers.
+    score_delta: float | None = None
     open_gap_count: int
     gaps: List[Gap]
 
