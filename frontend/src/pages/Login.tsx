@@ -8,6 +8,9 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // The API's message, shown to the user. This used to be console.error'd
+  // only, so a wrong password looked like a button that did nothing.
+  const [error, setError] = useState<string | null>(null)
   const { login } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -15,10 +18,11 @@ export default function Login() {
     if (!email || !password) return
     
     setIsSubmitting(true)
+    setError(null)
     try {
       await login(email, password)
-    } catch (error) {
-      console.error(error)
+    } catch (err) {
+      setError((err as Error).message || 'Sign in failed')
     } finally {
       setIsSubmitting(false)
     }
@@ -36,7 +40,7 @@ export default function Login() {
             <ShieldCheck className="text-white" size={24} strokeWidth={2} />
           </div>
           <h1 className="font-display text-[28px] font-bold tracking-tight text-text">Welcome back</h1>
-          <p className="text-text-dim text-[14.5px] mt-1.5">Sign in to your NIA workspace</p>
+          <p className="text-text-dim text-[14.5px] mt-1.5">Sign in to your Niam workspace</p>
         </div>
 
         <Card className="p-8 backdrop-blur-xl bg-surface/60 border-border/50">
@@ -77,6 +81,12 @@ export default function Login() {
                 />
               </div>
             </div>
+
+            {error && (
+              <div className="rounded-[10px] border border-accent-red/40 bg-accent-red/10 px-3 py-2 text-[13px] text-accent-red">
+                {error}
+              </div>
+            )}
 
             <button 
               type="submit" 

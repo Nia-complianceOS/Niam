@@ -6,6 +6,7 @@ app/api/v1/router.py. This file just builds the app, sets up CORS,
 manages the Neo4j driver lifecycle, and mounts that router.
 """
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,20 +16,35 @@ from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.db.database import close_driver
 
+logger = logging.getLogger("niam.main")
+
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: nothing eager -- Neo4j driver is lazy (created on first use).
+    # The auth bypass is gone (see app/api/deps.py); every protected route
+    # now requires a real JWT. What is still worth shouting about is a
+    # deployment running on the default signing key, which would let
+    # anybody mint their own valid token.
+    if settings.jwt_secret == "dev-secret-do-not-use-in-prod":
+        logger.warning(
+            "JWT_SECRET is unset and using the default development value. "
+            "Anyone who knows it can forge a valid token. Set a long random "
+            "JWT_SECRET before exposing this instance (APP_ENV=%s).",
+            settings.app_env,
+        )
+    else:
+        logger.info("Auth enabled (APP_ENV=%s).", settings.app_env)
     yield
     # Shutdown: release the driver cleanly.
     close_driver()
 
 
 app = FastAPI(
-    title="Continuum API",
-    description="Backend for the Continuum Compliance Operating System.",
+    title="Niam API",
+    description="Backend for the Niam DPDP readiness platform.",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -47,7 +63,7 @@ app.include_router(api_router, prefix=settings.api_v1_prefix)
 @app.get("/", tags=["meta"])
 def root():
     return {
-        "service": "continuum-api",
+        "service": "niam-api",
         "docs": "/docs",
         "api_prefix": settings.api_v1_prefix,
     }

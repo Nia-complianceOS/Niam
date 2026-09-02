@@ -1,17 +1,17 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { getMe, login as apiLogin, signup as apiSignup } from '@/services/api/client'
 
 interface User {
   id: string
   name: string
   email: string
-  plan: string
 }
 
 interface AuthContextType {
   user: User | null
-  login: (email: string, password?: string) => Promise<void>
-  signup: (email: string, name: string, password?: string) => Promise<void>
+  login: (email: string, password: string) => Promise<void>
+  signup: (email: string, name: string, password: string) => Promise<void>
   logout: () => void
   isAuthenticated: boolean
   isLoading: boolean
@@ -19,67 +19,76 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+/**
+ * Real authentication against POST /auth/login and /auth/signup.
+ *
+ * This file was the other half of the auth bypass. login() wrote the
+ * literal string 'mock-token-123' into localStorage and invented a user
+ * called "Admin Workspace" -- it never contacted the API, and the password
+ * the form collected was discarded. The backend accepted that token, so
+ * every protected route was open to anyone who knew the string.
+ *
+ * The endpoints it should have been calling existed the whole time.
+ */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const navigate = useNavigate()
 
+  // A display name is optional on the account, so fall back to the local
+  // part of the email rather than inventing one.
+  const toUser = (u: { user_id: string; email: string; name: string | null }): User => ({
+    id: u.user_id,
+    email: u.email,
+    name: u.name || u.email.split('@')[0],
+  })
+
   useEffect(() => {
-    const storedUser = localStorage.getItem('nia_user')
     const token = localStorage.getItem('token')
-    if (storedUser && token) {
-      try {
-        setUser(JSON.parse(storedUser))
-      } catch (e) {
-        console.error('Failed to parse user from local storage')
-      }
+    if (!token) {
+      setIsLoading(false)
+      return
     }
-    setIsLoading(false)
+    // Ask the server who this token belongs to instead of trusting the
+    // cached user object. An expired token, a rotated JWT_SECRET or a
+    // deleted account all fail here -- which is better than rendering a
+    // signed-in shell whose every request then 401s.
+    getMe()
+      .then((me) => {
+        const current = toUser(me)
+        setUser(current)
+        localStorage.setItem('niam_user', JSON.stringify(current))
+      })
+      .catch(() => {
+        localStorage.removeItem('token')
+        localStorage.removeItem('niam_user')
+        setUser(null)
+      })
+      .finally(() => setIsLoading(false))
   }, [])
 
-  const login = async (email: string) => {
-    try {
-      // Bypassing real API call since DB is not connected
-      localStorage.setItem('token', 'mock-token-123')
-      
-      const loggedInUser: User = {
-        id: 'mock-user-id',
-        name: 'Admin Workspace',
-        email,
-        plan: 'Growth plan',
-      }
-      setUser(loggedInUser)
-      localStorage.setItem('nia_user', JSON.stringify(loggedInUser))
-      navigate('/')
-    } catch (error) {
-      console.error('Login failed', error)
-      throw error
-    }
+  const persist = (data: { access_token: string; user_id: string; email: string; name: string | null }) => {
+    localStorage.setItem('token', data.access_token)
+    const current = toUser(data)
+    setUser(current)
+    localStorage.setItem('niam_user', JSON.stringify(current))
+    navigate('/')
   }
 
-  const signup = async (email: string, name: string) => {
-    try {
-      // Bypassing real API call since DB is not connected
-      localStorage.setItem('token', 'mock-token-123')
-      
-      const signedUpUser: User = {
-        id: 'mock-user-id',
-        name,
-        email,
-        plan: 'Free plan',
-      }
-      setUser(signedUpUser)
-      localStorage.setItem('nia_user', JSON.stringify(signedUpUser))
-      navigate('/')
-    } catch (error) {
-      console.error('Signup failed', error)
-      throw error
-    }
+  const login = async (email: string, password: string) => {
+    // Errors propagate deliberately. The pages catch them and show the
+    // message; swallowing them here is what made a wrong password look
+    // like a dead button.
+    persist(await apiLogin(email, password))
+  }
+
+  const signup = async (email: string, name: string, password: string) => {
+    persist(await apiSignup(email, password, name))
   }
 
   const logout = () => {
     setUser(null)
-    localStorage.removeItem('nia_user')
+    localStorage.removeItem('niam_user')
     localStorage.removeItem('token')
     navigate('/login')
   }

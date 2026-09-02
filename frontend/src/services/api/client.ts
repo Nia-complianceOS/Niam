@@ -47,6 +47,34 @@ client.interceptors.response.use(
   }
 )
 
+// --- auth ------------------------------------------------------------
+// These are the only way in now. The app used to skip them entirely and
+// write a fixed bypass token into localStorage.
+
+export interface TokenResponse {
+  access_token: string
+  token_type: string
+  user_id: string
+  email: string
+  name: string | null
+}
+
+export interface MeResponse {
+  user_id: string
+  email: string
+  name: string | null
+}
+
+export const login = (email: string, password: string) =>
+  client.post<TokenResponse>('/auth/login', { email, password }).then((r) => r.data)
+
+export const signup = (email: string, password: string, name: string) =>
+  client.post<TokenResponse>('/auth/signup', { email, password, name }).then((r) => r.data)
+
+// Validates a stored token against the server rather than trusting
+// whatever user object happens to be in localStorage.
+export const getMe = () => client.get<MeResponse>('/auth/me').then((r) => r.data)
+
 export const getHealth = () => client.get('/health').then((r) => r.data)
 
 export const getDashboardSummary = () =>

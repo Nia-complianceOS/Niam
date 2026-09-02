@@ -9,6 +9,7 @@ export default function Signup() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const { signup } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -16,10 +17,11 @@ export default function Signup() {
     if (!email || !password || !name) return
     
     setIsSubmitting(true)
+    setError(null)
     try {
       await signup(email, name, password)
-    } catch (error) {
-      console.error(error)
+    } catch (err) {
+      setError((err as Error).message || 'Could not create the account')
     } finally {
       setIsSubmitting(false)
     }
@@ -92,6 +94,12 @@ export default function Signup() {
                 />
               </div>
             </div>
+
+            {error && (
+              <div className="rounded-[10px] border border-accent-red/40 bg-accent-red/10 px-3 py-2 text-[13px] text-accent-red">
+                {error}
+              </div>
+            )}
 
             <button 
               type="submit" 

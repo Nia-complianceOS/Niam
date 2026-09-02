@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     # -------------------------
     # App
     # -------------------------
-    app_name: str = "NIA Backend"
+    app_name: str = "Niam Backend"
     app_env: str = "development"
     debug: bool = True
     api_v1_prefix: str = "/api/v1"
@@ -90,11 +90,26 @@ class Settings(BaseSettings):
         default="", alias="GITHUB_WEBHOOK_SECRET"
     )
 
+    # Opening a pull request is the one action in this app that writes to
+    # somebody else's system with a real credential. Both guards below
+    # default to the safe value, so a fresh checkout cannot create a PR by
+    # accident -- you have to opt in deliberately, per repo.
+    github_dry_run: bool = Field(default=True, alias="GITHUB_DRY_RUN")
+
+    # Comma-separated owner/repo list. Empty means no repo may be written
+    # to at all. Deliberately fail-closed: an unset allow-list must not
+    # mean "anything goes" on a code path that pushes commits.
+    pr_allowed_repos: str = Field(default="", alias="PR_ALLOWED_REPOS")
+
+    @property
+    def pr_allowed_repos_list(self) -> list[str]:
+        return [r.strip() for r in self.pr_allowed_repos.split(",") if r.strip()]
+
     # -------------------------
     # AI providers
     # (requirements.txt currently pulls in google-genai, so gemini_api_key
     # is the one the intelligence module actually consumes today;
-    # anthropic_api_key is kept for compatibility with the original Nia
+    # anthropic_api_key is kept for compatibility with the original Niam
     # doc's Claude-based clause parser, in case that's still in use or
     # planned. Confirm with your partner which is live before removing
     # either.)
