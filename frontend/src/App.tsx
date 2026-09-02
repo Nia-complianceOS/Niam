@@ -5,6 +5,7 @@ import Login from '@/pages/Login'
 import Signup from '@/pages/Signup'
 import Dashboard from '@/pages/Dashboard'
 import Graph from '@/pages/Graph'
+import Gaps from '@/pages/Gaps'
 import Repositories from '@/pages/Repositories'
 import Vendors from '@/pages/Vendors'
 import Regulations from '@/pages/Regulations'
@@ -22,6 +23,7 @@ export default function App() {
       <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/graph" element={<Graph />} />
+        <Route path="/gaps" element={<Gaps />} />
         <Route path="/repositories" element={<Repositories />} />
         <Route path="/vendors" element={<Vendors />} />
         <Route path="/regulations" element={<Regulations />} />

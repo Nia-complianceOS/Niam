@@ -14,6 +14,7 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  TriangleAlert,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -27,6 +28,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/graph', label: 'Compliance Graph', icon: Share2 },
+  { to: '/gaps', label: 'Compliance Gaps', icon: TriangleAlert },
   { to: '/repositories', label: 'Repositories', icon: FolderGit2 },
   { to: '/vendors', label: 'Vendors', icon: Building2 },
   { to: '/regulations', label: 'Regulations', icon: ShieldCheck },

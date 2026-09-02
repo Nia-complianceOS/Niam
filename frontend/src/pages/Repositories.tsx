@@ -13,13 +13,22 @@ function RepoItem({ repo }: { repo: any }) {
       <div className="flex items-center justify-between gap-4">
         <div>
           <div className="font-semibold">{repo.full_name}</div>
-          <div className="text-sm text-text-dim">Branch {repo.branch} • Last scanned {repo.last_scanned_at}</div>
+          <div className="text-sm text-text-dim">
+            Branch {repo.branch}
+            {repo.last_scanned_at
+              ? ` • Last scanned ${repo.last_scanned_at}`
+              : ' • Not scanned yet'}
+          </div>
         </div>
         <div className="flex items-center gap-3">
-          <Badge tone={repo.status === 'compliant' ? 'good' : repo.status === 'gap' ? 'gap' : 'muted'}>
-            {repo.status_detail}
-          </Badge>
-          <div className="text-sm font-semibold">{repo.score}%</div>
+          {repo.status_detail && (
+            <Badge tone={repo.status === 'compliant' ? 'good' : repo.status === 'gap' ? 'gap' : 'muted'}>
+              {repo.status_detail}
+            </Badge>
+          )}
+          {typeof repo.score === 'number' && (
+            <div className="text-sm font-semibold">{repo.score}%</div>
+          )}
           <button
             onClick={() => triggerScan(repo.full_name, repo.branch)}
             disabled={status === 'starting' || status === 'running'}
@@ -84,8 +93,8 @@ export default function Repositories() {
 
       {!data || data.repositories.length === 0 ? (
         <EmptyState
-          title="No scan history yet"
-          message="Scan history is not stored yet, so previously scanned repositories are not listed here. Use the panel above to scan one now."
+          title="No repositories listed"
+          message="Either GITHUB_TOKEN is not configured or it cannot list repositories. You can still scan any repository it can read by typing owner/repo above."
         />
       ) : (
         <div className="grid gap-3">

@@ -1,33 +1,22 @@
-import { useState } from 'react'
 import { StatCard } from '@/components/ui/StatCard'
 import { ComplianceTimeline } from '@/components/dashboard/ComplianceTimeline'
 import { GitHubActivityFeed } from '@/components/dashboard/GitHubActivityFeed'
-import { ComplianceImpactPanel } from '@/components/dashboard/ComplianceImpactPanel'
-import { PRReviewModal } from '@/components/dashboard/PRReviewModal'
 import { Card } from '@/components/ui/Card'
+import { GapList } from '@/components/gaps/GapList'
 import { useDashboard } from '@/hooks/useDashboard'
-import type { PullRequest } from '@/types/api'
+import { useGaps } from '@/hooks/useGaps'
+import { Link, useNavigate } from 'react-router-dom'
+import { ArrowRight } from 'lucide-react'
 
 export default function Dashboard() {
-  const {
-    summary,
-    selectedCommitSha,
-    selectedGap,
-    loading,
-    error,
-    fixLoading,
-    actionError,
-    selectCommit,
-    runGenerateFix,
-    runOpenPR,
-  } = useDashboard()
-
-  const [openedPR, setOpenedPR] = useState<PullRequest | null>(null)
-
-  const handleOpenPR = async () => {
-    const pr = await runOpenPR()
-    if (pr) setOpenedPR(pr)
-  }
+  const { summary, selectedCommitSha, loading, error, selectCommit } =
+    useDashboard()
+  // Read-only here. The dashboard shows the most urgent findings and hands
+  // off to /gaps for the actual work -- it used to own a remediation flow
+  // that could only ever reach one gap.
+  const { gaps } = useGaps()
+  const navigate = useNavigate()
+  const topGaps = gaps.filter((g) => g.status !== 'resolved').slice(0, 5)
 
   if (loading) {
     return (
@@ -64,7 +53,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-3.5 mb-4">
+      {/* Five cards on one row. A four-column grid left the fifth alone
+          on a second row with three empty cells beside it. */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3.5 mb-4">
         {summary.stat_cards.map((card, i) => (
           <StatCard key={i} {...card} />
         ))}
@@ -105,15 +96,36 @@ export default function Dashboard() {
         </div>
       )}
 
-      <ComplianceImpactPanel
-        gap={selectedGap}
-        fixLoading={fixLoading}
-        actionError={actionError}
-        onGenerateFix={runGenerateFix}
-        onOpenPR={handleOpenPR}
-      />
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-1">
+          <div className="font-display text-[15px] font-semibold">
+            Needs attention
+          </div>
+          <Link
+            to="/gaps"
+            className="text-[12.5px] text-accent-blue hover:brightness-125 flex items-center gap-1"
+          >
+            All findings <ArrowRight size={13} />
+          </Link>
+        </div>
+        <div className="text-xs text-text-faint mb-4">
+          The most urgent open findings. Select one to review it and draft a
+          fix.
+        </div>
 
-      {openedPR && <PRReviewModal pr={openedPR} onClose={() => setOpenedPR(null)} />}
+        {topGaps.length === 0 ? (
+          <div className="text-[13px] text-text-faint py-6 text-center">
+            Nothing outstanding. Run a scan and reconciliation to check again.
+          </div>
+        ) : (
+          <GapList
+            gaps={topGaps}
+            selectedId={null}
+            onSelect={(id) => navigate(`/gaps?select=${encodeURIComponent(id)}`)}
+            visibleRows={5}
+          />
+        )}
+      </Card>
     </div>
   )
 }
