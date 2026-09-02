@@ -28,6 +28,14 @@ LABEL_DPDP_CLAUSE = "DPDPClause"  # not populated by this module — reserved
 # for the retrieval/reasoner stage
 LABEL_GAP = "Gap"
 LABEL_REMEDIATION_DRAFT = "RemediationDraft"
+# A legal document the company actually publishes -- privacy policy, terms
+# of service. Until this existed the graph knew what the code collects and
+# what the Act requires, but nothing about what the company had DISCLOSED,
+# so a "gap" could only ever mean "no clause governs this". With policy
+# documents in the graph it can also mean "you collect this and your own
+# privacy policy does not mention it", which is the more common real-world
+# finding and the one that has a concrete fix: amend that document.
+LABEL_POLICY_DOCUMENT = "PolicyDocument"
 
 # --- Relationship types ------------------------------------------------
 
@@ -39,6 +47,13 @@ REL_AFFECTS = "AFFECTS"  # (Gap)-[:AFFECTS]->(Vendor)
 REL_INVOLVES = "INVOLVES"  # (Gap)-[:INVOLVES]->(DataType)
 REL_VIOLATES = "VIOLATES"  # (Gap)-[:VIOLATES]->(DPDPClause)
 REL_HAS_DRAFT = "HAS_DRAFT"  # (Gap)-[:HAS_DRAFT]->(RemediationDraft)
+REL_DISCLOSES = "DISCLOSES"  # (PolicyDocument)-[:DISCLOSES]->(DataType)
+# (PolicyDocument)-[:NAMES_RECIPIENT]->(Vendor)
+REL_NAMES_RECIPIENT = "NAMES_RECIPIENT"
+# (Gap)-[:REMEDIED_IN]->(PolicyDocument) -- the document a disclosure gap
+# should be fixed in, which is what gives the drafter a file path and the
+# pull request a real diff instead of an empty branch.
+REL_REMEDIED_IN = "REMEDIED_IN"
 
 # --- Data type taxonomy — synced with classifier.py's ALLOWED_DATA_TYPES
 # (ingestion/github/classifier.py). Keep these two lists identical.
@@ -97,6 +112,8 @@ CONSTRAINTS = [
     f"FOR (c:{LABEL_DPDP_CLAUSE}) REQUIRE c.clause_id IS UNIQUE",
     f"CREATE CONSTRAINT gap_id IF NOT EXISTS "
     f"FOR (g:{LABEL_GAP}) REQUIRE g.id IS UNIQUE",
+    f"CREATE CONSTRAINT policy_document_id IF NOT EXISTS "
+    f"FOR (p:{LABEL_POLICY_DOCUMENT}) REQUIRE p.id IS UNIQUE",
 ]
 
 

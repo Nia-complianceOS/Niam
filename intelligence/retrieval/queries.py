@@ -155,3 +155,49 @@ RETURN
           WHERE NOT (d)-[:GOVERNED_BY]->(:DPDPClause) }
         AS data_types_with_no_clause
 """
+
+# --- disclosure: what the company's own legal documents say --------------
+# The other half of reconciliation. GOVERNED_BY answers "does the Act
+# cover this data type"; DISCLOSES answers "have we told anyone we collect
+# it". A data type can be perfectly governed and completely undisclosed,
+# and that second case is both the more common real-world finding and the
+# only one with a mechanical fix -- amend the document at policy.path.
+
+POLICY_DOCUMENTS = """
+MATCH (p:PolicyDocument)
+OPTIONAL MATCH (p)-[:DISCLOSES]->(d:DataType)
+OPTIONAL MATCH (p)-[:NAMES_RECIPIENT]->(v:Vendor)
+RETURN p.id AS id, p.name AS name, p.path AS path, p.kind AS kind,
+       p.repo AS repo, p.summary AS summary,
+       p.mentions_retention_period AS mentions_retention_period,
+       p.mentions_user_rights AS mentions_user_rights,
+       p.extraction_ok AS extraction_ok, p.updated_at AS updated_at,
+       collect(DISTINCT d.name) AS discloses,
+       collect(DISTINCT v.name) AS names_recipients
+ORDER BY p.kind, p.path
+"""
+
+# Everything disclosed anywhere, across every policy document. A data type
+# disclosed in the terms of service is disclosed, even if the privacy
+# policy omits it.
+DISCLOSED_DATA_TYPES = """
+MATCH (:PolicyDocument)-[:DISCLOSES]->(d:DataType)
+RETURN collect(DISTINCT d.name) AS data_types
+"""
+
+NAMED_RECIPIENTS = """
+MATCH (:PolicyDocument)-[:NAMES_RECIPIENT]->(v:Vendor)
+RETURN collect(DISTINCT v.name) AS vendors
+"""
+
+# Where a disclosure gap should be fixed: the privacy policy if there is
+# one, otherwise whatever legal document exists. Returns nothing when the
+# company has published no policy at all -- in which case the reconciler
+# skips disclosure checks rather than reporting every data type as
+# undisclosed.
+REMEDIATION_TARGET = """
+MATCH (p:PolicyDocument)
+RETURN p.id AS id, p.path AS path, p.repo AS repo, p.name AS name
+ORDER BY CASE p.kind WHEN 'privacy_policy' THEN 0 ELSE 1 END, p.path
+LIMIT 1
+"""

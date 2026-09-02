@@ -13,8 +13,11 @@ from graph.schema import DEFAULT_SYSTEM_NAME
 from legal.commencement import imposes_data_obligation
 from retrieval.dpdp_retrieval import DPDPRetriever
 from retrieval.queries import (
+    DISCLOSED_DATA_TYPES,
+    NAMED_RECIPIENTS,
     PROVENANCE_FOR_COLLECTION,
     PROVENANCE_FOR_EGRESS,
+    REMEDIATION_TARGET,
     VENDORS_FOR_DATA_TYPE,
 )
 
@@ -28,6 +31,35 @@ def _section_of(clause) -> str:
         return str(clause["section"])
     except (KeyError, TypeError, IndexError):
         return ""
+
+
+def classify_disclosure_gap(
+    data_type: str,
+    vendor: str | None,
+    disclosed_data_types: set,
+    named_recipients: set,
+) -> tuple[str | None, str | None]:
+    """Compare what the code does against what the policy says.
+
+    This is the half of "reconciliation" the product was named for and
+    did not have. Until policy documents were in the graph, a gap could
+    only mean "no clause governs this data type" -- a coverage question
+    answered from the Act. This asks a different one: you collect this,
+    have you said so?
+
+    Returns (severity, kind), or (None, None) when the document already
+    discloses it.
+
+      undisclosed_sharing    -- data leaves for a vendor the policy never
+                                names. The most serious of the three: the
+                                data is gone and nobody was told.
+      undisclosed_collection -- collected, and no document mentions it.
+    """
+    if vendor and vendor not in named_recipients:
+        return "high", "undisclosed_sharing"
+    if data_type not in disclosed_data_types:
+        return "medium", "undisclosed_collection"
+    return None, None
 
 
 def obligation_clauses(clauses: list) -> list:
@@ -130,6 +162,13 @@ def gap_title(kind: str, data_type: str, vendor: str | None) -> str:
     applied to most of the graph, and it overstates the finding in the one
     direction a compliance tool must not.
     """
+    if kind == "undisclosed_sharing":
+        return (
+            f"Undisclosed sharing: {data_type} sent to {vendor}, "
+            "not named in any policy"
+        )
+    if kind == "undisclosed_collection":
+        return f"Undisclosed collection: {data_type} is not disclosed"
     if kind == "future_obligation":
         return (
             f"Future obligation: {data_type} sent to {vendor}"
@@ -179,7 +218,9 @@ ON CREATE SET g.title = $title,
               g.source_commit_branch = $source_commit_branch,
               g.source_commit_committed_at = $source_commit_committed_at,
               g.source_file = $source_file,
-              g.coverage_basis = $coverage_basis
+              g.coverage_basis = $coverage_basis,
+              g.remediation_path = $remediation_path,
+              g.remediation_repo = $remediation_repo
 ON MATCH SET g.title = $title,
              g.status = $status,
              g.severity = $severity,
@@ -202,7 +243,25 @@ ON MATCH SET g.title = $title,
                  coalesce($source_commit_committed_at,
                           g.source_commit_committed_at),
              g.source_file = coalesce($source_file, g.source_file),
-             g.coverage_basis = $coverage_basis
+             g.coverage_basis = $coverage_basis,
+             g.remediation_path =
+                 coalesce($remediation_path, g.remediation_path),
+             g.remediation_repo =
+                 coalesce($remediation_repo, g.remediation_repo)
+WITH g
+
+// The document this gap should be fixed in. It is what gives the drafter
+// a file path and the pull request a real diff instead of an empty branch.
+CALL {
+    WITH g
+    OPTIONAL MATCH (g)-[old:REMEDIED_IN]->(:PolicyDocument)
+    DELETE old
+}
+WITH g
+UNWIND (CASE WHEN $remediation_doc_id IS NOT NULL
+             THEN [$remediation_doc_id] ELSE [] END) AS pid
+MATCH (pd:PolicyDocument {id: pid})
+MERGE (g)-[:REMEDIED_IN]->(pd)
 WITH g
 
 MATCH (d:DataType {name: $data_type})
@@ -217,6 +276,18 @@ WITH g
 UNWIND $clause_ids AS clause_id
 MATCH (c:DPDPClause {clause_id: clause_id})
 MERGE (g)-[:VIOLATES]->(c)
+"""
+
+
+RESOLVE_STALE_GAPS = """
+MATCH (g:Gap)
+WHERE g.id STARTS WITH $prefix
+  AND NOT g.id IN $written_ids
+  AND coalesce(g.status, 'open') <> 'resolved'
+SET g.status = 'resolved',
+    g.resolved_at = $now,
+    g.updated_at = $now
+RETURN count(g) AS resolved
 """
 
 
@@ -239,14 +310,39 @@ class Reconciler:
         retriever = DPDPRetriever(self.client)
         clauses_by_dt = retriever.clauses_for_system(self.system_name)
 
+        # What the company's own legal documents disclose, read once for
+        # the whole run rather than per data type.
+        rows = self.client.run_read(DISCLOSED_DATA_TYPES)
+        disclosed = set(rows[0]["data_types"] if rows else [])
+        rows = self.client.run_read(NAMED_RECIPIENTS)
+        named_recipients = set(rows[0]["vendors"] if rows else [])
+        rows = self.client.run_read(REMEDIATION_TARGET)
+        target = rows[0] if rows else None
+
+        # No policy document in the graph means legal/load_policies.py has
+        # not run. Reporting every collected data type as undisclosed
+        # would be technically true only for a company that has published
+        # nothing, and noise for everyone else -- so disclosure checks are
+        # skipped entirely rather than guessed at.
+        check_disclosure = target is not None
+        if not check_disclosure:
+            logger.info(
+                "No :PolicyDocument nodes found — skipping disclosure "
+                "checks. Run `python -m legal.load_policies` to enable "
+                "them."
+            )
+
         now = datetime.now(timezone.utc).isoformat()
 
         written = 0
+        written_ids = []
         skipped_malformed = []
         kind_counts = {
             "ungoverned_egress": 0,
             "future_obligation": 0,
             "ungoverned_collection": 0,
+            "undisclosed_sharing": 0,
+            "undisclosed_collection": 0,
         }
 
         for data_type, clauses in clauses_by_dt.items():
@@ -257,13 +353,13 @@ class Reconciler:
                 )
                 vendors = vendor_rows[0]["vendors"] if vendor_rows else []
 
-                # Classify
+                # Classify against the Act. `continue` used to happen
+                # here when this returned nothing -- which also skipped
+                # the disclosure check below, so a data type that was
+                # properly governed could never be reported as
+                # undisclosed. Those are independent questions.
                 severity, kind = classify_gap(vendors, clauses)
                 basis = coverage_basis(clauses)
-
-                if kind is None:
-                    # otherwise -> no gap
-                    continue
 
                 target_vendors = vendors if vendors else [None]
                 clause_ids = [c["clause_id"] for c in clauses]
@@ -292,7 +388,20 @@ class Reconciler:
                         f"{vendor or 'none'}"
                     )
 
-                    title = gap_title(kind, data_type, vendor)
+                    # Two independent findings per pair: what the Act
+                    # requires, and what the policy discloses. Either,
+                    # both, or neither may apply.
+                    findings = []
+                    if kind is not None:
+                        findings.append((severity, kind, None))
+                    if check_disclosure:
+                        d_sev, d_kind = classify_disclosure_gap(
+                            data_type, vendor, disclosed, named_recipients
+                        )
+                        if d_kind is not None:
+                            findings.append((d_sev, d_kind, target))
+                    if not findings:
+                        continue
 
                     # Prefer the commit where the egress itself was seen;
                     # fall back to where the data type was collected.
@@ -307,12 +416,23 @@ class Reconciler:
                         )
                         prov = egress_prov or collection_prov
 
-                    params = {
-                        "id": gap_id,
-                        "title": title,
+                    for f_severity, f_kind, f_target in findings:
+                      # A disclosure finding and an Act finding about the
+                      # same (data type, vendor) are different findings and
+                      # need different ids, or the second MERGE overwrites
+                      # the first.
+                      f_gap_id = (
+                          gap_id
+                          if f_target is None
+                          else f"gap-{self.system_name}-disclosure-"
+                               f"{data_type}-{vendor or 'none'}"
+                      )
+                      params = {
+                        "id": f_gap_id,
+                        "title": gap_title(f_kind, data_type, vendor),
                         "status": "open",
-                        "severity": severity,
-                        "kind": kind,
+                        "severity": f_severity,
+                        "kind": f_kind,
                         "ai_recommendation": "",
                         "now": now,
                         "data_type": data_type,
@@ -336,11 +456,25 @@ class Reconciler:
                             "commit_committed_at"
                         ),
                         "source_file": prov.get("file"),
-                    }
+                        # The document that fixes this, when there is one.
+                        # Only disclosure gaps have a target: amending a
+                        # privacy policy does not make a not-yet-commenced
+                        # clause commence.
+                        "remediation_doc_id": (
+                            f_target["id"] if f_target else None
+                        ),
+                        "remediation_path": (
+                            f_target["path"] if f_target else None
+                        ),
+                        "remediation_repo": (
+                            f_target["repo"] if f_target else None
+                        ),
+                      }
 
-                    self.client.run_write(MERGE_GAP, params)
-                    written += 1
-                    kind_counts[kind] += 1
+                      self.client.run_write(MERGE_GAP, params)
+                      written_ids.append(f_gap_id)
+                      written += 1
+                      kind_counts[f_kind] = kind_counts.get(f_kind, 0) + 1
 
             except Exception as exc:
                 skipped_malformed.append(
@@ -355,5 +489,38 @@ class Reconciler:
                 [s["error"] for s in skipped_malformed],
             )
 
+        # Close gaps this run no longer finds.
+        #
+        # The reconciler only ever MERGEd gaps, never retired them -- so a
+        # gap survived being fixed. Amend the privacy policy, re-ingest it,
+        # reconcile again, and the undisclosed_collection finding would sit
+        # there open forever. For a tool whose whole claim is that it
+        # tracks drift, a finding that cannot go away is worse than no
+        # finding: the count only ever rises, so it stops meaning anything.
+        #
+        # Resolved rather than deleted, deliberately. The audit trail is
+        # built from :Gap nodes (gap_service._QUERY_AUDIT), so deleting one
+        # erases the evidence that it was ever detected and fixed -- which
+        # is precisely the record a DPDP audit would ask for.
+        resolved = 0
+        if written_ids or clauses_by_dt:
+            rows = self.client.run_write(
+                RESOLVE_STALE_GAPS,
+                {
+                    "prefix": f"gap-{self.system_name}-",
+                    "written_ids": written_ids,
+                    "now": now,
+                },
+            )
+            resolved = rows[0]["resolved"] if rows else 0
+            if resolved:
+                logger.info(
+                    "Resolved %d gap(s) that no longer apply", resolved
+                )
+
         logger.info("Wrote %d gaps to the graph", written)
-        return {"gaps_written": written, "gaps_by_kind": kind_counts}
+        return {
+            "gaps_written": written,
+            "gaps_resolved": resolved,
+            "gaps_by_kind": kind_counts,
+        }

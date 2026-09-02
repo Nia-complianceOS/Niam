@@ -36,7 +36,15 @@ BASE_BACKOFF_SECONDS = 5.0
 
 _SYSTEM_PROMPT = """You are a legal privacy engineer drafting a policy amendment to resolve a compliance gap under the Digital Personal Data Protection Act, 2023 (India).
 You will be provided with a JSON object describing the compliance gap: the data types involved, the vendor (if any), and the violated DPDP clauses with their summaries.
-Generate a JSON object with a proposed amendment to the privacy policy or vendor register.
+The gap object may include "remediation_path" -- the legal document this amendment will be inserted into -- and "kind":
+
+  undisclosed_collection : the product collects this data type and the policy never says so. Write a disclosure: what is collected and why.
+  undisclosed_sharing    : the data is sent to a named third party the policy does not mention. Name the recipient and say what is shared with them and for what purpose.
+  ungoverned_egress / ungoverned_collection / future_obligation : coverage findings from the Act rather than the document. Draft the clause the obligation calls for.
+
+Your amendment_markdown is INSERTED INTO the existing document, so write only the new section -- a markdown heading and its body. Do not reproduce the rest of the document, do not add a preamble, and do not write a diff.
+
+Write plain, specific language a user could actually understand. Do not promise anything the gap does not evidence: no retention periods, no security measures, no legal bases that were not supplied to you.
 
 Respond ONLY with a valid JSON object matching exactly this shape, and do not invent new fields:
 {
@@ -55,6 +63,13 @@ OPTIONAL MATCH (g)-[:INVOLVES]->(d:DataType)
 OPTIONAL MATCH (g)-[:AFFECTS]->(v:Vendor)
 OPTIONAL MATCH (g)-[:VIOLATES]->(c:DPDPClause)
 RETURN g.id AS gap_id,
+       g.kind AS kind,
+       // The document this gap is fixed in, written by the reconciler for
+       // disclosure gaps. Without it a draft has no file_path, and
+       // open_compliance_pr() skips every draft and opens an EMPTY pull
+       // request -- a branch with no commits on it.
+       g.remediation_path AS remediation_path,
+       g.remediation_repo AS remediation_repo,
        collect(DISTINCT d.name) AS data_types,
        v.name AS vendor,
        collect(DISTINCT {
@@ -75,6 +90,7 @@ ON CREATE SET rd.section_title = $section_title,
               rd.dpdp_citation = $dpdp_citation,
               rd.confidence_score = $confidence_score,
               rd.rationale = $rationale,
+              rd.file_path = $file_path,
               rd.status = $status,
               rd.verification_reasons = $verification_reasons,
               // "violation" | "future_obligation" | "unverified" -- see
@@ -217,6 +233,10 @@ class RemediationDrafter:
             "amendment_markdown": draft.get("amendment_markdown", ""),
             "dpdp_citation": draft.get("dpdp_citation", ""),
             "confidence_score": float(draft.get("confidence_score", 0.0)),
+            # None for gaps with no document to amend (a not-yet-commenced
+            # clause is not fixed by editing a privacy policy). The PR
+            # builder skips drafts without a path rather than guessing one.
+            "file_path": details.get("remediation_path"),
             "status": "verified" if verif["verified"] else "needs_review",
             "verification_reasons": verif["reasons"],
             "classification": verif.get("classification", "unverified"),

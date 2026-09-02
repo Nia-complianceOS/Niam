@@ -43,9 +43,12 @@ rather start clean, re-scan into an empty graph.
 from graph.schema import (
     REL_COLLECTS,
     REL_SENT_TO,
+    REL_DISCLOSES,
+    REL_NAMES_RECIPIENT,
     LABEL_SYSTEM,
     LABEL_DATA_TYPE,
     LABEL_VENDOR,
+    LABEL_POLICY_DOCUMENT,
 )
 
 # --- COLLECTS: System -> DataType, from code-scan output ----------------
@@ -141,4 +144,65 @@ ON MATCH SET  c.title = row.title,
               c.status = row.status
 MERGE (d:{LABEL_DATA_TYPE} {{name: row.data_type}})
 MERGE (d)-[:GOVERNED_BY]->(c)
+"""
+
+# --- PolicyDocument: what the company has actually told users -----------
+# One node per legal document, with an edge per disclosed data type and
+# per explicitly named recipient. ON MATCH refreshes the scalars so a
+# re-read after the document is amended updates rather than duplicates.
+#
+# Note the deletes: disclosures are REPLACED on every load, not merged.
+# A policy that stops mentioning a data type has stopped disclosing it,
+# and leaving a stale DISCLOSES edge behind would mean removing text from
+# your privacy policy silently kept you "covered" for it.
+
+MERGE_POLICY_DOCUMENT = f"""
+UNWIND $rows AS row
+MERGE (p:{LABEL_POLICY_DOCUMENT} {{id: row.id}})
+ON CREATE SET p.name = row.name,
+              p.path = row.path,
+              p.kind = row.kind,
+              p.repo = row.repo,
+              p.ref = row.ref,
+              p.summary = row.summary,
+              p.mentions_retention_period = row.mentions_retention_period,
+              p.mentions_user_rights = row.mentions_user_rights,
+              p.extraction_ok = row.extraction_ok,
+              p.updated_at = row.updated_at
+ON MATCH SET  p.name = row.name,
+              p.path = row.path,
+              p.kind = row.kind,
+              p.repo = row.repo,
+              p.ref = row.ref,
+              p.summary = row.summary,
+              p.mentions_retention_period = row.mentions_retention_period,
+              p.mentions_user_rights = row.mentions_user_rights,
+              p.extraction_ok = row.extraction_ok,
+              p.updated_at = row.updated_at
+WITH p, row
+
+CALL {{
+    WITH p
+    MATCH (p)-[old:{REL_DISCLOSES}]->(:{LABEL_DATA_TYPE})
+    DELETE old
+}}
+CALL {{
+    WITH p
+    MATCH (p)-[old:{REL_NAMES_RECIPIENT}]->(:{LABEL_VENDOR})
+    DELETE old
+}}
+WITH p, row
+
+CALL {{
+    WITH p, row
+    UNWIND row.data_types_disclosed AS dt
+    MERGE (d:{LABEL_DATA_TYPE} {{name: dt}})
+    MERGE (p)-[:{REL_DISCLOSES}]->(d)
+}}
+CALL {{
+    WITH p, row
+    UNWIND row.vendors_named AS vn
+    MERGE (v:{LABEL_VENDOR} {{name: vn}})
+    MERGE (p)-[:{REL_NAMES_RECIPIENT}]->(v)
+}}
 """

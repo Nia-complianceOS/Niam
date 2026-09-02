@@ -108,3 +108,44 @@ def test_coverage_basis_ignores_non_obligation_sections():
 def test_coverage_basis_none_when_no_clauses():
     from reconciliation.reconciler import coverage_basis
     assert coverage_basis([]) == "none"
+
+
+# --- disclosure gaps: what the policy says vs what the code does ------
+
+from reconciliation.reconciler import classify_disclosure_gap  # noqa: E402
+
+DISCLOSED = {"email", "phone"}
+NAMED = {"Stripe"}
+
+
+def test_undisclosed_sharing_is_high():
+    """Data leaving for a vendor the policy never names. The data is gone
+    and nobody was told, so this outranks a collection that stayed put."""
+    assert classify_disclosure_gap(
+        "credit_card", "MongoDB", DISCLOSED, NAMED
+    ) == ("high", "undisclosed_sharing")
+
+
+def test_undisclosed_collection_is_medium():
+    assert classify_disclosure_gap(
+        "government_id", None, DISCLOSED, NAMED
+    ) == ("medium", "undisclosed_collection")
+
+
+def test_disclosed_and_named_is_no_gap():
+    assert classify_disclosure_gap("email", "Stripe", DISCLOSED, NAMED) == (
+        None,
+        None,
+    )
+
+
+def test_named_vendor_still_flags_undisclosed_data_type():
+    """Naming Stripe does not disclose the credit card data sent to it.
+
+    The vendor check passes, so the data-type check has to run anyway --
+    returning early on a named recipient would let any disclosed vendor
+    launder every undisclosed data type sent to it.
+    """
+    assert classify_disclosure_gap(
+        "credit_card", "Stripe", DISCLOSED, NAMED
+    ) == ("medium", "undisclosed_collection")

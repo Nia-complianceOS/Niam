@@ -43,7 +43,12 @@ class Gap(BaseModel):
     regulations: List[str] = []
     ai_recommendation: str = ""
     remediation_drafts: List[RemediationDraft] = []
+    # All three come from the :PullRequest node, never from the :Gap's own
+    # pr_id property. The property survived restarts while the pull request
+    # itself lived in a process dictionary, so it outlived its subject.
     pr_id: str | None = None
+    pr_url: str | None = None
+    pr_number: int | None = None
     detected_at: str | None = None
     updated_at: str | None = None
 

@@ -20,6 +20,7 @@ scan is a handful of round trips, not 200.
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from graph.neo4j_client import Neo4jClient
@@ -30,6 +31,7 @@ from graph.node_builder import (
 )
 from graph.schema import DEFAULT_SYSTEM_NAME, validate_data_type
 from graph.edge_builder import (
+    MERGE_POLICY_DOCUMENT,
     MERGE_COLLECTS_FROM_CODE,
     MERGE_SENT_TO_FROM_CODE,
     MERGE_COLLECTS_FROM_VENDOR,
@@ -242,6 +244,73 @@ class GraphWriter:
             "skipped_invalid_taxonomy": len(skipped_invalid_taxonomy),
             "skipped_malformed": len(skipped_malformed),
             "skipped_not_governing": len(skipped_not_governing),
+        }
+
+    # --- policy document ingestion -------------------------------------
+
+    def write_policy_documents(self, documents: list) -> dict:
+        """Write the company's own legal documents and what they disclose.
+
+        `documents` is legal.policy_extractor.PolicyExtractor.extract_all()
+        output. Data types outside DATA_TYPE_TAXONOMY are dropped with a
+        warning rather than written -- same fail-closed rule the code
+        scanner uses, so a hallucinated category cannot enter the graph
+        and quietly satisfy a disclosure requirement.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        rows, skipped_invalid = [], []
+
+        for doc in documents:
+            disclosed, bad = [], []
+            for dt in doc.get("data_types_disclosed") or []:
+                name = str(dt).strip().lower()
+                (disclosed if validate_data_type(name) else bad).append(name)
+            skipped_invalid.extend(bad)
+
+            repo = doc.get("repo") or ""
+            rows.append(
+                {
+                    # Stable across runs: the same document at the same
+                    # path in the same repo is one node, so re-reading an
+                    # amended policy updates it rather than adding a twin.
+                    "id": f"policy-{repo}-{doc['path']}".strip("-"),
+                    "name": doc["path"].rsplit("/", 1)[-1],
+                    "path": doc["path"],
+                    "kind": doc.get("kind") or "unknown",
+                    "repo": repo,
+                    "ref": doc.get("ref") or "",
+                    "summary": doc.get("summary") or "",
+                    "mentions_retention_period": bool(
+                        doc.get("mentions_retention_period")
+                    ),
+                    "mentions_user_rights": bool(
+                        doc.get("mentions_user_rights")
+                    ),
+                    "extraction_ok": bool(doc.get("extraction_ok", True)),
+                    "data_types_disclosed": disclosed,
+                    "vendors_named": [
+                        str(v).strip()
+                        for v in (doc.get("vendors_named") or [])
+                        if str(v).strip()
+                    ],
+                    "updated_at": now,
+                }
+            )
+
+        if skipped_invalid:
+            logger.warning(
+                "Dropped %d disclosed data type(s) outside the taxonomy: %s",
+                len(skipped_invalid),
+                sorted(set(skipped_invalid)),
+            )
+
+        for batch in _chunks(rows, BATCH_SIZE):
+            self.client.run_write_batch(MERGE_POLICY_DOCUMENT, batch)
+
+        logger.info("Wrote %d policy document(s) into the graph", len(rows))
+        return {
+            "written": len(rows),
+            "skipped_invalid_taxonomy": len(skipped_invalid),
         }
 
 
