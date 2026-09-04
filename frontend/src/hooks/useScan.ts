@@ -7,7 +7,18 @@ export type ScanEvent = {
   error?: string
 }
 
-export type ScanStatus = 'idle' | 'starting' | 'running' | 'completed' | 'failed' | 'connection_lost'
+// 'rejected' is not 'failed'. The server refused to start the scan --
+// one is already running, or the hourly limit is reached -- and nothing
+// went wrong. Reporting that as "Scan failed" sends people looking for a
+// bug that is not there.
+export type ScanStatus =
+  | 'idle'
+  | 'starting'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'rejected'
+  | 'connection_lost'
 
 export const useScan = () => {
   const [status, setStatus] = useState<ScanStatus>('idle')
@@ -50,7 +61,8 @@ export const useScan = () => {
         }
       )
     } catch (err: any) {
-      setStatus('failed')
+      const code = err?.response?.status
+      setStatus(code === 409 || code === 429 ? 'rejected' : 'failed')
       setError(err.message || 'Failed to start scan')
     }
   }, [])

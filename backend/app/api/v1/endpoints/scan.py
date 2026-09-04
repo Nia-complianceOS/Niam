@@ -1,17 +1,37 @@
+"""
+Scan routes.
+
+POST /scan is the most expensive thing this API can be asked to do: it
+reads a whole repository through the GitHub API and sends every candidate
+line to Gemini. On a laptop that only cost patience. On a public URL it
+spends a shared quota, so it is rate-limited per user and capped
+globally -- see _enforce_rate_limit().
+
+GET /scan/{id}/events streams progress. Both routes require auth
+(router.py mounts this router behind require_auth); the stream accepts
+the token as a query parameter because EventSource cannot set headers.
+"""
+
 import asyncio
 import json
 import logging
 import re
+from datetime import timedelta
 from uuid import uuid4
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 
-from app.services import scan_service
+from app.api.deps import require_auth
+from app.core.config import get_settings
+from app.services import scan_service, scan_store
 
 logger = logging.getLogger("niam.scan")
 
 router = APIRouter()
+
+RATE_WINDOW = timedelta(hours=1)
 
 
 class ScanRequest(BaseModel):
@@ -53,10 +73,82 @@ class ScanStartedResponse(BaseModel):
     scan_id: str
 
 
+def _enforce_rate_limit(user_id: str) -> None:
+    """
+    Three limits, in the order a user meets them.
+
+    One scan at a time per user, because a second scan of the same repo
+    while the first is mid-write races the first one's graph writes for
+    no benefit. An hourly ceiling, because that is the quota-shaped
+    limit. A global concurrency cap, because Gemini's quota is shared
+    across everyone using this deployment and one enthusiastic user
+    should not exhaust it for the rest.
+
+    Counted from :Scan nodes rather than process memory, so the limit
+    holds across restarts and across instances. If the graph cannot be
+    read the request is refused rather than waved through -- a scan
+    cannot do anything useful with an unreachable graph anyway.
+    """
+    settings = get_settings()
+    try:
+        recent, running = scan_store.user_activity(user_id, RATE_WINDOW)
+        globally_running = scan_store.global_running()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    if running >= 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "You already have a scan running. Wait for it to finish "
+                "before starting another."
+            ),
+        )
+
+    if recent >= settings.scan_rate_limit_per_hour:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"Scan limit reached ({settings.scan_rate_limit_per_hour} per "
+                "hour). Each scan reads a whole repository and calls the "
+                "classifier on every candidate line."
+            ),
+            headers={"Retry-After": "3600"},
+        )
+
+    if globally_running >= settings.scan_max_concurrent:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "The scanner is busy. Too many scans are running right now — "
+                "try again in a few minutes."
+            ),
+            headers={"Retry-After": "120"},
+        )
+
+
 @router.post("", response_model=ScanStartedResponse, status_code=202)
-def start_scan(body: ScanRequest, background: BackgroundTasks):
+def start_scan(
+    body: ScanRequest,
+    background: BackgroundTasks,
+    user_id: str = Depends(require_auth),
+):
+    _enforce_rate_limit(user_id)
+
     scan_id = uuid4().hex
-    scan_service.SCANS[scan_id] = {"status": "queued", "log": []}
+    try:
+        scan_store.create(
+            scan_id,
+            repo=body.repo_full_name,
+            ref=body.ref,
+            system_name=body.system_name,
+            user_id=user_id,
+        )
+    except RuntimeError as exc:
+        # Registering the scan is what makes it observable. Starting the
+        # background task anyway would run the work with nowhere to report.
+        raise HTTPException(status_code=503, detail=str(exc))
+
     background.add_task(
         scan_service.run_scan,
         scan_id,
@@ -68,25 +160,39 @@ def start_scan(body: ScanRequest, background: BackgroundTasks):
 
 
 @router.get("/{scan_id}/events")
-async def scan_events(scan_id: str):
-    if scan_id not in scan_service.SCANS:
+async def scan_events(scan_id: str, user_id: str = Depends(require_auth)):
+    try:
+        scan = scan_store.get(scan_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    if scan is None:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    # A scan id is a uuid4 hex, so this is not the only thing standing
+    # between one user and another's stream -- but it should not be.
+    if scan.get("user_id") and scan["user_id"] != user_id:
         raise HTTPException(status_code=404, detail="Scan not found")
 
     async def event_stream():
-        scan_data = scan_service.SCANS[scan_id]
         last_yielded = 0
-
+        # One second rather than half: every poll is a Cypher round trip
+        # now, and the events being reported take seconds each anyway.
         while True:
-            current_len = len(scan_data["log"])
-            while last_yielded < current_len:
-                event = scan_data["log"][last_yielded]
-                yield f"data: {json.dumps(event)}\n\n"
+            try:
+                current = scan_store.get(scan_id)
+            except RuntimeError as exc:
+                yield f"data: {json.dumps({'event': 'failed', 'error': str(exc)})}\n\n"
+                return
+            if current is None:
+                return
+
+            log = current["log"]
+            while last_yielded < len(log):
+                yield f"data: {json.dumps(log[last_yielded])}\n\n"
                 last_yielded += 1
 
-            status = scan_data.get("status")
-            if status in ("completed", "failed"):
+            if current.get("status") in ("completed", "failed"):
                 break
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

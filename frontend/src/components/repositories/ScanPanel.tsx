@@ -163,6 +163,9 @@ export function ScanPanel() {
           {status === 'failed' && (
             <div className="mt-3 text-accent-red font-semibold text-sm">Scan failed: {error}</div>
           )}
+          {status === 'rejected' && (
+            <div className="mt-3 text-accent-amber font-semibold text-sm">{error}</div>
+          )}
           {status === 'connection_lost' && (
             <div className="mt-3 text-accent-amber font-semibold text-sm">
               Lost the scan stream. The scan may still be running on the server.

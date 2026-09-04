@@ -107,6 +107,20 @@ class Settings(BaseSettings):
         return [r.strip() for r in self.pr_allowed_repos.split(",") if r.strip()]
 
     # -------------------------
+    # Scan limits
+    # -------------------------
+    # POST /scan reads an entire repository through the GitHub API and
+    # sends every candidate line to Gemini. Behind a login on a laptop
+    # that only cost patience; on a public URL it spends a shared quota,
+    # so both a per-user hourly ceiling and a global concurrency cap
+    # apply. Counted from :Scan nodes, so the limits survive a restart
+    # and hold across instances.
+    scan_rate_limit_per_hour: int = Field(
+        default=10, alias="SCAN_RATE_LIMIT_PER_HOUR"
+    )
+    scan_max_concurrent: int = Field(default=2, alias="SCAN_MAX_CONCURRENT")
+
+    # -------------------------
     # AI providers
     # (requirements.txt currently pulls in google-genai, so gemini_api_key
     # is the one the intelligence module actually consumes today;

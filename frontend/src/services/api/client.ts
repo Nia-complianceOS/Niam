@@ -14,8 +14,34 @@ import type {
   VendorsResponse,
 } from '@/types/api'
 
+/**
+ * VITE_API_BASE_URL is baked in at BUILD time, not read at runtime -- so
+ * setting it in Vercel after a deploy changes nothing until the next
+ * build. Two consumers need it (this client and the EventSource in
+ * subscribeToScan), so it is resolved once here.
+ *
+ * The localhost fallback is right for development and catastrophic in
+ * production: a deployed build missing the variable calls the visitor's
+ * own machine, and every request fails with a connection error that
+ * looks like the backend is down. In a production build there is no
+ * fallback -- the console says exactly what is unset.
+ */
+export const API_BASE_URL = (() => {
+  const configured = import.meta.env.VITE_API_BASE_URL
+  if (configured) return configured
+  if (import.meta.env.PROD) {
+    console.error(
+      'VITE_API_BASE_URL is not set. This build cannot reach any backend. ' +
+        'Set it in the Vercel project settings and redeploy — it is read at ' +
+        'build time, so changing it does not affect an existing deployment.'
+    )
+    return ''
+  }
+  return 'http://localhost:8000/api/v1'
+})()
+
 const client = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1',
+  baseURL: API_BASE_URL,
 })
 
 client.interceptors.request.use((config) => {
@@ -106,9 +132,10 @@ export const subscribeToScan = (
   onError: (error: Event) => void,
   onComplete: () => void
 ) => {
-  const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
   const token = localStorage.getItem('token') || ''
-  const eventSource = new EventSource(`${baseURL}/scan/${scanId}/events?token=${token}`)
+  const eventSource = new EventSource(
+    `${API_BASE_URL}/scan/${scanId}/events?token=${encodeURIComponent(token)}`
+  )
 
   eventSource.onmessage = (e) => {
     try {

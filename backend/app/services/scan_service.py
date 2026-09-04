@@ -1,19 +1,12 @@
 import logging
-from typing import Any, Dict
 
 from ingestion.github.scanner import GitHubScanner
 from graph.graph_writer import GraphWriter
 from reconciliation.reconciler import Reconciler
 
+from app.services import scan_store
+
 logger = logging.getLogger("niam.scan")
-
-# In-memory scan registry mapping scan_id -> state dict
-SCANS: Dict[str, Any] = {}
-
-
-def append_log(scan_id: str, event_data: dict):
-    if scan_id in SCANS:
-        SCANS[scan_id]["log"].append(event_data)
 
 
 def run_scan(
@@ -28,11 +21,15 @@ def run_scan(
     None means the module default (graph.schema.DEFAULT_SYSTEM_NAME).
     Passing an explicit name is how a smoke run stays separable from
     demo data -- both GraphWriter and Reconciler key their writes on it.
+
+    State goes to :Scan nodes via scan_store, not to a module-level dict.
+    A dict could not survive a restart, could not be read by a second
+    instance, and could not be rate-limited against. See scan_store.py.
     """
     try:
-        SCANS[scan_id]["status"] = "running"
+        scan_store.set_status(scan_id, "running")
         system_kwargs = {"system_name": system_name} if system_name else {}
-        append_log(
+        scan_store.append_log(
             scan_id,
             {
                 "event": "started",
@@ -43,14 +40,14 @@ def run_scan(
             },
         )
 
-        append_log(
+        scan_store.append_log(
             scan_id, {"event": "scanning", "message": "Running GitHubScanner"}
         )
         scanner = GitHubScanner(repo_full_name=repo_full_name)
         classified_results = scanner.scan_repo_remote(ref=ref, classify=True)
 
         if classified_results:
-            append_log(
+            scan_store.append_log(
                 scan_id,
                 {
                     "event": "writing",
@@ -61,7 +58,7 @@ def run_scan(
             writer.write_classifier_output(classified_results)
             writer.close()
 
-            append_log(
+            scan_store.append_log(
                 scan_id,
                 {
                     "event": "reconciling",
@@ -72,14 +69,16 @@ def run_scan(
             reconciler.find_and_write_gaps()
             reconciler.close()
 
-        SCANS[scan_id]["status"] = "completed"
-        append_log(
+        scan_store.set_status(scan_id, "completed")
+        scan_store.append_log(
             scan_id,
             {"event": "completed", "message": "Scan completed successfully"},
         )
     except Exception as exc:
         logger.error(f"Scan {scan_id} failed: {exc}", exc_info=True)
-        if scan_id in SCANS:
-            SCANS[scan_id]["status"] = "failed"
-            SCANS[scan_id]["error"] = str(exc)
-            append_log(scan_id, {"event": "failed", "error": str(exc)})
+        try:
+            scan_store.set_status(scan_id, "failed", error=str(exc))
+            scan_store.append_log(scan_id, {"event": "failed", "error": str(exc)})
+        except RuntimeError:
+            # The graph is the thing that is down. Nothing left to write to.
+            logger.error("Could not record failure for scan %s", scan_id)

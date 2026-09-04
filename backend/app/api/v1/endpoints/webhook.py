@@ -22,7 +22,7 @@ from fastapi import APIRouter, Header, Request, HTTPException, BackgroundTasks
 
 from app.core.config import get_settings
 from app.core.security import verify_github_signature
-from app.services import scan_service
+from app.services import scan_service, scan_store
 
 logger = logging.getLogger("niam.webhook")
 
@@ -65,8 +65,25 @@ async def github_webhook(
             "full_name", "unknown"
         )
 
+        # No rate limit here: a push webhook is not a user pressing a
+        # button, and GitHub retries on a non-2xx. The signature check
+        # above is what stops this route being an open scan trigger.
         scan_id = uuid4().hex
-        scan_service.SCANS[scan_id] = {"status": "queued", "log": []}
+        try:
+            scan_store.create(
+                scan_id,
+                repo=repo_full_name,
+                ref="main",
+                system_name=None,
+                user_id=None,
+                trigger="webhook",
+            )
+        except RuntimeError as exc:
+            # Return 200 anyway. GitHub would redeliver on a 5xx, and a
+            # queue of retries against an unreachable graph helps nobody.
+            logger.error("Could not register webhook scan: %s", exc)
+            return {"status": "received", "scan": "not started"}
+
         background.add_task(
             scan_service.run_scan, scan_id, repo_full_name, "main"
         )

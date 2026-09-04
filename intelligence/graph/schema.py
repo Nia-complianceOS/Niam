@@ -114,6 +114,16 @@ CONSTRAINTS = [
     f"FOR (g:{LABEL_GAP}) REQUIRE g.id IS UNIQUE",
     f"CREATE CONSTRAINT policy_document_id IF NOT EXISTS "
     f"FOR (p:{LABEL_POLICY_DOCUMENT}) REQUIRE p.id IS UNIQUE",
+    # :PullRequest and :Scan are written by the backend, not by this
+    # package, but the schema for one database belongs in one place.
+    "CREATE CONSTRAINT pull_request_id IF NOT EXISTS "
+    "FOR (pr:PullRequest) REQUIRE pr.id IS UNIQUE",
+    "CREATE CONSTRAINT scan_id IF NOT EXISTS "
+    "FOR (s:Scan) REQUIRE s.id IS UNIQUE",
+    # The scan rate limiter counts a user's recent scans on every
+    # POST /scan. Without this it is a label scan on every request.
+    "CREATE INDEX scan_user_started IF NOT EXISTS "
+    "FOR (s:Scan) ON (s.user_id, s.started_at)",
 ]
 
 

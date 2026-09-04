@@ -1,0 +1,82 @@
+# Render blueprint for the Niam backend.
+#
+# Docker, not a Python runtime: the image installs intelligence/ as a
+# package from the repository root, and Render's native Python
+# environment would only build backend/. dockerContext must stay "." for
+# the same reason -- the whole point of the root Dockerfile is that
+# intelligence/ is inside the build context.
+#
+# Only the backend is here. The frontend is a static Vite build and goes
+# on Vercel (see vercel.json), because Render's static hosting would mean
+# managing two services on one free plan that sleeps.
+#
+# sync: false means "ask me for this value in the dashboard, and never
+# store it in the repository". Every secret is marked that way. Nothing
+# in this file is a credential.
+
+services:
+  - type: web
+    name: niam-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: singapore          # closest to an Aura instance in ap-south-1
+    branch: main
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+
+    envVars:
+      # --- runtime ---------------------------------------------------
+      - key: APP_ENV
+        value: production
+      # Comma-separated. Set this to the Vercel URL after the frontend's
+      # first deploy -- including https://, with no trailing slash. A
+      # mismatch here is the classic first-deploy failure: the API answers
+      # perfectly in a browser tab and every request from the app is
+      # blocked before it is sent.
+      - key: CORS_ORIGINS
+        sync: false
+
+      # --- graph -----------------------------------------------------
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USERNAME
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+
+      # --- providers -------------------------------------------------
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+
+      # --- auth ------------------------------------------------------
+      # Generate a fresh one for production; do not reuse the local value.
+      - key: JWT_SECRET
+        generateValue: true
+
+      # --- the two guards that keep a public URL from being a PR bot --
+      # Both stay fail-closed. GITHUB_DRY_RUN=true means the app logs
+      # what it would push and pushes nothing. Turn it off only once
+      # PR_ALLOWED_REPOS names the repositories you accept writes to --
+      # an empty allow-list denies everything.
+      - key: GITHUB_DRY_RUN
+        value: "true"
+      - key: PR_ALLOWED_REPOS
+        sync: false
+
+      # --- scan limits -----------------------------------------------
+      # Every scan reads a repository and calls Gemini on each candidate
+      # line. These are the ceilings on a shared quota.
+      - key: SCAN_RATE_LIMIT_PER_HOUR
+        value: "10"
+      - key: SCAN_MAX_CONCURRENT
+        value: "2"
+
+      # --- webhook ---------------------------------------------------
+      # Required outside development: without it the webhook route
+      # refuses every delivery rather than trusting an unsigned one.
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
