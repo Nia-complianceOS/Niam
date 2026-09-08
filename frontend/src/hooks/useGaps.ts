@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { generateFix, getGaps, openPR } from '@/services/api/client'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useAuth } from '@/context/AuthContext'
+import { generateFix, getGaps, isAbortError, openPR } from '@/services/api/client'
+
 import type { Gap, PullRequest } from '@/types/api'
 import { gapMatches, sortGaps } from '@/lib/gapLanguage'
 
@@ -16,7 +18,10 @@ import { gapMatches, sortGaps } from '@/lib/gapLanguage'
  * else.
  */
 export function useGaps() {
+  const { userId } = useAuth()
   const [gaps, setGaps] = useState<Gap[]>([])
+  const [score, setScore] = useState<number | null>(null)
+  const [scoreExplanation, setScoreExplanation] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
@@ -26,12 +31,39 @@ export function useGaps() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [openedPR, setOpenedPR] = useState<PullRequest | null>(null)
 
+  // Re-runs on a change of signed-in account, and every reply is matched
+  // against the run that asked for it -- one account's findings carry
+  // vendor names and private file paths, so a stale reply landing in the
+  // next account's page is a disclosure, not a glitch.
+  const runRef = useRef(0)
+
   useEffect(() => {
+    const run = ++runRef.current
+    setGaps([])
+    setScore(null)
+    setScoreExplanation(null)
+    setSelectedId(null)
+    setQuery('')
+    setActionError(null)
+    setOpenedPR(null)
+    setError(null)
+    setLoading(true)
+
     getGaps()
-      .then((data) => setGaps(data.gaps))
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setLoading(false))
-  }, [])
+      .then((data) => {
+        if (run !== runRef.current) return
+        setGaps(data.gaps)
+        setScore(data.score)
+        setScoreExplanation(data.score_explanation)
+      })
+      .catch((err: Error) => {
+        if (run !== runRef.current || isAbortError(err)) return
+        setError(err.message)
+      })
+      .finally(() => {
+        if (run === runRef.current) setLoading(false)
+      })
+  }, [userId])
 
   // Most urgent first. Filtering happens after sorting so the order a
   // person sees never changes as they type.
@@ -96,9 +128,17 @@ export function useGaps() {
     }
   }, [selected, patch])
 
+  // Nothing scored and nothing found: this account has never had a
+  // successful scan. Distinct from "scanned, and nothing is wrong", which
+  // has a score and deserves a completely different sentence.
+  const isEmptyAccount = !loading && !error && score === null && gaps.length === 0
+
   return {
     gaps: sorted,
     visible,
+    score,
+    scoreExplanation,
+    isEmptyAccount,
     selected,
     selectedId,
     select,

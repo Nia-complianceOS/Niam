@@ -4,7 +4,13 @@ import { Card } from '@/components/ui/Card'
 import { GapList } from '@/components/gaps/GapList'
 import { GapDetail } from '@/components/gaps/GapDetail'
 import { PRReviewModal } from '@/components/dashboard/PRReviewModal'
-import { LoadingState, ErrorState, EmptyState, PageHeader } from '@/components/shared/PageStates'
+import {
+  LoadingState,
+  ErrorState,
+  EmptyState,
+  GetStartedState,
+  PageHeader,
+} from '@/components/shared/PageStates'
 import { useGaps } from '@/hooks/useGaps'
 import { SEVERITY_RANK } from '@/lib/gapLanguage'
 
@@ -27,6 +33,8 @@ export default function Gaps() {
     setQuery,
     loading,
     error,
+    isEmptyAccount,
+    scoreExplanation,
     fixLoading,
     prLoading,
     actionError,
@@ -64,10 +72,20 @@ export default function Gaps() {
         subtitle="Everything detected between your code, the DPDP Act, and your published policies — most urgent first."
       />
 
-      {gaps.length === 0 ? (
+      {/* Two different empty pages. An account that has never scanned
+          anything needs the next action; an account that HAS scanned and
+          has nothing outstanding needs to be told that, and telling it
+          "connect GitHub" would be nonsense. */}
+      {isEmptyAccount ? (
+        <GetStartedState
+          title="No findings yet"
+          message="Connect GitHub and scan a repository to get started. Anything that needs your attention — data collected without a legal basis, sharing your policy doesn't mention — will be listed here."
+          detail={scoreExplanation}
+        />
+      ) : gaps.length === 0 ? (
         <EmptyState
-          title="No gaps detected"
-          message="Scan a repository and run reconciliation, and anything that needs attention will appear here."
+          title="Nothing needs attention"
+          message="Your most recent scan found nothing outstanding. New findings appear here after each scan."
         />
       ) : (
         <>

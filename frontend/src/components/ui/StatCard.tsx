@@ -7,7 +7,13 @@ const TONE_CLASSES: Record<StatCardData['sub_tone'], string> = {
   neutral: 'text-text-faint',
 }
 
-export function StatCard({ label, value, sub_label, sub_tone }: StatCardData) {
+export function StatCard({
+  label,
+  value,
+  sub_label,
+  sub_tone,
+  score_explanation,
+}: StatCardData) {
   // Backend sends "—" as the value when a stat's data source is unreachable
   // (see dashboard_service.py's "Connected Vendors" card falling back when
   // Neo4j is down). Dimming it here — rather than rendering it the same
@@ -22,6 +28,15 @@ export function StatCard({ label, value, sub_label, sub_tone }: StatCardData) {
         {value}
       </div>
       {sub_label && <div className={`text-xs mt-1 ${TONE_CLASSES[sub_tone]}`}>{sub_label}</div>}
+      {/* The score card carries a sentence explaining what the number is,
+          or -- when there is no number -- why there isn't one. It is the
+          whole substance of a "—", so it is shown rather than tucked into
+          a tooltip nobody hovers. */}
+      {score_explanation && (
+        <div className="text-[11px] text-text-faint mt-2 leading-relaxed">
+          {score_explanation}
+        </div>
+      )}
     </Card>
   )
 }

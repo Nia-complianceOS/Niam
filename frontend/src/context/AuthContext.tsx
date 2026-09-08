@@ -1,6 +1,12 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { createContext, useCallback, useContext, useState, useEffect, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getMe, login as apiLogin, signup as apiSignup } from '@/services/api/client'
+import {
+  abortInFlightRequests,
+  getMe,
+  login as apiLogin,
+  signup as apiSignup,
+} from '@/services/api/client'
+import { clearStoredSession, readToken, writeToken } from '@/lib/session'
 
 interface User {
   id: string
@@ -10,6 +16,12 @@ interface User {
 
 interface AuthContextType {
   user: User | null
+  /**
+   * The signed-in account's id, or null. Every data-fetching hook keys its
+   * state on this so a response fetched for one account can never be shown
+   * under another -- see the note on logout() below.
+   */
+  userId: string | null
   login: (email: string, password: string) => Promise<void>
   signup: (email: string, name: string, password: string) => Promise<void>
   logout: () => void
@@ -29,6 +41,21 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
  * every protected route was open to anyone who knew the string.
  *
  * The endpoints it should have been calling existed the whole time.
+ *
+ * SIGNING OUT MUST LEAVE NOTHING BEHIND. Now that the backend is
+ * multi-tenant, two people can use one browser and each one's data is
+ * private to them, so "mostly cleared" is a disclosure. Three things are
+ * cleared here, in this order:
+ *
+ *   1. every request already on the wire, so a reply authorised by the
+ *      outgoing user cannot be handed to a component rendered for the
+ *      incoming one;
+ *   2. every key this app writes to browser storage (lib/session.ts owns
+ *      that list, so it cannot drift out of date here again);
+ *   3. the in-memory user, which drops `userId` to null -- and because the
+ *      authenticated tree is keyed on it (ProtectedRoute) and every page
+ *      hook has it in its dependency list, all cached page state is thrown
+ *      away with it rather than being reused for the next account.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -44,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   })
 
   useEffect(() => {
-    const token = localStorage.getItem('token')
+    const token = readToken()
     if (!token) {
       setIsLoading(false)
       return
@@ -54,24 +81,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // deleted account all fail here -- which is better than rendering a
     // signed-in shell whose every request then 401s.
     getMe()
-      .then((me) => {
-        const current = toUser(me)
-        setUser(current)
-        localStorage.setItem('niam_user', JSON.stringify(current))
-      })
+      .then((me) => setUser(toUser(me)))
       .catch(() => {
-        localStorage.removeItem('token')
-        localStorage.removeItem('niam_user')
+        clearStoredSession()
         setUser(null)
       })
       .finally(() => setIsLoading(false))
   }, [])
 
   const persist = (data: { access_token: string; user_id: string; email: string; name: string | null }) => {
-    localStorage.setItem('token', data.access_token)
-    const current = toUser(data)
-    setUser(current)
-    localStorage.setItem('niam_user', JSON.stringify(current))
+    // Start from empty. Signing in without signing out first (a second
+    // person on a shared machine typing a different email into the login
+    // form) must not inherit a single byte from the previous session.
+    abortInFlightRequests()
+    clearStoredSession()
+    writeToken(data.access_token)
+    setUser(toUser(data))
     navigate('/')
   }
 
@@ -86,17 +111,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     persist(await apiSignup(email, password, name))
   }
 
-  const logout = () => {
+  const logout = useCallback(() => {
+    abortInFlightRequests()
+    clearStoredSession()
     setUser(null)
-    localStorage.removeItem('niam_user')
-    localStorage.removeItem('token')
     navigate('/login')
-  }
+  }, [navigate])
 
   return (
     <AuthContext.Provider
       value={{
         user,
+        userId: user?.id ?? null,
         login,
         signup,
         logout,

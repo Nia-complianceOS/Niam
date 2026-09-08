@@ -3,30 +3,36 @@ import { ComplianceTimeline } from '@/components/dashboard/ComplianceTimeline'
 import { GitHubActivityFeed } from '@/components/dashboard/GitHubActivityFeed'
 import { Card } from '@/components/ui/Card'
 import { GapList } from '@/components/gaps/GapList'
+import { GetStartedState, LoadingState, PageHeader } from '@/components/shared/PageStates'
 import { useDashboard } from '@/hooks/useDashboard'
-import { useGaps } from '@/hooks/useGaps'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
 
 export default function Dashboard() {
-  const { summary, selectedCommitSha, loading, error, selectCommit } =
-    useDashboard()
-  // Read-only here. The dashboard shows the most urgent findings and hands
-  // off to /gaps for the actual work -- it used to own a remediation flow
-  // that could only ever reach one gap.
-  const { gaps } = useGaps()
+  // The gaps come from this hook too. The page used to call useGaps()
+  // alongside it purely to read the same list a second time, which meant
+  // two requests for one page and two copies of one account's findings in
+  // memory. It is read-only here either way: the dashboard shows the most
+  // urgent findings and hands off to /gaps for the actual work.
+  const {
+    summary,
+    gaps,
+    isEmptyAccount,
+    scoreExplanation,
+    selectedCommitSha,
+    loading,
+    error,
+    selectCommit,
+  } = useDashboard()
   const navigate = useNavigate()
   const topGaps = gaps.filter((g) => g.status !== 'resolved').slice(0, 5)
 
-  if (loading) {
-    return (
-      <div className="max-w-[1280px] flex items-center justify-center h-[60vh] text-text-dim text-sm font-mono">
-        Loading compliance data…
-      </div>
-    )
-  }
+  if (loading) return <LoadingState label="Loading compliance data…" />
 
-  if (error || !summary) {
+  // Only a real failure reaches here now. A missing summary used to be
+  // folded into this branch, so an account that simply had no data yet was
+  // told the backend was unreachable.
+  if (error) {
     return (
       <div className="max-w-[1280px]">
         <Card className="p-6 border-accent-red/30">
@@ -36,6 +42,33 @@ export default function Dashboard() {
             Check that the API is running and VITE_API_BASE_URL in .env points to it.
           </div>
         </Card>
+      </div>
+    )
+  }
+
+  /**
+   * A brand-new account gets the next action, not a dashboard of zeros.
+   *
+   * Five cards reading 0, 0, 0 next to a compliance score is the single
+   * most misleading thing this app could put in front of a compliance
+   * reviewer: it looks like a clean bill of health from a system that has
+   * never read a line of their code. The backend refuses to invent the
+   * score for exactly this reason and sends the explanation instead, which
+   * is rendered here word for word.
+   */
+  if (!summary || isEmptyAccount) {
+    return (
+      <div className="max-w-[1280px]">
+        <PageHeader
+          eyebrow="Getting started"
+          title="Compliance Overview"
+          subtitle="Your code changes every day. Your compliance should too."
+        />
+        <GetStartedState
+          title="Nothing to show yet"
+          message="Connect GitHub and scan a repository to get started. Once a scan has run, this page shows what personal data your code handles, where it goes, and what the DPDP Act requires of you."
+          detail={scoreExplanation}
+        />
       </div>
     )
   }
@@ -115,7 +148,8 @@ export default function Dashboard() {
 
         {topGaps.length === 0 ? (
           <div className="text-[13px] text-text-faint py-6 text-center">
-            Nothing outstanding. Run a scan and reconciliation to check again.
+            Nothing outstanding right now. New findings appear here after each
+            scan.
           </div>
         ) : (
           <GapList

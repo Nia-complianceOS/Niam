@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import { SIDEBAR_KEY } from '@/lib/session'
 import {
   LayoutDashboard,
   Share2,
@@ -40,11 +41,13 @@ const NAV_ITEMS: NavItem[] = [
 export function Sidebar() {
   const { user, logout } = useAuth()
   const [isCollapsed, setIsCollapsed] = useState(() => {
-    return localStorage.getItem('niam_sidebar_collapsed') === 'true'
+    // The key name lives in lib/session.ts, which is also what empties it
+    // on sign-out. Spelling it out here is how it used to survive one.
+    return localStorage.getItem(SIDEBAR_KEY) === 'true'
   })
 
   useEffect(() => {
-    localStorage.setItem('niam_sidebar_collapsed', String(isCollapsed))
+    localStorage.setItem(SIDEBAR_KEY, String(isCollapsed))
   }, [isCollapsed])
 
   function navLinkClass(isActive: boolean): string {

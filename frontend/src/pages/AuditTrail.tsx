@@ -1,5 +1,5 @@
 import { AuditEventList } from '@/components/audit/AuditEventList'
-import { LoadingState, ErrorState, EmptyState, PageHeader } from '@/components/shared/PageStates'
+import { LoadingState, ErrorState, GetStartedState, PageHeader } from '@/components/shared/PageStates'
 import { useAuditTrail } from '@/hooks/useAuditTrail'
 
 export default function AuditTrail() {
@@ -16,9 +16,9 @@ export default function AuditTrail() {
         subtitle="Every action, timestamped and traceable — built for the auditor, not just the engineer."
       />
       {!data || data.events.length === 0 ? (
-        <EmptyState
-          title="No audit events yet"
-          message="Actions like commits, policy updates, and PR merges will appear here as they happen."
+        <GetStartedState
+          title="Nothing recorded yet"
+          message="Connect GitHub and scan a repository to get started. From then on every scan, every finding and every policy amendment is logged here with a timestamp, ready for an auditor."
         />
       ) : (
         <AuditEventList events={data.events} />

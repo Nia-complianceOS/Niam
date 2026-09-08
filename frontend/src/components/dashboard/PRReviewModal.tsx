@@ -64,7 +64,16 @@ export function PRReviewModal({ pr, onClose }: Props) {
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 my-6">
           <Meta label="Status">
-            {isDryRun ? 'Not submitted' : 'Awaiting review'}
+            {/* Hardcoded "Awaiting review" until now, so a merged
+                amendment still read as waiting for the review that had
+                already happened. */}
+            {isDryRun
+              ? 'Not submitted'
+              : pr.status === 'merged'
+                ? 'Merged — applied'
+                : pr.status === 'closed'
+                  ? 'Closed without merging'
+                  : 'Awaiting review'}
           </Meta>
           <Meta label="Reviewer">{pr.reviewer || '—'}</Meta>
           <Meta label="Documents">{pr.files.length}</Meta>

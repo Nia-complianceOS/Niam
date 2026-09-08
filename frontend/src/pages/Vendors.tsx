@@ -1,6 +1,6 @@
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
-import { LoadingState, ErrorState, EmptyState, PageHeader } from '@/components/shared/PageStates'
+import { LoadingState, ErrorState, GetStartedState, PageHeader } from '@/components/shared/PageStates'
 import { useVendors } from '@/hooks/useVendors'
 
 export default function Vendors() {
@@ -27,9 +27,9 @@ export default function Vendors() {
         </div>
       )}
       {!data || data.vendors.length === 0 ? (
-        <EmptyState
-          title="No vendors yet"
-          message="Scan a repository to detect vendors referenced in code, or run a vendor ingestion (Stripe, Mixpanel, Firebase) to record a real integration."
+        <GetStartedState
+          title="No vendors found yet"
+          message="Connect GitHub and scan a repository to get started. Niam lists the outside services your code sends data to — payment providers, analytics, cloud storage — so you can check each one is covered."
         />
       ) : (
         <div className="grid gap-3">

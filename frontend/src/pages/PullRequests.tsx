@@ -2,13 +2,24 @@ import { useState } from 'react'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { PRReviewModal } from '@/components/dashboard/PRReviewModal'
-import { LoadingState, ErrorState, EmptyState, PageHeader } from '@/components/shared/PageStates'
+import {
+  LoadingState,
+  ErrorState,
+  EmptyState,
+  GetStartedState,
+  PageHeader,
+} from '@/components/shared/PageStates'
 import { usePullRequests } from '@/hooks/usePullRequests'
+import { useGitHubConnection } from '@/hooks/useGitHubConnection'
 import { AlertTriangle, ChevronRight } from 'lucide-react'
 import type { PullRequest } from '@/types/api'
 
 export default function PullRequests() {
   const { data, loading, error } = usePullRequests()
+  // Only to tell the two empty states apart -- a connected user should
+  // not be told to connect.
+  const { connection } = useGitHubConnection()
+  const connected = Boolean(connection?.connected)
   // Rows are clickable now. Opening a review used to be possible only in
   // the moment you created it -- close that modal and the wording was
   // unreachable, which is unusable for a reviewer who comes back later.
@@ -48,10 +59,22 @@ export default function PullRequests() {
       )}
 
       {prs.length === 0 ? (
-        <EmptyState
-          title="No amendments raised yet"
-          message="Draft a fix for a finding on the Compliance Gaps page and it will appear here for review."
-        />
+        // Two different empty states. Telling a user who has already
+        // connected GitHub and scanned a repository to "Connect GitHub"
+        // reads as though their connection has been lost -- and the
+        // button sends them somewhere they have already been.
+        connected ? (
+          <EmptyState
+            title="Nothing waiting for review"
+            message="Nothing has been sent for review yet. Open a finding on the Compliance Gaps page and draft the amendment; once you send it, it arrives here for legal to review before anything reaches GitHub."
+            action={{ label: 'Go to Compliance Gaps', to: '/gaps' }}
+          />
+        ) : (
+          <GetStartedState
+            title="Nothing waiting for review"
+            message="Connect GitHub and scan a repository to get started. When a finding needs a policy change, you draft the amendment on the Compliance Gaps page and it arrives here for review before anything is submitted."
+          />
+        )
       ) : (
         <div className="grid gap-2.5">
           {prs.map((pr) => {

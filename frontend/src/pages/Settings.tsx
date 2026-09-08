@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui/Card'
 import { PageHeader } from '@/components/shared/PageStates'
+import { ResetWorkspacePanel } from '@/components/settings/ResetWorkspacePanel'
 import { getHealth } from '@/services/api/client'
 import { CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react'
 
@@ -23,6 +24,12 @@ interface Health {
  * Deliberately NOT reinstated: any field that edits the Neo4j URI, the
  * GitHub token or the webhook secret. Those live in .env, and a UI that
  * appears to change them while doing nothing is worse than no UI at all.
+ *
+ * The one thing here that DOES change something is "Delete all findings",
+ * and it is here rather than on Repositories precisely because it is rare
+ * and irreversible. Removing a single repository is routine and belongs
+ * beside the list of repositories; wiping the account is not, and putting
+ * it one click from a weekly task is how it gets pressed by accident.
  */
 export default function Settings() {
   const [health, setHealth] = useState<Health | null>(null)
@@ -56,7 +63,7 @@ export default function Settings() {
       <PageHeader
         eyebrow="System"
         title="Settings"
-        subtitle="Live status of this instance. Configuration is read from the server's environment."
+        subtitle="Live status of this instance, and where to go if you want to clear everything Niam has found and start again."
       />
 
       <Card className="p-5">
@@ -99,6 +106,8 @@ export default function Settings() {
           editable here. Changing them requires editing that file and restarting the API.
         </div>
       </Card>
+
+      <ResetWorkspacePanel />
     </div>
   )
 }

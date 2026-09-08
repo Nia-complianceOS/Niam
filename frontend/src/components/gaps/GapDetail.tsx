@@ -7,6 +7,7 @@ import {
   kindCopy,
   severityClasses,
   SEVERITY_LABELS,
+  readableActionError,
 } from '@/lib/gapLanguage'
 
 interface Props {
@@ -115,11 +116,16 @@ export function GapDetail({
         </div>
       </Field>
 
-      {actionError && (
-        <div className="mt-4 px-3.5 py-2.5 rounded-[10px] bg-accent-red/10 border border-accent-red/25 text-[12px] text-[#f5b7b9] leading-relaxed">
-          {actionError}
-        </div>
-      )}
+      {actionError &&
+        (() => {
+          const { title, message } = readableActionError(actionError)
+          return (
+            <div className="mt-4 px-3.5 py-3 rounded-[10px] bg-accent-red/10 border border-accent-red/25 text-[12px] text-[#f5b7b9] leading-relaxed">
+              <div className="font-semibold mb-1">{title}</div>
+              <div className="text-[#e8b9bb]">{message}</div>
+            </div>
+          )
+        })()}
 
       <div className="mt-auto pt-4">
         {gap.status === 'resolved' ? (

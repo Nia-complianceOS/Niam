@@ -169,3 +169,62 @@ export const GAP_STATUS_LABELS: Record<string, string> = {
   pr_opened: 'With legal',
   resolved: 'Resolved',
 }
+
+/**
+ * Turn a backend action failure into something a compliance reviewer can
+ * act on.
+ *
+ * The API's `detail` is written for whoever has a terminal open. Shown
+ * verbatim in the review panel it produced things like
+ *
+ *   Gap 'gap-b92429...-email-Mixpanel' has no document to amend -- its
+ *   drafts carry no file_path. Run legal/load_policies.py and reconcile.
+ *
+ * next to a "Send for legal review" button, to a reader who has no
+ * terminal, no file_path and no idea what reconciling is. The underlying
+ * cause is real and worth surfacing -- it just has to be said in the
+ * reader's terms.
+ */
+export function readableActionError(detail: string): {
+  title: string
+  message: string
+} {
+  const d = detail.toLowerCase()
+
+  if (d.includes('no document to amend') || d.includes('file_path')) {
+    return {
+      title: 'There is no document to change for this finding',
+      message:
+        'This finding is about how data is handled rather than about what ' +
+        'your published policy says, so there is no wording for Niam to ' +
+        'amend. Record the decision with your legal team instead.',
+    }
+  }
+  if (d.includes('connect your github')) {
+    return {
+      title: 'GitHub is not connected',
+      message:
+        'Niam needs access to the repository before it can propose a change ' +
+        'to it. Connect GitHub on the Repositories page and try again.',
+    }
+  }
+  if (d.includes('not permitted') || d.includes('allow')) {
+    return {
+      title: 'This repository is not on the approved list',
+      message:
+        'Niam will only open pull requests against repositories that have ' +
+        'been explicitly approved, so a misconfiguration cannot write to ' +
+        'the wrong place. Ask whoever administers this instance to add it.',
+    }
+  }
+  if (d.includes('already resolved')) {
+    return {
+      title: 'This finding is already resolved',
+      message: 'A later scan no longer found it, so there is nothing to fix.',
+    }
+  }
+  return {
+    title: 'That did not work',
+    message: detail,
+  }
+}

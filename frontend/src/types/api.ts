@@ -98,6 +98,10 @@ export interface GapsResponse {
   // null when there is nothing to score (empty graph) or the graph could
   // not be read -- render "not applicable", never a number.
   score: number | null
+  // The sentence the backend writes to go with a null score. For a fresh
+  // account this is "No repository scanned yet — nothing has been mapped
+  // …", which is also how the UI knows the account has no data at all.
+  score_explanation: string | null
   // null until a previous score exists to compare against.
   score_delta: number | null
   open_gap_count: number
@@ -116,6 +120,11 @@ export interface StatCard {
   value: string
   sub_label: string
   sub_tone: 'good' | 'warn' | 'neutral'
+  // Why the value is what it is — set on the score card, and the only
+  // thing there is to show when `value` is "—". A brand-new account gets
+  // "No repository scanned yet …". Render this sentence; never fill the
+  // gap with a number.
+  score_explanation: string | null
 }
 
 export interface TimelineStep {
@@ -264,4 +273,110 @@ export interface AuditEvent {
 
 export interface AuditResponse {
   events: AuditEvent[]
+}
+
+// --- github.py (connection + OAuth) ---------------------------------------
+// GitHub access is per user now: each account connects its own GitHub
+// account, and every repository read or pull request is made with that
+// person's token. There is no shared instance token any more.
+
+/** How the stored credential was obtained. */
+export type GitHubConnectMethod = 'oauth' | 'token'
+
+export interface GitHubConnection {
+  connected: boolean
+  login: string | null
+  avatar_url: string | null
+  scopes: string[]
+  method: GitHubConnectMethod | string | null
+  connected_at: string | null
+}
+
+export interface GitHubOAuthStartResponse {
+  authorize_url: string
+  state: string
+}
+
+export interface GitHubDisconnectResponse {
+  connected: boolean
+  // false is not a failure — it means there was nothing stored to remove.
+  removed: boolean
+  message: string
+}
+
+/**
+ * The `reason` slug on `/repositories?github=error&reason=…`. These are
+ * machine words for the frontend only; every one of them is translated
+ * into a plain sentence before it reaches a person (see
+ * lib/githubMessages.ts).
+ */
+export type GitHubOAuthErrorReason =
+  | 'missing_code'
+  | 'invalid_state'
+  | 'github_unreachable'
+  | 'exchange_failed'
+  | 'validation_failed'
+  | 'storage_failed'
+  | 'graph_unavailable'
+  | 'oauth_not_configured'
+
+// --- workspace.py -----------------------------------------------------------
+// What this ACCOUNT has scanned, which is a different set from
+// /github/repos (what exists on GitHub). A repository can be listed here
+// and no longer exist on GitHub, or exist on GitHub and never have been
+// scanned; the two lists answer different questions and are fetched
+// separately.
+
+export interface ScannedRepository {
+  /**
+   * The graph's key for this repository, and the only thing the delete
+   * call needs. It is a slug (`owner__repo`) and must never be rendered —
+   * `repo` is the name a person recognises.
+   */
+  system_name: string
+  /** `owner/repo`, as GitHub spells it. This is what the UI shows. */
+  repo: string
+  data_types: number
+  vendors: number
+  gaps: number
+  /**
+   * null when the repository was loaded by a command-line run rather than
+   * scanned through the app. Not an error and not "never scanned" — say so
+   * in words rather than leaving the column blank.
+   */
+  last_scan: string | null
+}
+
+export interface ScannedRepositoriesResponse {
+  repositories: ScannedRepository[]
+}
+
+/**
+ * What a removal actually deleted, counted by the server after the fact.
+ *
+ * Every field is optional because the two operations report different
+ * shapes: removing one repository returns `system` (always 1), a reset
+ * returns `systems` (how many repositories went). Rendering these is the
+ * only honest way to confirm a destructive action — a fixed "Removed."
+ * would claim the same thing whether eleven findings went or none did.
+ */
+export interface RemovalCounts {
+  drafts?: number
+  pull_requests?: number
+  gaps?: number
+  scans?: number
+  policy_documents?: number
+  system?: number
+  systems?: number
+  data_types?: number
+  vendors?: number
+}
+
+export interface RemovalResponse {
+  /** The repository that was removed. null for a whole-account reset. */
+  repo: string | null
+  system_name: string | null
+  removed: RemovalCounts
+  /** Set only by the reset. null for a single-repository removal. */
+  reset_at: string | null
 }

@@ -1,10 +1,26 @@
-import { useCallback, useEffect, useState } from 'react'
-import { generateFix, getDashboardSummary, getGaps, openPR } from '@/services/api/client'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useAuth } from '@/context/AuthContext'
+import {
+  generateFix,
+  getDashboardSummary,
+  getGaps,
+  isAbortError,
+  openPR,
+} from '@/services/api/client'
 import type { DashboardSummaryResponse, Gap, PullRequest } from '@/types/api'
 
 interface UseDashboardResult {
   summary: DashboardSummaryResponse | null
   gaps: Gap[]
+  /**
+   * True when this account has nothing at all: no score, because nothing
+   * has been mapped, and no findings. The backend sends score: null with a
+   * sentence saying why (`scoreExplanation`) rather than a 0 or a 100 --
+   * both of which would be assertions about a repository nobody has read.
+   * The page shows the on-ramp instead of a dashboard of zeros.
+   */
+  isEmptyAccount: boolean
+  scoreExplanation: string | null
   selectedCommitSha: string | null
   selectedGap: Gap | undefined
   loading: boolean
@@ -17,8 +33,11 @@ interface UseDashboardResult {
 }
 
 export function useDashboard(): UseDashboardResult {
+  const { userId } = useAuth()
   const [summary, setSummary] = useState<DashboardSummaryResponse | null>(null)
   const [gaps, setGaps] = useState<Gap[]>([])
+  const [score, setScore] = useState<number | null>(null)
+  const [scoreExplanation, setScoreExplanation] = useState<string | null>(null)
   const [selectedCommitSha, setSelectedCommitSha] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -34,18 +53,45 @@ export function useDashboard(): UseDashboardResult {
   // are all still perfectly valid.
   const [actionError, setActionError] = useState<string | null>(null)
 
+  // Every reply is checked against this before it is allowed to become
+  // state. Signing out aborts the requests, but a reply that was already
+  // decoded must not be written into a page that now belongs to somebody
+  // else -- so the run number, not just the abort, is the guard.
+  const runRef = useRef(0)
+
   useEffect(() => {
+    const run = ++runRef.current
+    // Emptied at the start of the run, not when the answer arrives. Left
+    // in place, the previous account's stat cards and findings would be on
+    // screen for as long as the new account's request takes.
+    setSummary(null)
+    setGaps([])
+    setScore(null)
+    setScoreExplanation(null)
+    setSelectedCommitSha(null)
+    setActionError(null)
+    setError(null)
+    setLoading(true)
+
     Promise.all([getDashboardSummary(), getGaps()])
       .then(([summaryData, gapsData]) => {
+        if (run !== runRef.current) return
         setSummary(summaryData)
         setGaps(gapsData.gaps)
+        setScore(gapsData.score)
+        setScoreExplanation(gapsData.score_explanation)
         if (summaryData.recent_commits.length) {
           setSelectedCommitSha(summaryData.recent_commits[0].commit.sha)
         }
       })
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setLoading(false))
-  }, [])
+      .catch((err: Error) => {
+        if (run !== runRef.current || isAbortError(err)) return
+        setError(err.message)
+      })
+      .finally(() => {
+        if (run === runRef.current) setLoading(false)
+      })
+  }, [userId])
 
   const selectedGap = gaps.find((g) => g.source_commit?.sha === selectedCommitSha)
 
@@ -102,9 +148,16 @@ export function useDashboard(): UseDashboardResult {
     }
   }, [selectedGap])
 
+  // A readable gaps response with a null score means the graph is fine and
+  // there is simply nothing in it -- the graph being unreachable fails the
+  // request above instead, and lands in `error`.
+  const isEmptyAccount = !loading && !error && score === null && gaps.length === 0
+
   return {
     summary,
     gaps,
+    isEmptyAccount,
+    scoreExplanation,
     selectedCommitSha,
     selectedGap,
     loading,

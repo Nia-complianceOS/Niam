@@ -1,8 +1,8 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Lock, Search } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { useScan } from '@/hooks/useScan'
-import { useRepos } from '@/hooks/useRepos'
+import type { Repository } from '@/types/api'
 
 const REPO_RE = /^[\w.\-]+\/[\w.\-]+$/
 
@@ -14,36 +14,59 @@ const REPO_RE = /^[\w.\-]+\/[\w.\-]+$/
  * repos that do not exist, so every click ended in a GitHub 404. There was
  * no path in the UI to scan a real repository at all. Taking the repo
  * directly is also what makes an empty repository list harmless.
+ *
+ * The repository list is passed in rather than fetched here. It used to
+ * call useRepos() itself while the page that renders it did the same, so
+ * every visit made the request twice -- and now that the request can come
+ * back 409 ("connect GitHub first"), the two copies could disagree about
+ * whether this account is connected at all. The page owns that answer and
+ * only mounts this panel once it is "yes".
  */
-export function ScanPanel() {
+export function ScanPanel({
+  repositories = [],
+  truncated = false,
+  onScanComplete,
+}: {
+  repositories?: Repository[]
+  truncated?: boolean
+  /**
+   * Fired once when a scan finishes. The scan is what changes the graph,
+   * so everything drawn from the graph on this page -- the list of
+   * repositories this account has scanned, and their counts -- is stale
+   * the moment it completes. The panel owns the scan; the page owns what
+   * to refresh.
+   */
+  onScanComplete?: () => void
+}) {
   const [repo, setRepo] = useState('')
   const [ref, setRef] = useState('main')
   const [pickerOpen, setPickerOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const { status, logs, error, triggerScan } = useScan()
-  // Real repositories the configured token can see. The field still
-  // accepts a typed owner/repo, so this is a convenience rather than a
-  // constraint -- and it degrades to nothing if the token cannot list.
-  const { data: repoData } = useRepos()
 
   const busy = status === 'starting' || status === 'running'
   const valid = REPO_RE.test(repo.trim())
 
+  // Kept in a ref so an inline arrow from the parent does not re-fire this
+  // on every render; the effect depends on the status transition alone.
+  const onCompleteRef = useRef(onScanComplete)
+  onCompleteRef.current = onScanComplete
+  useEffect(() => {
+    if (status === 'completed') onCompleteRef.current?.()
+  }, [status])
+
   const matches = useMemo(() => {
-    const all = repoData?.repositories ?? []
     const q = repo.trim().toLowerCase()
-    const filtered = q
-      ? all.filter((r) => r.full_name.toLowerCase().includes(q))
-      : all
-    return filtered
-  }, [repoData, repo])
+    return q
+      ? repositories.filter((r) => r.full_name.toLowerCase().includes(q))
+      : repositories
+  }, [repositories, repo])
 
   return (
     <Card className="p-5 mb-4">
       <div className="font-display text-[15px] font-semibold mb-1">Scan a repository</div>
       <div className="text-xs text-text-faint mb-4">
-        Reads the repo through the GitHub API using your configured token. Nothing is written to
-        the repository.
+        Reads the repository with your own GitHub connection. Nothing is written to it.
       </div>
 
       <div className="flex flex-wrap items-start gap-2">
@@ -62,7 +85,7 @@ export function ScanPanel() {
               spellCheck={false}
               className="w-full bg-black/20 border border-border-soft rounded-[10px] px-3 py-2 pr-9 text-[14px] font-mono text-text placeholder:text-text-faint focus:outline-none focus:border-accent-blue/50 focus:ring-1 focus:ring-accent-blue/50 transition-all"
             />
-            {(repoData?.repositories.length ?? 0) > 0 && (
+            {repositories.length > 0 && (
               <button
                 type="button"
                 aria-label="Show repositories"
@@ -77,19 +100,19 @@ export function ScanPanel() {
               </button>
             )}
 
-            {pickerOpen && (repoData?.repositories.length ?? 0) > 0 && (
+            {pickerOpen && repositories.length > 0 && (
               /* ~10 rows then scroll, so a hundred repositories do not push
                  the scan log off the page. */
               <div className="absolute z-20 mt-1 w-full max-h-[300px] overflow-y-auto rounded-[10px] border border-border bg-bg-elevated shadow-[0_16px_40px_rgba(0,0,0,0.55)]">
                 <div className="px-3 py-2 text-[11px] text-text-faint border-b border-border-soft flex items-center gap-1.5 sticky top-0 bg-bg-elevated">
                   <Search size={12} />
-                  {matches.length} of {repoData?.repositories.length} repositories
-                  {repoData?.truncated ? ' (first 100)' : ''}
+                  {matches.length} of {repositories.length} repositories
+                  {truncated ? ' (first 100)' : ''}
                 </div>
                 {matches.length === 0 ? (
                   <div className="px-3 py-3 text-[12.5px] text-text-faint">
-                    No match. You can still type any owner/repo the token can
-                    read.
+                    No match. You can still type any owner/repo your GitHub
+                    account can read.
                   </div>
                 ) : (
                   matches.map((r) => (

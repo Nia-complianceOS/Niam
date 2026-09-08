@@ -1,6 +1,6 @@
 import { ComplianceGraphCanvas } from '@/components/graph/ComplianceGraphCanvas'
 import { GraphLegend } from '@/components/graph/GraphLegend'
-import { LoadingState, ErrorState, EmptyState, PageHeader } from '@/components/shared/PageStates'
+import { LoadingState, ErrorState, GetStartedState, PageHeader } from '@/components/shared/PageStates'
 import { useGraph } from '@/hooks/useGraph'
 
 export default function Graph() {
@@ -32,9 +32,9 @@ export default function Graph() {
         // returns 200 with an empty graph for this case rather than a 503,
         // so it needs its own message here rather than falling into
         // ErrorState above.
-        <EmptyState
-          title="No graph data yet"
-          message="Once a repository is scanned and a vendor is connected, the compliance graph will appear here."
+        <GetStartedState
+          title="No map to show yet"
+          message="Connect GitHub and scan a repository to get started. The map is built from your own code: every place personal data is collected, every service it is sent to, and the rules that cover each one."
         />
       ) : (
         <>

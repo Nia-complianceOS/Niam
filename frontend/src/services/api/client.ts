@@ -1,16 +1,22 @@
 import axios from 'axios'
+import { readToken } from '@/lib/session'
 import type {
   AuditResponse,
   DashboardSummaryResponse,
   Gap,
   GapsResponse,
   GenerateFixResponse,
+  GitHubConnection,
+  GitHubDisconnectResponse,
+  GitHubOAuthStartResponse,
   GraphResponse,
   OpenPRResponse,
   PoliciesResponse,
   PRsResponse,
   RegulationsResponse,
+  RemovalResponse,
   ReposResponse,
+  ScannedRepositoriesResponse,
   VendorsResponse,
 } from '@/types/api'
 
@@ -44,10 +50,54 @@ const client = axios.create({
   baseURL: API_BASE_URL,
 })
 
+/**
+ * Every request made while one person is signed in shares this
+ * controller. `abortInFlightRequests()` fires it on sign-out, so a
+ * response that was already on the wire cannot land in a component
+ * mounted for the NEXT person. Replacing the controller afterwards is
+ * what makes the client usable again for the next session -- an aborted
+ * signal stays aborted forever.
+ */
+let sessionAbort = new AbortController()
+
+export function abortInFlightRequests(): void {
+  sessionAbort.abort()
+  sessionAbort = new AbortController()
+}
+
+/** True for a request this app cancelled, not a failure worth showing. */
+export function isAbortError(error: unknown): boolean {
+  if (axios.isCancel(error)) return true
+  const code = (error as { code?: string } | null)?.code
+  return code === 'ERR_CANCELED' || code === 'ECONNABORTED'
+}
+
+/** The HTTP status of a failed request, or undefined if it never got one. */
+export function httpStatus(error: unknown): number | undefined {
+  return (error as { response?: { status?: number } } | null)?.response?.status
+}
+
+/**
+ * 409 from any GitHub read means one thing: this account has not connected
+ * GitHub yet (or the stored token was revoked, which needs the same action
+ * from the user). It is a state to render a Connect panel for, NOT an
+ * error -- see the docstring on GET /github/repos in the backend.
+ *
+ * Deliberately not applied to POST /scan, which also answers 409, but for
+ * an unrelated reason ("a scan is already running"). useScan handles that
+ * one itself.
+ */
+export function isNotConnectedError(error: unknown): boolean {
+  return httpStatus(error) === 409
+}
+
 client.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
+  const token = readToken()
   if (token && config.headers) {
     config.headers.Authorization = `Bearer ${token}`
+  }
+  if (!config.signal) {
+    config.signal = sessionAbort.signal
   }
   return config
 })
@@ -63,6 +113,9 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   (response) => response,
   (error) => {
+    // A cancelled request is not a failure and must not be rewritten into
+    // one -- the hooks drop these on the floor.
+    if (isAbortError(error)) return Promise.reject(error)
     const detail = error?.response?.data?.detail
     if (typeof detail === 'string' && detail.length > 0) {
       error.message = detail
@@ -120,7 +173,44 @@ export const getRegulations = () => client.get<RegulationsResponse>('/compliance
 export const getPolicies = () => client.get<PoliciesResponse>('/compliance/policies').then((r) => r.data)
 export const getAuditTrail = () => client.get<AuditResponse>('/compliance/audit').then((r) => r.data)
 
-export const getRepos = () => client.get<ReposResponse>('/github/repos').then((r) => r.data)
+/**
+ * The signed-in user's own repositories.
+ *
+ * Answers 409 ("Connect your GitHub account first") when this account has
+ * no GitHub connection. Callers must treat that with
+ * isNotConnectedError() and render the Connect panel -- an empty list and
+ * "we cannot see your repositories" are different sentences with
+ * different fixes.
+ */
+export const getRepos = (q?: string) =>
+  client
+    .get<ReposResponse>('/github/repos', q ? { params: { q } } : undefined)
+    .then((r) => r.data)
+
+// --- github connection -------------------------------------------------
+// One GitHub account per Niam account. There is no shared instance token
+// any more: scans read the signed-in user's repositories with the
+// signed-in user's credential, and pull requests are opened as them.
+
+export const getGitHubConnection = () =>
+  client.get<GitHubConnection>('/github/connection').then((r) => r.data)
+
+/**
+ * Step one of the OAuth flow. Returns the URL to send the browser to --
+ * the backend deliberately does NOT redirect, because a 302 out of an XHR
+ * is either followed opaquely or dropped by CORS, and either way the user
+ * never sees GitHub's consent screen. The caller does
+ * `window.location.assign(authorize_url)`.
+ */
+export const startGitHubOAuth = () =>
+  client.get<GitHubOAuthStartResponse>('/github/oauth/start').then((r) => r.data)
+
+/** The paste-a-token fallback, for instances with no OAuth app registered. */
+export const connectGitHubToken = (token: string) =>
+  client.post<GitHubConnection>('/github/connect-token', { token }).then((r) => r.data)
+
+export const disconnectGitHub = () =>
+  client.delete<GitHubDisconnectResponse>('/github/connection').then((r) => r.data)
 export const getPullRequests = () => client.get<PRsResponse>('/github/prs').then((r) => r.data)
 
 export const startScan = (repoFullName: string, ref: string = 'main') =>
@@ -132,7 +222,7 @@ export const subscribeToScan = (
   onError: (error: Event) => void,
   onComplete: () => void
 ) => {
-  const token = localStorage.getItem('token') || ''
+  const token = readToken() || ''
   const eventSource = new EventSource(
     `${API_BASE_URL}/scan/${scanId}/events?token=${encodeURIComponent(token)}`
   )
@@ -157,5 +247,35 @@ export const subscribeToScan = (
 
   return () => eventSource.close()
 }
+
+// --- workspace ---------------------------------------------------------
+// What this ACCOUNT has scanned, and how to unscan it. Deliberately not
+// part of the github section above: /github/repos answers "what exists on
+// GitHub", these answer "what has been mapped into your graph". A user who
+// scanned the wrong repository needs the second list, and until these
+// existed there was no way back from that at all.
+
+export const getScannedRepositories = () =>
+  client.get<ScannedRepositoriesResponse>('/workspace/repositories').then((r) => r.data)
+
+/**
+ * Remove one scanned repository's findings from this account.
+ *
+ * Takes the `system_name` off a ScannedRepository, never a name typed by a
+ * person. It is encoded because it is a path segment, and answers 404 when
+ * the account has no repository by that name -- which in practice means
+ * the list on screen is stale, not that anything is broken.
+ */
+export const removeScannedRepository = (systemName: string) =>
+  client
+    .delete<RemovalResponse>(`/workspace/repositories/${encodeURIComponent(systemName)}`)
+    .then((r) => r.data)
+
+/**
+ * Delete every finding on this account. The account itself and the GitHub
+ * connection survive -- this is "start over", not "close my account".
+ */
+export const resetWorkspace = () =>
+  client.post<RemovalResponse>('/workspace/reset').then((r) => r.data)
 
 export default client
