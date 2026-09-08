@@ -29,7 +29,7 @@ from graph.node_builder import (
     normalize_vendor_field_record,
     normalize_dpdp_clause_record,
 )
-from graph.schema import DEFAULT_SYSTEM_NAME, validate_data_type
+from graph.schema import DEFAULT_SYSTEM_NAME, scoped_uid, validate_data_type
 from graph.edge_builder import (
     MERGE_POLICY_DOCUMENT,
     MERGE_COLLECTS_FROM_CODE,
@@ -37,6 +37,7 @@ from graph.edge_builder import (
     MERGE_COLLECTS_FROM_VENDOR,
     MERGE_SENT_TO_FROM_VENDOR,
     MERGE_GOVERNED_BY_FROM_CLAUSE,
+    LINK_CLAUSES_FOR_OWNER,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,9 +50,58 @@ class GraphWriter:
         self,
         client: Optional[Neo4jClient] = None,
         system_name: str = DEFAULT_SYSTEM_NAME,
+        owner_id: str | None = None,
     ):
+        """`owner_id` is the account this write belongs to, and it is
+        required. Every :System, :DataType, :Vendor and :PolicyDocument
+        this writer touches is keyed by it, so a write without one would
+        produce nodes that no user's queries can ever match -- invisible
+        to everyone and belonging to nobody. Refusing here is better than
+        discovering it as an empty dashboard.
+        """
+        if not owner_id:
+            raise ValueError(
+                "GraphWriter requires owner_id -- unowned nodes are "
+                "invisible to every account"
+            )
         self.client = client or Neo4jClient()
         self.system_name = system_name
+        self.owner_id = owner_id
+
+    def _stamp_owner(self, row: dict) -> dict:
+        """Attach the owner and the scoped MERGE keys to one row.
+
+        The uids are computed here, in Python, rather than concatenated in
+        Cypher, so schema.scoped_uid() is the single definition of how a
+        key is shaped. The writer, the reconciler and the backend's read
+        queries must agree on it exactly; if they drift, a user gets a
+        silently empty graph rather than an error.
+        """
+        row["owner_id"] = self.owner_id
+        row["system"] = self.system_name
+        row["system_uid"] = scoped_uid(self.owner_id, self.system_name)
+        if row.get("data_type"):
+            row["data_type_uid"] = scoped_uid(self.owner_id, row["data_type"])
+        if row.get("vendor"):
+            row["vendor_uid"] = scoped_uid(self.owner_id, row["vendor"])
+        return row
+
+    def link_clauses(self) -> int:
+        """Materialise (:DataType)-[:GOVERNED_BY]->(:DPDPClause) for this
+        owner.
+
+        The Act is loaded once for everyone -- see edge_builder's note on
+        MERGE_DPDP_CLAUSE -- so the edge from a user's own data types to
+        the shared clauses has to be created after those data types
+        exist. Idempotent; cheap; called at the end of every write that
+        can create data types.
+        """
+        rows = self.client.run_write(
+            LINK_CLAUSES_FOR_OWNER, {"owner_id": self.owner_id}
+        )
+        linked = rows[0]["linked"] if rows else 0
+        logger.info("Linked %d GOVERNED_BY edge(s) for %s", linked, self.owner_id)
+        return linked
 
     # --- code-scan ingestion --------------------------------------------
 
@@ -81,8 +131,7 @@ class GraphWriter:
                 # against for the LLM side.
                 skipped_invalid_taxonomy.append(row)
                 continue
-            row["system"] = self.system_name
-            normalized.append(row)
+            normalized.append(self._stamp_owner(row))
 
         if skipped_malformed:
             logger.warning(
@@ -111,6 +160,11 @@ class GraphWriter:
             written += len(batch)
         for batch in _chunks(with_vendor, BATCH_SIZE):
             self.client.run_write_batch(MERGE_SENT_TO_FROM_CODE, batch)
+
+        # The user's data types may be new, so their clause edges do not
+        # exist yet. Without this the dashboard reports every data type as
+        # ungoverned on a first scan.
+        self.link_clauses()
 
         logger.info(
             "Wrote %d code-scan candidates into graph (%d with a vendor edge)",
@@ -146,8 +200,7 @@ class GraphWriter:
             if not validate_data_type(row["data_type"]):
                 skipped_invalid_taxonomy.append(row)
                 continue
-            row["system"] = self.system_name
-            normalized.append(row)
+            normalized.append(self._stamp_owner(row))
 
         if skipped_invalid_taxonomy:
             logger.warning(
@@ -170,6 +223,7 @@ class GraphWriter:
                 [s["error"] for s in skipped_malformed],
             )
 
+        self.link_clauses()
         logger.info("Wrote %d vendor field mappings into graph", written)
         return {
             "written": written,
@@ -273,7 +327,14 @@ class GraphWriter:
                     # Stable across runs: the same document at the same
                     # path in the same repo is one node, so re-reading an
                     # amended policy updates it rather than adding a twin.
-                    "id": f"policy-{repo}-{doc['path']}".strip("-"),
+                    # Owner-prefixed: two accounts can both have a
+                    # PRIVACY_POLICY.md at the same path in forks of the
+                    # same repo, and they are different documents.
+                    "id": (
+                        f"policy-{self.owner_id}-{repo}-{doc['path']}"
+                        .strip("-")
+                    ),
+                    "owner_id": self.owner_id,
                     "name": doc["path"].rsplit("/", 1)[-1],
                     "path": doc["path"],
                     "kind": doc.get("kind") or "unknown",
@@ -287,11 +348,20 @@ class GraphWriter:
                         doc.get("mentions_user_rights")
                     ),
                     "extraction_ok": bool(doc.get("extraction_ok", True)),
-                    "data_types_disclosed": disclosed,
-                    "vendors_named": [
-                        str(v).strip()
-                        for v in (doc.get("vendors_named") or [])
-                        if str(v).strip()
+                    # Sent as {uid, name} pairs rather than bare names:
+                    # the MERGE keys on the scoped uid, and Cypher must
+                    # never build that key itself (see _stamp_owner).
+                    "disclosed": [
+                        {"uid": scoped_uid(self.owner_id, name), "name": name}
+                        for name in disclosed
+                    ],
+                    "named_recipients": [
+                        {"uid": scoped_uid(self.owner_id, v), "name": v}
+                        for v in {
+                            str(v).strip()
+                            for v in (doc.get("vendors_named") or [])
+                            if str(v).strip()
+                        }
                     ],
                     "updated_at": now,
                 }
@@ -306,6 +376,10 @@ class GraphWriter:
 
         for batch in _chunks(rows, BATCH_SIZE):
             self.client.run_write_batch(MERGE_POLICY_DOCUMENT, batch)
+
+        # A policy can disclose a data type the code scan never found, so
+        # this write can create data types too.
+        self.link_clauses()
 
         logger.info("Wrote %d policy document(s) into the graph", len(rows))
         return {

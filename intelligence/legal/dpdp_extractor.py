@@ -23,7 +23,7 @@ from typing import List, Dict
 
 from google import genai
 from google.genai import types
-from dotenv import load_dotenv, find_dotenv
+from graph.env import load_env
 
 from ingestion.github.classifier import (
     ALLOWED_DATA_TYPES,
@@ -32,13 +32,7 @@ from ingestion.github.classifier import (
 )
 from legal.commencement import status_for_section
 
-load_dotenv(
-    # NIAM_ENV_PATH is the current name; NIA_ENV_PATH is still honoured so
-    # this keeps working whether or not backend/.env has been updated.
-    os.getenv("NIAM_ENV_PATH")
-    or os.getenv("NIA_ENV_PATH")
-    or find_dotenv("../backend/.env", usecwd=True)
-)
+load_env()
 logger = logging.getLogger(__name__)
 
 # Sections are full legal paragraphs, not one-line code snippets — much

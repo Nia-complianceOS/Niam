@@ -25,7 +25,7 @@ from typing import Dict, List
 
 from google import genai
 from google.genai import types
-from dotenv import load_dotenv, find_dotenv
+from graph.env import load_env
 
 from ingestion.github.classifier import (
     ALLOWED_DATA_TYPES,
@@ -33,11 +33,7 @@ from ingestion.github.classifier import (
     _parse_retry_delay,
 )
 
-load_dotenv(
-    os.getenv("NIAM_ENV_PATH")
-    or os.getenv("NIA_ENV_PATH")
-    or find_dotenv("../backend/.env", usecwd=True)
-)
+load_env()
 logger = logging.getLogger(__name__)
 
 REQUESTS_PER_MINUTE = 12

@@ -2,8 +2,15 @@
 CLI: read the company's legal documents and write what they disclose
 into the graph.
 
-    python -m legal.load_policies --repo owner/repo --yes
-    python -m legal.load_policies --dir ..\\smoke\\fixtures --yes
+    python -m legal.load_policies --owner alice@example.com \
+        --repo owner/repo --yes
+    python -m legal.load_policies --owner alice@example.com \
+        --dir ..\\smoke\\fixtures --yes
+
+--owner is required and is NOT the GitHub repo owner: it is the account
+whose graph these documents belong to. A privacy policy is a per-company
+document, and reading one into an unowned :PolicyDocument node would let
+it close another company's disclosure gaps.
 
 Run this before reconciliation. Without it there are no :PolicyDocument
 nodes, every collected data type looks undisclosed, and the reconciler
@@ -20,6 +27,8 @@ import sys
 from graph.graph_writer import GraphWriter
 from legal import policy_source
 from legal.policy_extractor import PolicyExtractor
+from graph.neo4j_client import Neo4jClient
+from graph.owner import UnknownOwner, resolve_owner_id
 
 logging.basicConfig(
     level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
@@ -33,10 +42,24 @@ def main():
     source.add_argument("--dir", help="local directory to read policies from")
     parser.add_argument("--ref", default="main", help="branch or tag")
     parser.add_argument(
+        "--owner",
+        required=True,
+        help="account this run belongs to -- a user id or the email it signed up with. Required: there is no default owner, and guessing one writes into somebody else's graph.",
+    )
+    parser.add_argument(
         "--yes", action="store_true", help="skip the confirmation prompt"
     )
     args = parser.parse_args()
 
+
+    # An email is what a person types; a uuid is what the app scopes by.
+    # Resolving here means an owner that matches no account fails now,
+    # loudly, instead of producing a correct subgraph nobody can see.
+    try:
+        args.owner = resolve_owner_id(Neo4jClient(), args.owner)
+    except UnknownOwner as exc:
+        print(f"ERROR: {exc}")
+        sys.exit(1)
     if args.repo:
         documents = policy_source.load_from_repo(args.repo, ref=args.ref)
     else:
@@ -77,7 +100,7 @@ def main():
             print("     WARNING: extraction failed — treated as disclosing")
             print("              nothing, so this will over-report gaps.")
 
-    writer = GraphWriter()
+    writer = GraphWriter(owner_id=args.owner)
     try:
         result = writer.write_policy_documents(extracted)
     finally:
@@ -86,7 +109,8 @@ def main():
     print(f"\nWrote to Neo4j: {result}")
     print(
         "\nNow re-run reconciliation to pick up disclosure gaps:\n"
-        "  python -m reconciliation.run_reconciliation --yes"
+        f"  python -m reconciliation.run_reconciliation "
+        f"--owner {args.owner} --yes"
     )
 
 

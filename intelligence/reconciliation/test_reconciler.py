@@ -5,7 +5,16 @@ Every clause here carries a `section`, because classify_gap() now asks
 whether a clause actually obliges a Data Fiduciary before letting it
 count as coverage. s.8 (general obligations) does; s.36 (the Central
 Government's power to call for information) does not.
+
+The tenancy tests at the bottom cover the other half: gap identity. They
+are unit tests of pure functions on purpose -- the property they check
+(every id this engine writes falls under the prefix the stale sweep
+uses, and no other account's does) is exactly the kind of thing an
+integration test against a single-tenant fixture graph would pass
+without ever exercising.
 """
+
+import pytest
 
 from reconciliation.reconciler import classify_gap
 
@@ -149,3 +158,104 @@ def test_named_vendor_still_flags_undisclosed_data_type():
     assert classify_disclosure_gap(
         "credit_card", "Stripe", DISCLOSED, NAMED
     ) == ("medium", "undisclosed_collection")
+
+
+# --- tenancy: gap identity and the stale sweep -------------------------
+# See smoke/TENANCY_CONTRACT.md and the gap-identity note in
+# reconciler.py. A :Gap id used to be scoped by system name alone, and
+# DEFAULT_SYSTEM_NAME is a constant, so every account produced the same
+# ids for the same findings.
+
+from reconciliation.reconciler import (  # noqa: E402
+    Reconciler,
+    build_gap_id,
+    gap_id_prefix,
+)
+
+OWNER = "alice@example.com"
+OTHER_OWNER = "bob@example.com"
+SYSTEM = "niam-demo-system"
+
+
+def test_reconciler_requires_an_owner():
+    """No owner, no reconcile -- and it must raise before a Neo4j client
+    is ever constructed, so this is safe to run with no database."""
+    with pytest.raises(ValueError):
+        Reconciler(system_name=SYSTEM)
+    with pytest.raises(ValueError):
+        Reconciler(system_name=SYSTEM, owner_id="")
+    with pytest.raises(ValueError):
+        Reconciler(system_name=SYSTEM, owner_id=None)
+
+
+def test_gap_id_is_owner_scoped():
+    """Two accounts, same system, same finding, different ids.
+
+    Without this the second account's reconcile MERGEd onto the first
+    account's :Gap node and overwrote its title, severity, source commit
+    and remediation path.
+    """
+    mine = build_gap_id(OWNER, SYSTEM, "email", "Stripe")
+    theirs = build_gap_id(OTHER_OWNER, SYSTEM, "email", "Stripe")
+
+    assert mine == "gap-alice@example.com-niam-demo-system-email-Stripe"
+    assert mine != theirs
+
+
+def test_gap_id_is_still_system_scoped():
+    """Owner scoping is added to system scoping, not swapped for it."""
+    assert build_gap_id(OWNER, "system-a", "email", None) != build_gap_id(
+        OWNER, "system-b", "email", None
+    )
+
+
+def test_gap_id_records_a_missing_vendor_explicitly():
+    assert build_gap_id(OWNER, SYSTEM, "email", None).endswith("-none")
+
+
+def test_disclosure_gap_has_its_own_id():
+    """An Act finding and a disclosure finding about the same (data type,
+    vendor) are different findings. Sharing an id means the second MERGE
+    overwrites the first."""
+    act = build_gap_id(OWNER, SYSTEM, "email", "Stripe")
+    disclosure = build_gap_id(OWNER, SYSTEM, "email", "Stripe", disclosure=True)
+    assert act != disclosure
+    assert "disclosure" in disclosure
+
+
+def test_every_written_id_falls_under_the_stale_sweep_prefix():
+    """THE test in this file.
+
+    RESOLVE_STALE_GAPS resolves every gap matching the prefix that this
+    run did not re-write. If build_gap_id() ever produced a shape the
+    prefix does not cover, the sweep would resolve gaps the same run had
+    just written -- every finding would flip to 'resolved' the moment it
+    was detected.
+    """
+    prefix = gap_id_prefix(OWNER, SYSTEM)
+    for disclosure in (False, True):
+        for vendor in ("Stripe", None):
+            gap_id = build_gap_id(
+                OWNER, SYSTEM, "email", vendor, disclosure=disclosure
+            )
+            assert gap_id.startswith(prefix)
+
+
+def test_stale_sweep_prefix_does_not_reach_another_owner():
+    """The failure this guards against is not an empty dashboard -- it is
+    one account's reconcile silently marking another account's open
+    findings 'resolved', erasing an audit trail it does not own."""
+    prefix = gap_id_prefix(OWNER, SYSTEM)
+    theirs = build_gap_id(OTHER_OWNER, SYSTEM, "email", "Stripe")
+    assert not theirs.startswith(prefix)
+
+
+def test_gap_id_helpers_refuse_an_empty_owner():
+    """A missing owner raises rather than falling back to a bare
+    `gap-{system}-` prefix -- which is the exact shape that collided
+    across accounts before, and which the sweep would then match against
+    nothing while the ids it wrote matched everything."""
+    with pytest.raises(ValueError):
+        gap_id_prefix("", SYSTEM)
+    with pytest.raises(ValueError):
+        build_gap_id(None, SYSTEM, "email", "Stripe")

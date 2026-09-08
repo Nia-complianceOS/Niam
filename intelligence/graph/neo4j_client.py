@@ -16,17 +16,11 @@ Env vars expected (per onboarding doc Section 03 — never hardcode these):
 import logging
 import os
 from typing import Optional
-from dotenv import load_dotenv, find_dotenv
+from graph.env import load_env
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable
 
-load_dotenv(
-    # NIAM_ENV_PATH is the current name; NIA_ENV_PATH is still honoured so
-    # this keeps working whether or not backend/.env has been updated.
-    os.getenv("NIAM_ENV_PATH")
-    or os.getenv("NIA_ENV_PATH")
-    or find_dotenv("../backend/.env", usecwd=True)
-)
+load_env()
 
 logger = logging.getLogger(__name__)
 

@@ -6,6 +6,16 @@ This is the module the DPDP Reasoner stage (not yet built) will consume
 next: clauses_for_system() is the direct input builder described in the
 onboarding doc's Section 02 — "give it the data node plus the retrieved
 clauses."
+
+TENANCY (smoke/TENANCY_CONTRACT.md). `owner_id` is the FIRST argument of
+every method that reads an owned label, and it is required -- there is no
+default and no fallback. It is a per-call argument rather than
+constructor state on purpose: a retriever built once and reused (the
+drafter does exactly this, and the backend will) must not be able to
+carry one request's owner into the next one's query.
+
+The single exception is upcoming_clauses(), which reads only
+:DPDPClause -- shared reference data, the same Act for every account.
 """
 
 import logging
@@ -24,6 +34,24 @@ from retrieval.queries import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _require_owner(owner_id: str) -> str:
+    """Refuse to run an unowned read.
+
+    Python's own arity check already catches a caller that forgot the
+    argument. This catches the more likely one: an owner_id that arrived
+    as None or "" from an unauthenticated request or an env var that was
+    never set. Without it that query matches nothing and the user is
+    shown an empty graph, which looks exactly like a clean bill of
+    health -- the worst possible failure for a compliance tool.
+    """
+    if not owner_id:
+        raise ValueError(
+            "owner_id is required: a read without one either returns "
+            "nothing or returns another account's data"
+        )
+    return owner_id
 
 
 class DPDPRetriever:
@@ -80,12 +108,13 @@ class DPDPRetriever:
 
     def clauses_for_data_type(
         self,
+        owner_id: str,
         data_type: str,
         include_upcoming: bool = True,
         include_general: bool = True,
     ) -> List[dict]:
         """
-        All DPDP clauses governing a single data type.
+        All DPDP clauses governing a single data type, for one account.
 
         include_general=True (default) also includes clauses tagged
         GENERAL_DATA_TYPE ("other_personal_data") — see the module-level
@@ -93,12 +122,18 @@ class DPDPRetriever:
         not an approximation. Pass False to see ONLY clauses that
         specifically named this exact data type.
 
+        Note that the answer is account-specific even though the Act is
+        not: the edge that connects a data type to a clause is created
+        per owner by GraphWriter.link_clauses(), so this returns the
+        clauses governing data THIS account was found to collect.
+
         Raises ValueError for a data_type outside DATA_TYPE_TAXONOMY —
         same fail-closed principle as the rest of the pipeline. A typo'd
         data_type silently returning an empty list would look identical
         to "genuinely no obligations apply", which is a dangerous
         ambiguity for a compliance tool to leave unresolved.
         """
+        _require_owner(owner_id)
         data_type = data_type.strip().lower()
         if not validate_data_type(data_type):
             raise ValueError(
@@ -109,7 +144,11 @@ class DPDPRetriever:
             self._as_clause(r, self.APPLIES_SPECIFIC)
             for r in self.client.run_read(
                 CLAUSES_FOR_DATA_TYPE,
-                {"data_type": data_type, "include_upcoming": include_upcoming},
+                {
+                    "owner_id": owner_id,
+                    "data_type": data_type,
+                    "include_upcoming": include_upcoming,
+                },
             )
         ]
 
@@ -117,6 +156,7 @@ class DPDPRetriever:
             general_rows = self.client.run_read(
                 CLAUSES_FOR_DATA_TYPE,
                 {
+                    "owner_id": owner_id,
                     "data_type": self.GENERAL_DATA_TYPE,
                     "include_upcoming": include_upcoming,
                 },
@@ -136,6 +176,7 @@ class DPDPRetriever:
 
     def clauses_for_system(
         self,
+        owner_id: str,
         system_name: str = DEFAULT_SYSTEM_NAME,
         include_upcoming: bool = True,
         include_general: bool = True,
@@ -144,6 +185,10 @@ class DPDPRetriever:
         Every DataType the given System collects, each mapped to its
         list of governing clauses (empty list if none exist yet — see
         coverage_gaps() to distinguish that from "not yet commenced").
+
+        The System is looked up by (owner_id, name): two accounts can
+        both run a system called "niam-demo-system" and they are
+        different systems.
 
         include_general=True (default) merges in clauses tagged
         GENERAL_DATA_TYPE ("other_personal_data") for every collected
@@ -157,9 +202,14 @@ class DPDPRetriever:
         this is the shape the DPDP Reasoner stage will want to iterate:
         one data node, its retrieved clauses, in a single call.
         """
+        _require_owner(owner_id)
         rows = self.client.run_read(
             CLAUSES_FOR_SYSTEM,
-            {"system_name": system_name, "include_upcoming": include_upcoming},
+            {
+                "owner_id": owner_id,
+                "system_name": system_name,
+                "include_upcoming": include_upcoming,
+            },
         )
         result = {}
         for row in rows:
@@ -170,6 +220,7 @@ class DPDPRetriever:
 
         if include_general:
             general_clauses = self.clauses_for_data_type(
+                owner_id,
                 self.GENERAL_DATA_TYPE,
                 include_upcoming=include_upcoming,
                 include_general=False,
@@ -189,6 +240,7 @@ class DPDPRetriever:
 
     def coverage_gaps(
         self,
+        owner_id: str,
         system_name: str = DEFAULT_SYSTEM_NAME,
         include_general: bool = True,
     ) -> List[str]:
@@ -204,29 +256,50 @@ class DPDPRetriever:
         see gaps under the stricter "only exact-name matches count"
         reading instead.
         """
+        _require_owner(owner_id)
         by_data_type = self.clauses_for_system(
-            system_name, include_upcoming=True, include_general=include_general
+            owner_id,
+            system_name,
+            include_upcoming=True,
+            include_general=include_general,
         )
         return sorted(
             dt for dt, clauses in by_data_type.items() if not clauses
         )
 
-    def vendor_exposure_for_clause(self, clause_id: str) -> List[dict]:
+    def vendor_exposure_for_clause(
+        self, owner_id: str, clause_id: str
+    ) -> List[dict]:
         """
-        Which vendors receive data governed by a given clause — e.g.
-        point this at the consent clause (DPDP-s6) to see every vendor
-        receiving data that requires valid consent under that section.
+        Which of THIS account's vendors receive data governed by a given
+        clause — e.g. point this at the consent clause (DPDP-s6) to see
+        every vendor receiving data that requires valid consent under
+        that section.
+
+        The clause is shared; the exposure is not. Unfiltered, this
+        answered "whose vendors" with "everybody's".
         """
+        _require_owner(owner_id)
         return self.client.run_read(
-            VENDOR_EXPOSURE_FOR_CLAUSE, {"clause_id": clause_id}
+            VENDOR_EXPOSURE_FOR_CLAUSE,
+            {"owner_id": owner_id, "clause_id": clause_id},
         )
 
-    def clause_detail(self, clause_id: str) -> Optional[dict]:
+    def clause_detail(self, owner_id: str, clause_id: str) -> Optional[dict]:
         """Full detail for one clause: text, status, every data type it
-        governs, and every vendor exposed to that data. Returns None if
-        the clause_id doesn't exist (e.g. 'DPDP-s99' — a section number
-        that was never a data-governing clause, or a typo)."""
-        rows = self.client.run_read(CLAUSE_DETAIL, {"clause_id": clause_id})
+        governs FOR THIS ACCOUNT, and every vendor of this account
+        exposed to that data. Returns None if the clause_id doesn't exist
+        (e.g. 'DPDP-s99' — a section number that was never a
+        data-governing clause, or a typo).
+
+        The clause itself is shared reference data and is matched without
+        an owner filter, so a clause that exists is reported as existing
+        for everyone -- correct, and what verifier.py's check 1 needs.
+        Only the data types and vendors hanging off it are scoped."""
+        _require_owner(owner_id)
+        rows = self.client.run_read(
+            CLAUSE_DETAIL, {"owner_id": owner_id, "clause_id": clause_id}
+        )
         if not rows or rows[0].get("clause_id") is None:
             return None
         return rows[0]
@@ -238,6 +311,11 @@ class DPDPRetriever:
         Clauses not yet in force, soonest-effective first. Pass
         within_days to filter to only what's commencing soon (e.g.
         within_days=90 for "what do we need ready this quarter").
+
+        NO owner_id, deliberately: this reads only :DPDPClause, which is
+        the same Act for every account (TENANCY_CONTRACT.md rule 2). An
+        owner_id parameter here would be accepted, ignored, and would
+        make an unscoped query look scoped -- worse than not having one.
 
         Filtered in Python, not Cypher — effective_from is stored as an
         ISO date string (see queries.py's docstring), and date-window
@@ -255,12 +333,16 @@ class DPDPRetriever:
             and date.fromisoformat(r["effective_from"]) <= cutoff
         ]
 
-    def graph_summary(self) -> dict:
-        """Lightweight counts across all node labels plus two derived
+    def graph_summary(self, owner_id: str) -> dict:
+        """Counts across this account's node labels plus two derived
         signals (in-force clause count, data types with zero clauses) —
         a quick health-check / dashboard-ready summary, not a substitute
-        for coverage_gaps() when you need the actual list."""
-        rows = self.client.run_read(GRAPH_SUMMARY)
+        for coverage_gaps() when you need the actual list.
+
+        `clauses` / `in_force_clauses` count the shared Act and are the
+        same for everyone; every other count is this account's own."""
+        _require_owner(owner_id)
+        rows = self.client.run_read(GRAPH_SUMMARY, {"owner_id": owner_id})
         return (
             rows[0]
             if rows

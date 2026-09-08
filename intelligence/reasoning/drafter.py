@@ -1,5 +1,16 @@
 """
 reasoning/drafter.py — Gemini-based generation of remediation drafts.
+
+TENANCY (smoke/TENANCY_CONTRACT.md). A gap id is owner-prefixed, but an
+id is a guessable string and a MATCH on it alone is an authorization
+check that does not exist -- so both queries below also filter on
+`owner_id`, and draft_and_write_for_gap() takes it as its first argument.
+Drafting somebody else's gap would read their vendor names and source
+file paths INTO a Gemini prompt and write the result back onto their
+graph.
+
+:RemediationDraft itself carries no owner (contract rule 3): it is only
+ever reached through the :Gap that owns it, and that Gap is filtered.
 """
 
 import json
@@ -58,9 +69,9 @@ Do not include any prose outside the JSON object.
 """
 
 _QUERY_GAP_DETAILS = """
-MATCH (g:Gap {id: $gap_id})
-OPTIONAL MATCH (g)-[:INVOLVES]->(d:DataType)
-OPTIONAL MATCH (g)-[:AFFECTS]->(v:Vendor)
+MATCH (g:Gap {id: $gap_id, owner_id: $owner_id})
+OPTIONAL MATCH (g)-[:INVOLVES]->(d:DataType {owner_id: $owner_id})
+OPTIONAL MATCH (g)-[:AFFECTS]->(v:Vendor {owner_id: $owner_id})
 OPTIONAL MATCH (g)-[:VIOLATES]->(c:DPDPClause)
 RETURN g.id AS gap_id,
        g.kind AS kind,
@@ -80,7 +91,7 @@ RETURN g.id AS gap_id,
 """
 
 _QUERY_WRITE_DRAFT = """
-MATCH (g:Gap {id: $gap_id})
+MATCH (g:Gap {id: $gap_id, owner_id: $owner_id})
 MERGE (rd:RemediationDraft {id: $draft_id})
 ON CREATE SET rd.section_title = $section_title,
               rd.document = $section_title,
@@ -201,9 +212,26 @@ class RemediationDrafter:
             f"Drafting failed after {MAX_RETRIES} attempts: {last_error}"
         )
 
-    def draft_and_write_for_gap(self, gap_id: str) -> None:
+    def draft_and_write_for_gap(self, owner_id: str, gap_id: str) -> None:
+        """Draft an amendment for one gap belonging to `owner_id`.
+
+        The owner is a per-call argument rather than constructor state:
+        this drafter holds a Gemini client and a rate limiter and is
+        reused across requests, and reused state is exactly how one
+        request's owner ends up on another request's query.
+
+        A gap that exists but belongs to someone else reports "not found"
+        -- the same answer as a gap that does not exist, because telling
+        the caller which of the two it is confirms that another account
+        holds that finding.
+        """
+        if not owner_id:
+            raise ValueError(
+                "owner_id is required: drafting a gap without one either "
+                "finds nothing or drafts against another account's gap"
+            )
         rows = self.neo4j_client.run_read(
-            _QUERY_GAP_DETAILS, {"gap_id": gap_id}
+            _QUERY_GAP_DETAILS, {"gap_id": gap_id, "owner_id": owner_id}
         )
         if not rows:
             raise ValueError(f"Gap {gap_id} not found in graph")
@@ -222,11 +250,12 @@ class RemediationDrafter:
         )
 
         retriever = DPDPRetriever(self.neo4j_client)
-        verif = verify_remediation(draft, retriever)
+        verif = verify_remediation(draft, retriever, owner_id)
 
         draft_id = f"draft-{uuid.uuid4().hex[:8]}"
         params = {
             "gap_id": gap_id,
+            "owner_id": owner_id,
             "draft_id": draft_id,
             "section_title": draft.get("section_title", "Amendment"),
             "rationale": draft.get("rationale", ""),

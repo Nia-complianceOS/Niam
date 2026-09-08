@@ -1,16 +1,26 @@
 """
 retrieval/query_cli.py — manual/demo CLI for the retrieval layer.
 
+Every subcommand takes a required --owner: the account whose subgraph to
+read. There is no default -- see smoke/TENANCY_CONTRACT.md. `upcoming` is
+the one subcommand whose ANSWER does not depend on it (it reads only the
+shared Act), but it still requires the flag, so that no invocation of
+this CLI reads the graph without naming who it is reading for.
+
 Examples:
-    python -m retrieval.query_cli summary
-    python -m retrieval.query_cli for-data-type consent_or_age
-    python -m retrieval.query_cli for-system
-    python -m retrieval.query_cli for-system --no-upcoming
-    python -m retrieval.query_cli gaps
-    python -m retrieval.query_cli vendor-exposure DPDP-s6
-    python -m retrieval.query_cli clause DPDP-s9
-    python -m retrieval.query_cli upcoming
-    python -m retrieval.query_cli upcoming --within-days 120
+    python -m retrieval.query_cli summary --owner alice@example.com
+    python -m retrieval.query_cli for-data-type consent_or_age \
+        --owner alice@example.com
+    python -m retrieval.query_cli for-system --owner alice@example.com
+    python -m retrieval.query_cli for-system --owner alice@example.com \
+        --no-upcoming
+    python -m retrieval.query_cli gaps --owner alice@example.com
+    python -m retrieval.query_cli vendor-exposure DPDP-s6 \
+        --owner alice@example.com
+    python -m retrieval.query_cli clause DPDP-s9 --owner alice@example.com
+    python -m retrieval.query_cli upcoming --owner alice@example.com
+    python -m retrieval.query_cli upcoming --owner alice@example.com \
+        --within-days 120
 """
 
 import argparse
@@ -19,6 +29,8 @@ import sys
 
 from graph.schema import DEFAULT_SYSTEM_NAME
 from retrieval.dpdp_retrieval import DPDPRetriever
+from graph.neo4j_client import Neo4jClient
+from graph.owner import UnknownOwner, resolve_owner_id
 
 
 def _print(obj):
@@ -48,9 +60,33 @@ def main():
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("summary", help="graph-wide counts and coverage snapshot")
+    # Attached to every subparser rather than to the top-level parser, so
+    # the flag can be written after the subcommand (`gaps --owner x`)
+    # instead of only before it. argparse does not allow a parent
+    # parser's options to appear after the subcommand name.
+    owner_arg = argparse.ArgumentParser(add_help=False)
+    owner_arg.add_argument(
+        "--owner",
+        required=True,
+        help=(
+            "account whose subgraph to read -- a user id or the email it "
+            "signed up with. Required: there is no default owner, and a "
+            "query without one either returns nothing or returns another "
+            "account's compliance findings."
+        ),
+    )
 
-    p = sub.add_parser("for-data-type", help="clauses governing one data type")
+    sub.add_parser(
+        "summary",
+        parents=[owner_arg],
+        help="graph-wide counts and coverage snapshot",
+    )
+
+    p = sub.add_parser(
+        "for-data-type",
+        parents=[owner_arg],
+        help="clauses governing one data type",
+    )
     p.add_argument("data_type")
     p.add_argument(
         "--no-upcoming", action="store_true", help="only in-force clauses"
@@ -67,7 +103,9 @@ def main():
     )
 
     p = sub.add_parser(
-        "for-system", help="clauses for every data type a system collects"
+        "for-system",
+        parents=[owner_arg],
+        help="clauses for every data type a system collects",
     )
     p.add_argument("--system", default=DEFAULT_SYSTEM_NAME)
     p.add_argument("--no-upcoming", action="store_true")
@@ -83,7 +121,9 @@ def main():
     )
 
     p = sub.add_parser(
-        "gaps", help="collected data types with zero governing clauses"
+        "gaps",
+        parents=[owner_arg],
+        help="collected data types with zero governing clauses",
     )
     p.add_argument("--system", default=DEFAULT_SYSTEM_NAME)
     p.add_argument(
@@ -93,28 +133,44 @@ def main():
     )
 
     p = sub.add_parser(
-        "vendor-exposure", help="vendors touching data governed by a clause"
+        "vendor-exposure",
+        parents=[owner_arg],
+        help="vendors touching data governed by a clause",
     )
     p.add_argument("clause_id", help="e.g. DPDP-s6")
 
-    p = sub.add_parser("clause", help="full detail for one clause")
+    p = sub.add_parser(
+        "clause", parents=[owner_arg], help="full detail for one clause"
+    )
     p.add_argument("clause_id", help="e.g. DPDP-s9")
 
     p = sub.add_parser(
-        "upcoming", help="not-yet-commenced clauses, soonest first"
+        "upcoming",
+        parents=[owner_arg],
+        help="not-yet-commenced clauses, soonest first",
     )
     p.add_argument("--within-days", type=int, default=None)
 
     args = parser.parse_args()
 
+
+    # An email is what a person types; a uuid is what the app scopes by.
+    # Resolving here means an owner that matches no account fails now,
+    # loudly, instead of producing a correct subgraph nobody can see.
+    try:
+        args.owner = resolve_owner_id(Neo4jClient(), args.owner)
+    except UnknownOwner as exc:
+        print(f"ERROR: {exc}")
+        sys.exit(1)
     retriever = DPDPRetriever()
     try:
         if args.command == "summary":
-            _print(retriever.graph_summary())
+            _print(retriever.graph_summary(args.owner))
 
         elif args.command == "for-data-type":
             try:
                 clauses = retriever.clauses_for_data_type(
+                    args.owner,
                     args.data_type,
                     include_upcoming=not args.no_upcoming,
                     include_general=not args.no_general,
@@ -129,6 +185,7 @@ def main():
 
         elif args.command == "for-system":
             by_data_type = retriever.clauses_for_system(
+                args.owner,
                 args.system,
                 include_upcoming=not args.no_upcoming,
                 include_general=not args.no_general,
@@ -142,7 +199,9 @@ def main():
 
         elif args.command == "gaps":
             gaps = retriever.coverage_gaps(
-                args.system, include_general=not args.no_general
+                args.owner,
+                args.system,
+                include_general=not args.no_general,
             )
             if gaps:
                 print(
@@ -155,16 +214,24 @@ def main():
                 )
 
         elif args.command == "vendor-exposure":
-            _print(retriever.vendor_exposure_for_clause(args.clause_id))
+            _print(
+                retriever.vendor_exposure_for_clause(
+                    args.owner, args.clause_id
+                )
+            )
 
         elif args.command == "clause":
-            detail = retriever.clause_detail(args.clause_id)
+            detail = retriever.clause_detail(args.owner, args.clause_id)
             if detail is None:
                 print(f"No clause found with id {args.clause_id!r}.")
                 sys.exit(1)
             _print(detail)
 
         elif args.command == "upcoming":
+            # No owner passed on purpose: this reads only :DPDPClause,
+            # the shared Act. The flag is still required above so that
+            # every invocation names an account, but forwarding it here
+            # would imply a filter that does not exist.
             _print(retriever.upcoming_clauses(within_days=args.within_days))
     finally:
         retriever.close()

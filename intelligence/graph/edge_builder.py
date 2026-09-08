@@ -55,8 +55,12 @@ from graph.schema import (
 
 MERGE_COLLECTS_FROM_CODE = f"""
 UNWIND $rows AS row
-MERGE (s:{LABEL_SYSTEM} {{name: row.system}})
-MERGE (d:{LABEL_DATA_TYPE} {{name: row.data_type}})
+MERGE (s:{LABEL_SYSTEM} {{uid: row.system_uid}})
+ON CREATE SET s.name = row.system, s.owner_id = row.owner_id
+ON MATCH SET  s.name = row.system, s.owner_id = row.owner_id
+MERGE (d:{LABEL_DATA_TYPE} {{uid: row.data_type_uid}})
+ON CREATE SET d.name = row.data_type, d.owner_id = row.owner_id
+ON MATCH SET  d.name = row.data_type, d.owner_id = row.owner_id
 MERGE (s)-[r:{REL_COLLECTS}]->(d)
 ON CREATE SET r.sources = [row.source_json],
               r.source_keys = [row.source_key]
@@ -73,8 +77,12 @@ ON MATCH SET
 
 MERGE_SENT_TO_FROM_CODE = f"""
 UNWIND $rows AS row
-MERGE (d:{LABEL_DATA_TYPE} {{name: row.data_type}})
-MERGE (v:{LABEL_VENDOR} {{name: row.vendor}})
+MERGE (d:{LABEL_DATA_TYPE} {{uid: row.data_type_uid}})
+ON CREATE SET d.name = row.data_type, d.owner_id = row.owner_id
+ON MATCH SET  d.name = row.data_type, d.owner_id = row.owner_id
+MERGE (v:{LABEL_VENDOR} {{uid: row.vendor_uid}})
+ON CREATE SET v.name = row.vendor, v.owner_id = row.owner_id
+ON MATCH SET  v.name = row.vendor, v.owner_id = row.owner_id
 MERGE (d)-[r:{REL_SENT_TO}]->(v)
 ON CREATE SET r.sources = [row.source_json],
               r.source_keys = [row.source_key]
@@ -91,8 +99,12 @@ ON MATCH SET
 
 MERGE_COLLECTS_FROM_VENDOR = f"""
 UNWIND $rows AS row
-MERGE (s:{LABEL_SYSTEM} {{name: row.system}})
-MERGE (d:{LABEL_DATA_TYPE} {{name: row.data_type}})
+MERGE (s:{LABEL_SYSTEM} {{uid: row.system_uid}})
+ON CREATE SET s.name = row.system, s.owner_id = row.owner_id
+ON MATCH SET  s.name = row.system, s.owner_id = row.owner_id
+MERGE (d:{LABEL_DATA_TYPE} {{uid: row.data_type_uid}})
+ON CREATE SET d.name = row.data_type, d.owner_id = row.owner_id
+ON MATCH SET  d.name = row.data_type, d.owner_id = row.owner_id
 MERGE (s)-[r:{REL_COLLECTS}]->(d)
 ON CREATE SET r.sources = [row.source_json],
               r.source_keys = [row.source_key]
@@ -107,8 +119,12 @@ ON MATCH SET
 
 MERGE_SENT_TO_FROM_VENDOR = f"""
 UNWIND $rows AS row
-MERGE (d:{LABEL_DATA_TYPE} {{name: row.data_type}})
-MERGE (v:{LABEL_VENDOR} {{name: row.vendor}})
+MERGE (d:{LABEL_DATA_TYPE} {{uid: row.data_type_uid}})
+ON CREATE SET d.name = row.data_type, d.owner_id = row.owner_id
+ON MATCH SET  d.name = row.data_type, d.owner_id = row.owner_id
+MERGE (v:{LABEL_VENDOR} {{uid: row.vendor_uid}})
+ON CREATE SET v.name = row.vendor, v.owner_id = row.owner_id
+ON MATCH SET  v.name = row.vendor, v.owner_id = row.owner_id
 MERGE (d)-[r:{REL_SENT_TO}]->(v)
 ON CREATE SET r.sources = [row.source_json],
               r.source_keys = [row.source_key]
@@ -121,29 +137,56 @@ ON MATCH SET
                        ELSE coalesce(r.source_keys, []) + [row.source_key] END
 """
 
-# --- GOVERNED_BY: DataType -> DPDPClause, from the DPDP clause loader ----
-# Unlike COLLECTS/SENT_TO, clause properties (title, obligation_summary,
-# effective_from, status) live ON THE CLAUSE NODE, not as `sources`
-# provenance on the relationship — a clause has one canonical text
-# regardless of which data type led us to it, so re-detecting the same
-# clause via a different data type should update the node, not duplicate
-# or append to it. ON MATCH SET refreshes these in case the Act text or
-# the commencement schedule changes between loader runs.
+# --- DPDPClause: shared reference data, loaded once for everyone -------
+#
+# The Act is the same law for every account, and extracting it costs a
+# Gemini call per section, so :DPDPClause is the one label that is NOT
+# owner-scoped. But :DataType now IS, which breaks the old shape: the
+# loader used to write (:DataType)-[:GOVERNED_BY]->(:DPDPClause) directly,
+# and there is no single :DataType named "email" any more to hang that
+# edge off.
+#
+# So the loader records WHICH data types a clause governs as an array on
+# the clause itself, and the edge is materialised per owner by
+# LINK_CLAUSES_FOR_OWNER below, once that owner's data types exist. The
+# alternative -- re-extracting the Act for every user who signs up --
+# would spend the same quota to produce identical text.
+#
+# Clause properties live on the node rather than as edge provenance: a
+# clause has one canonical text regardless of which data type led us to
+# it, so re-detecting it via a different data type should update the
+# node, not duplicate it.
 
-MERGE_GOVERNED_BY_FROM_CLAUSE = f"""
+MERGE_DPDP_CLAUSE = """
 UNWIND $rows AS row
-MERGE (c:DPDPClause {{clause_id: row.clause_id}})
+MERGE (c:DPDPClause {clause_id: row.clause_id})
 ON CREATE SET c.section = row.section,
               c.title = row.title,
               c.obligation_summary = row.obligation_summary,
               c.effective_from = row.effective_from,
-              c.status = row.status
+              c.status = row.status,
+              c.data_types = [row.data_type]
 ON MATCH SET  c.title = row.title,
               c.obligation_summary = row.obligation_summary,
               c.effective_from = row.effective_from,
-              c.status = row.status
-MERGE (d:{LABEL_DATA_TYPE} {{name: row.data_type}})
+              c.status = row.status,
+              c.data_types = CASE
+                  WHEN row.data_type IN coalesce(c.data_types, [])
+                  THEN c.data_types
+                  ELSE coalesce(c.data_types, []) + [row.data_type] END
+"""
+
+# Kept under the old name so nothing that imports it breaks.
+MERGE_GOVERNED_BY_FROM_CLAUSE = MERGE_DPDP_CLAUSE
+
+# Run after an owner's data types are written. Idempotent, cheap, and the
+# only place GOVERNED_BY is created now.
+LINK_CLAUSES_FOR_OWNER = f"""
+MATCH (d:{LABEL_DATA_TYPE} {{owner_id: $owner_id}})
+MATCH (c:DPDPClause)
+WHERE d.name IN coalesce(c.data_types, [])
 MERGE (d)-[:GOVERNED_BY]->(c)
+RETURN count(*) AS linked
 """
 
 # --- PolicyDocument: what the company has actually told users -----------
@@ -159,7 +202,8 @@ MERGE (d)-[:GOVERNED_BY]->(c)
 MERGE_POLICY_DOCUMENT = f"""
 UNWIND $rows AS row
 MERGE (p:{LABEL_POLICY_DOCUMENT} {{id: row.id}})
-ON CREATE SET p.name = row.name,
+ON CREATE SET p.owner_id = row.owner_id,
+              p.name = row.name,
               p.path = row.path,
               p.kind = row.kind,
               p.repo = row.repo,
@@ -169,7 +213,8 @@ ON CREATE SET p.name = row.name,
               p.mentions_user_rights = row.mentions_user_rights,
               p.extraction_ok = row.extraction_ok,
               p.updated_at = row.updated_at
-ON MATCH SET  p.name = row.name,
+ON MATCH SET  p.owner_id = row.owner_id,
+              p.name = row.name,
               p.path = row.path,
               p.kind = row.kind,
               p.repo = row.repo,
@@ -195,14 +240,16 @@ WITH p, row
 
 CALL {{
     WITH p, row
-    UNWIND row.data_types_disclosed AS dt
-    MERGE (d:{LABEL_DATA_TYPE} {{name: dt}})
+    UNWIND row.disclosed AS dt
+    MERGE (d:{LABEL_DATA_TYPE} {{uid: dt.uid}})
+    ON CREATE SET d.name = dt.name, d.owner_id = row.owner_id
     MERGE (p)-[:{REL_DISCLOSES}]->(d)
 }}
 CALL {{
     WITH p, row
-    UNWIND row.vendors_named AS vn
-    MERGE (v:{LABEL_VENDOR} {{name: vn}})
+    UNWIND row.named_recipients AS vn
+    MERGE (v:{LABEL_VENDOR} {{uid: vn.uid}})
+    ON CREATE SET v.name = vn.name, v.owner_id = row.owner_id
     MERGE (p)-[:{REL_NAMES_RECIPIENT}]->(v)
 }}
 """

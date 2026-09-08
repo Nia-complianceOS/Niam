@@ -10,7 +10,12 @@ and scan_remote_repo.py has no --json flag, so its documented entry
 point could not be run at all.
 
 Usage:
-    python -m graph.run_scan_and_write miguelgrinberg/microblog --ref main --yes
+    python -m graph.run_scan_and_write miguelgrinberg/microblog \
+        --owner alice@example.com --ref main --yes
+
+--owner is required. Every node this writes is keyed by it (see
+graph/schema.py scoped_uid and smoke/TENANCY_CONTRACT.md); a scan written
+without one would be invisible to every account.
 
 Requires GITHUB_TOKEN, GEMINI_API_KEY, and the Neo4j env vars in .env.
 """
@@ -21,6 +26,8 @@ import sys
 from graph.graph_writer import GraphWriter
 from ingestion.github.classifier import BATCH_SIZE, REQUESTS_PER_MINUTE
 from ingestion.github.scanner import GitHubScanner
+from graph.neo4j_client import Neo4jClient
+from graph.owner import UnknownOwner, resolve_owner_id
 
 
 def main():
@@ -30,6 +37,11 @@ def main():
     )
     parser.add_argument(
         "--ref", default="main", help="branch or tag (default: main)"
+    )
+    parser.add_argument(
+        "--owner",
+        required=True,
+        help="account this run belongs to -- a user id or the email it signed up with. Required: there is no default owner, and guessing one writes into somebody else's graph.",
     )
     parser.add_argument(
         "--yes", action="store_true", help="skip the confirmation prompt"
@@ -47,6 +59,15 @@ def main():
     )
     args = parser.parse_args()
 
+
+    # An email is what a person types; a uuid is what the app scopes by.
+    # Resolving here means an owner that matches no account fails now,
+    # loudly, instead of producing a correct subgraph nobody can see.
+    try:
+        args.owner = resolve_owner_id(Neo4jClient(), args.owner)
+    except UnknownOwner as exc:
+        print(f"ERROR: {exc}")
+        sys.exit(1)
     scanner = GitHubScanner(repo_full_name=args.repo)
 
     print(
@@ -121,7 +142,7 @@ def main():
     # nothing at all.
 
     kwargs = {"system_name": args.system} if args.system else {}
-    writer = GraphWriter(**kwargs)
+    writer = GraphWriter(owner_id=args.owner, **kwargs)
     try:
         result = writer.write_classifier_output(confirmed)
     finally:

@@ -6,6 +6,21 @@ python -m legal.load_dpdp_clauses --yes
 
 Requires GEMINI_API_KEY and the Neo4j env vars in .env. Safe to re-run —
 every write below is a MERGE (see edge_builder.MERGE_GOVERNED_BY_FROM_CLAUSE).
+
+NO --owner, deliberately, and this is the one loader in the codebase that
+takes none. The DPDP Act is the same law for every account, it costs a
+Gemini call per section to extract, and it holds nothing about any user,
+so :DPDPClause is shared reference data (smoke/TENANCY_CONTRACT.md rule
+2). Loading it per account would spend the same quota to produce
+identical text and then hide each copy from everyone else.
+
+The GraphWriter below still needs an owner_id because every other thing
+it can write is owned -- so it is constructed with schema.SYSTEM_OWNER,
+the placeholder for a caller that genuinely has no user. Nothing on that
+path writes an owned node: write_dpdp_clauses() only MERGEs :DPDPClause,
+and the per-owner (:DataType)-[:GOVERNED_BY]->(:DPDPClause) edges are
+materialised later, by GraphWriter.link_clauses(), once a given account's
+data types exist.
 """
 
 import argparse
@@ -14,6 +29,7 @@ import sys
 from pathlib import Path
 
 from graph.graph_writer import GraphWriter
+from graph.schema import SYSTEM_OWNER
 from legal.dpdp_extractor import (
     BATCH_SIZE,
     REQUESTS_PER_MINUTE,
@@ -118,7 +134,9 @@ def main():
             if e.get("is_data_governing") is not True or e in governing
         ]
 
-    writer = GraphWriter()
+    # SYSTEM_OWNER, not a real account: see the module docstring. The
+    # clause rows written below carry no owner_id at all.
+    writer = GraphWriter(owner_id=SYSTEM_OWNER)
     try:
         result = writer.write_dpdp_clauses(extracted)
     finally:

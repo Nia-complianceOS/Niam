@@ -1,6 +1,11 @@
 """
 reconciler.py — The core engine that compares detected data types and their vendors
 against the DPDP Act clauses to derive compliance gaps and write them into the graph.
+
+TENANCY (smoke/TENANCY_CONTRACT.md). Every read this engine issues is
+filtered by `owner_id`, and every :Gap it writes carries one and is keyed
+by an owner-prefixed id. See gap_id_prefix() below for the exact shape
+and for why the stale-gap sweep is the sharpest edge in this file.
 """
 
 import json
@@ -33,6 +38,66 @@ def _section_of(clause) -> str:
         return ""
 
 
+# --- gap identity -------------------------------------------------------
+#
+# A gap id was `gap-{system_name}-{data_type}-{vendor}`, scoped by system
+# only. Two accounts that both scan a system under the default name --
+# which every account does, DEFAULT_SYSTEM_NAME is a constant -- produced
+# the SAME id for the same finding, so the second account's reconcile
+# MERGEd onto the first account's :Gap node and overwrote its title,
+# severity, source commit and remediation path.
+#
+# The id is owner-prefixed now, in the same shape GraphWriter already uses
+# for :PolicyDocument ids (`policy-{owner_id}-{repo}-{path}`):
+#
+#     gap-{owner_id}-{system_name}-{data_type}-{vendor|none}
+#     gap-{owner_id}-{system_name}-disclosure-{data_type}-{vendor|none}
+#
+# Both shapes share one prefix, `gap-{owner_id}-{system_name}-`, which is
+# what RESOLVE_STALE_GAPS sweeps.
+#
+# THE DANGEROUS PART. That sweep resolves every gap matching the prefix
+# that this run did not re-write. If the prefix could match another
+# account's ids, a routine reconcile would silently mark somebody else's
+# open findings "resolved" -- a compliance tool quietly closing an audit
+# trail it does not own. Hyphens are not an unambiguous separator
+# (owner "a" + system "b-c" and owner "a-b" + system "c" build the same
+# prefix string), so the prefix ALONE is not enough. The sweep therefore
+# also matches on the indexed `owner_id` property, which cannot be
+# ambiguous. Both conditions, and neither is decorative: the property
+# filter is the guarantee, the prefix keeps the sweep to this system.
+
+
+def gap_id_prefix(owner_id: str, system_name: str) -> str:
+    """The `STARTS WITH` prefix covering every gap id this (owner,
+    system) pair writes. Must stay in lockstep with build_gap_id()."""
+    if not owner_id:
+        raise ValueError(
+            "owner_id is required: an unowned gap id collides with every "
+            "other account's gaps for the same system"
+        )
+    return f"gap-{owner_id}-{system_name}-"
+
+
+def build_gap_id(
+    owner_id: str,
+    system_name: str,
+    data_type: str,
+    vendor: str | None,
+    disclosure: bool = False,
+) -> str:
+    """One gap's id.
+
+    `disclosure=True` gives the finding a distinct id: a disclosure
+    finding and an Act-coverage finding about the same (data type,
+    vendor) are different findings, and sharing an id means the second
+    MERGE overwrites the first.
+    """
+    prefix = gap_id_prefix(owner_id, system_name)
+    kind_segment = "disclosure-" if disclosure else ""
+    return f"{prefix}{kind_segment}{data_type}-{vendor or 'none'}"
+
+
 def classify_disclosure_gap(
     data_type: str,
     vendor: str | None,
@@ -54,6 +119,10 @@ def classify_disclosure_gap(
                                 names. The most serious of the three: the
                                 data is gone and nobody was told.
       undisclosed_collection -- collected, and no document mentions it.
+
+    `disclosed_data_types` and `named_recipients` must come from THIS
+    account's policy documents. Reading them unfiltered meant another
+    company's privacy policy could close your disclosure gap.
     """
     if vendor and vendor not in named_recipients:
         return "high", "undisclosed_sharing"
@@ -123,6 +192,9 @@ def classify_gap(
     (None, None) and disappear. Data you collect and hold, against a duty
     that starts in 2027, is precisely what a readiness inventory exists
     to list -- it is a low-severity future obligation, not nothing.
+
+    Pure function of its arguments -- no graph access, so no owner. The
+    owner filtering happens where `vendors` and `clauses` are READ.
     """
     obligations = obligation_clauses(clauses)
     has_vendors = len(vendors) > 0
@@ -202,9 +274,27 @@ def latest_code_provenance(sources: list) -> dict:
     return best
 
 
+# $id is already owner-prefixed (build_gap_id), and `owner_id` is set as a
+# property besides -- the prefix keys the node, the property is what every
+# read filters on and what the stale sweep trusts.
+#
+# Every node this gap attaches to is matched WITH the owner filter, except
+# :DPDPClause, which is the shared Act (TENANCY_CONTRACT.md rule 2).
+# Without those filters a gap could hang its INVOLVES edge off another
+# account's :DataType node -- which is not just a wrong edge, it is a
+# join that carries that account's data into this account's gap detail.
+#
+# STRUCTURE: each attachment is its own CALL unit subquery. It used to be
+# a flat chain, and the `UNWIND (CASE WHEN $remediation_doc_id IS NOT NULL
+# ... ELSE [] END)` in the middle of it eliminated every row whenever a
+# gap had no remediation document -- which is every Act-coverage gap. The
+# INVOLVES, AFFECTS and VIOLATES edges after it were then never written at
+# all, so those gaps reached the drafter with no data type and no clauses.
+# Inside a CALL subquery, row elimination stays inside that subquery.
 MERGE_GAP = """
 MERGE (g:Gap {id: $id})
-ON CREATE SET g.title = $title,
+ON CREATE SET g.owner_id = $owner_id,
+              g.title = $title,
               g.status = $status,
               g.severity = $severity,
               g.kind = $kind,
@@ -221,8 +311,19 @@ ON CREATE SET g.title = $title,
               g.coverage_basis = $coverage_basis,
               g.remediation_path = $remediation_path,
               g.remediation_repo = $remediation_repo
-ON MATCH SET g.title = $title,
-             g.status = $status,
+ON MATCH SET g.owner_id = $owner_id,
+             g.title = $title,
+             // Re-finding a gap means the condition still holds, so the
+             // status resets -- that is what withdraws a 'resolved' claim
+             // if a merged amendment did not actually fix it.
+             //
+             // 'pr_opened' is preserved, because a review that is still
+             // out is still out. Resetting it to 'open' every reconcile
+             // was how a finding sitting with legal quietly reverted to
+             // looking untouched.
+             g.status = CASE
+                 WHEN $status = 'open' AND g.status = 'pr_opened'
+                 THEN 'pr_opened' ELSE $status END,
              g.severity = $severity,
              g.kind = $kind,
              g.updated_at = $now,
@@ -257,30 +358,42 @@ CALL {
     OPTIONAL MATCH (g)-[old:REMEDIED_IN]->(:PolicyDocument)
     DELETE old
 }
-WITH g
-UNWIND (CASE WHEN $remediation_doc_id IS NOT NULL
-             THEN [$remediation_doc_id] ELSE [] END) AS pid
-MATCH (pd:PolicyDocument {id: pid})
-MERGE (g)-[:REMEDIED_IN]->(pd)
-WITH g
-
-MATCH (d:DataType {name: $data_type})
-MERGE (g)-[:INVOLVES]->(d)
-WITH g
-
-UNWIND (CASE WHEN $vendor_name IS NOT NULL THEN [$vendor_name] ELSE [] END) AS vname
-MATCH (v:Vendor {name: vname})
-MERGE (g)-[:AFFECTS]->(v)
-WITH g
-
-UNWIND $clause_ids AS clause_id
-MATCH (c:DPDPClause {clause_id: clause_id})
-MERGE (g)-[:VIOLATES]->(c)
+CALL {
+    WITH g
+    UNWIND (CASE WHEN $remediation_doc_id IS NOT NULL
+                 THEN [$remediation_doc_id] ELSE [] END) AS pid
+    MATCH (pd:PolicyDocument {id: pid, owner_id: $owner_id})
+    MERGE (g)-[:REMEDIED_IN]->(pd)
+}
+CALL {
+    WITH g
+    MATCH (d:DataType {owner_id: $owner_id, name: $data_type})
+    MERGE (g)-[:INVOLVES]->(d)
+}
+CALL {
+    WITH g
+    UNWIND (CASE WHEN $vendor_name IS NOT NULL
+                 THEN [$vendor_name] ELSE [] END) AS vname
+    MATCH (v:Vendor {owner_id: $owner_id, name: vname})
+    MERGE (g)-[:AFFECTS]->(v)
+}
+CALL {
+    WITH g
+    UNWIND $clause_ids AS clause_id
+    MATCH (c:DPDPClause {clause_id: clause_id})
+    MERGE (g)-[:VIOLATES]->(c)
+}
 """
 
 
+# Two conditions, both load-bearing. `owner_id` is the guarantee -- it is
+# an indexed property that cannot be confused between accounts. The `id`
+# prefix narrows the sweep to gaps from THIS system, so reconciling one
+# system does not retire another system's findings within the same
+# account. See the gap-identity note above for why the prefix alone was
+# not safe enough to stand on.
 RESOLVE_STALE_GAPS = """
-MATCH (g:Gap)
+MATCH (g:Gap {owner_id: $owner_id})
 WHERE g.id STARTS WITH $prefix
   AND NOT g.id IN $written_ids
   AND coalesce(g.status, 'open') <> 'resolved'
@@ -296,9 +409,23 @@ class Reconciler:
         self,
         client: Optional[Neo4jClient] = None,
         system_name: str = DEFAULT_SYSTEM_NAME,
+        owner_id: str | None = None,
     ):
+        """`owner_id` is the account these gaps belong to, and it is
+        required. It decides three things at once: which subgraph is
+        read, what id each :Gap is keyed by, and which gaps the stale
+        sweep is allowed to retire. Guessing it would mean writing one
+        account's findings into another's dashboard and resolving that
+        account's open gaps on the way out -- so this refuses instead.
+        """
+        if not owner_id:
+            raise ValueError(
+                "Reconciler requires owner_id -- gaps written without one "
+                "collide with every other account's gaps"
+            )
         self.client = client or Neo4jClient()
         self.system_name = system_name
+        self.owner_id = owner_id
 
     def close(self):
         self.client.close()
@@ -308,28 +435,35 @@ class Reconciler:
         Returns {"gaps_written": N, "gaps_by_kind": {...}}.
         """
         retriever = DPDPRetriever(self.client)
-        clauses_by_dt = retriever.clauses_for_system(self.system_name)
+        clauses_by_dt = retriever.clauses_for_system(
+            self.owner_id, self.system_name
+        )
 
         # What the company's own legal documents disclose, read once for
-        # the whole run rather than per data type.
-        rows = self.client.run_read(DISCLOSED_DATA_TYPES)
+        # the whole run rather than per data type. Scoped: another
+        # company's privacy policy must not close this company's
+        # disclosure gap.
+        owner_param = {"owner_id": self.owner_id}
+        rows = self.client.run_read(DISCLOSED_DATA_TYPES, owner_param)
         disclosed = set(rows[0]["data_types"] if rows else [])
-        rows = self.client.run_read(NAMED_RECIPIENTS)
+        rows = self.client.run_read(NAMED_RECIPIENTS, owner_param)
         named_recipients = set(rows[0]["vendors"] if rows else [])
-        rows = self.client.run_read(REMEDIATION_TARGET)
+        rows = self.client.run_read(REMEDIATION_TARGET, owner_param)
         target = rows[0] if rows else None
 
         # No policy document in the graph means legal/load_policies.py has
-        # not run. Reporting every collected data type as undisclosed
-        # would be technically true only for a company that has published
-        # nothing, and noise for everyone else -- so disclosure checks are
-        # skipped entirely rather than guessed at.
+        # not run for THIS owner. Reporting every collected data type as
+        # undisclosed would be technically true only for a company that
+        # has published nothing, and noise for everyone else -- so
+        # disclosure checks are skipped entirely rather than guessed at.
         check_disclosure = target is not None
         if not check_disclosure:
             logger.info(
-                "No :PolicyDocument nodes found — skipping disclosure "
-                "checks. Run `python -m legal.load_policies` to enable "
-                "them."
+                "No :PolicyDocument nodes found for %s — skipping "
+                "disclosure checks. Run `python -m legal.load_policies "
+                "--owner %s` to enable them.",
+                self.owner_id,
+                self.owner_id,
             )
 
         now = datetime.now(timezone.utc).isoformat()
@@ -349,7 +483,8 @@ class Reconciler:
             try:
                 # Query VENDORS_FOR_DATA_TYPE
                 vendor_rows = self.client.run_read(
-                    VENDORS_FOR_DATA_TYPE, {"data_type": data_type}
+                    VENDORS_FOR_DATA_TYPE,
+                    {"owner_id": self.owner_id, "data_type": data_type},
                 )
                 vendors = vendor_rows[0]["vendors"] if vendor_rows else []
 
@@ -369,6 +504,7 @@ class Reconciler:
                 collection_rows = self.client.run_read(
                     PROVENANCE_FOR_COLLECTION,
                     {
+                        "owner_id": self.owner_id,
                         "system_name": self.system_name,
                         "data_type": data_type,
                     },
@@ -378,22 +514,32 @@ class Reconciler:
                 )
 
                 for vendor in target_vendors:
-                    # Gap ids are scoped by system name. Without this,
-                    # reconciling a second system in the same database
-                    # MERGEs onto the first system's gaps -- a smoke run
-                    # would silently overwrite demo gaps, and two real
-                    # products sharing an instance would collide outright.
-                    gap_id = (
-                        f"gap-{self.system_name}-{data_type}-"
-                        f"{vendor or 'none'}"
-                    )
-
                     # Two independent findings per pair: what the Act
                     # requires, and what the policy discloses. Either,
                     # both, or neither may apply.
                     findings = []
                     if kind is not None:
-                        findings.append((severity, kind, None))
+                        # A coverage finding needs a document to amend
+                        # too. "Record the basis for this transfer and
+                        # the safeguards around it" is a privacy-policy
+                        # change like any other, and without a target the
+                        # finding reaches the UI offering a fix it cannot
+                        # perform -- open_compliance_pr() skips drafts
+                        # with no file_path, so the button existed and
+                        # could never work.
+                        #
+                        # future_obligation is the exception, and the
+                        # reason this is not simply `target`: amending a
+                        # privacy policy does not make a not-yet-commenced
+                        # clause commence. That finding is a heads-up
+                        # about a date, and there is nothing to edit.
+                        findings.append(
+                            (
+                                severity,
+                                kind,
+                                None if kind == "future_obligation" else target,
+                            )
+                        )
                     if check_disclosure:
                         d_sev, d_kind = classify_disclosure_gap(
                             data_type, vendor, disclosed, named_recipients
@@ -409,7 +555,11 @@ class Reconciler:
                     if vendor:
                         egress_rows = self.client.run_read(
                             PROVENANCE_FOR_EGRESS,
-                            {"data_type": data_type, "vendor": vendor},
+                            {
+                                "owner_id": self.owner_id,
+                                "data_type": data_type,
+                                "vendor": vendor,
+                            },
                         )
                         egress_prov = latest_code_provenance(
                             egress_rows[0]["sources"] if egress_rows else []
@@ -420,15 +570,23 @@ class Reconciler:
                       # A disclosure finding and an Act finding about the
                       # same (data type, vendor) are different findings and
                       # need different ids, or the second MERGE overwrites
-                      # the first.
-                      f_gap_id = (
-                          gap_id
-                          if f_target is None
-                          else f"gap-{self.system_name}-disclosure-"
-                               f"{data_type}-{vendor or 'none'}"
+                      # the first. Both ids are owner-scoped and share the
+                      # prefix the stale sweep uses.
+                      f_gap_id = build_gap_id(
+                          self.owner_id,
+                          self.system_name,
+                          data_type,
+                          vendor,
+                          # NOT `f_target is not None` any more: a coverage gap
+                          # carries a target now, so that test would give a
+                          # coverage and a disclosure finding about the same
+                          # (data type, vendor) the same id -- and the second
+                          # MERGE would overwrite the first.
+                          disclosure=f_kind.startswith("undisclosed_"),
                       )
                       params = {
                         "id": f_gap_id,
+                        "owner_id": self.owner_id,
                         "title": gap_title(f_kind, data_type, vendor),
                         "status": "open",
                         "severity": f_severity,
@@ -502,12 +660,19 @@ class Reconciler:
         # built from :Gap nodes (gap_service._QUERY_AUDIT), so deleting one
         # erases the evidence that it was ever detected and fixed -- which
         # is precisely the record a DPDP audit would ask for.
+        #
+        # Scoped by owner_id AND by the owner-prefixed id -- see the
+        # gap-identity note at the top of this file. This is the one write
+        # in the engine that touches gaps it did not just create, so it is
+        # the one place a missing filter would resolve another account's
+        # findings instead of merely revealing them.
         resolved = 0
         if written_ids or clauses_by_dt:
             rows = self.client.run_write(
                 RESOLVE_STALE_GAPS,
                 {
-                    "prefix": f"gap-{self.system_name}-",
+                    "owner_id": self.owner_id,
+                    "prefix": gap_id_prefix(self.owner_id, self.system_name),
                     "written_ids": written_ids,
                     "now": now,
                 },
@@ -518,7 +683,9 @@ class Reconciler:
                     "Resolved %d gap(s) that no longer apply", resolved
                 )
 
-        logger.info("Wrote %d gaps to the graph", written)
+        logger.info(
+            "Wrote %d gaps to the graph for %s", written, self.owner_id
+        )
         return {
             "gaps_written": written,
             "gaps_resolved": resolved,

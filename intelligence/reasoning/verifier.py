@@ -24,24 +24,48 @@ So commencement now sets a `classification` rather than a verdict:
 `verified` answers only the question the verifier can actually settle:
 is this citation sound? A draft can be verified AND a future obligation,
 which is the honest description of most of this graph right now.
+
+TENANCY (smoke/TENANCY_CONTRACT.md): `owner_id` is required and is
+passed through to every retriever call. Check 2 is the reason it
+matters -- `data_types_governed` comes back owner-scoped, so the check
+now asks "does this clause govern a data type THIS account collects",
+which is the claim the draft actually makes. Unscoped, any account
+collecting the data type anywhere satisfied it, and a draft citing a
+clause that has nothing to do with this account verified clean.
 """
 
 from retrieval.dpdp_retrieval import DPDPRetriever
 
 
-def verify_remediation(draft: dict, retriever: DPDPRetriever) -> dict:
+def verify_remediation(
+    draft: dict, retriever: DPDPRetriever, owner_id: str
+) -> dict:
     """Returns {"verified": bool, "classification": str, "reasons": [...]}.
 
     `reasons` carries every remark, fatal or not, so a draft that fails
     two checks reports two -- the checks used to be chained with elif and
     only ever surfaced the first. `verified` is driven by the fatal ones
     alone.
+
+    `owner_id` scopes the graph the checks are falsified against. It is
+    required: verifying against an unowned or wrong subgraph produces a
+    verdict about somebody else's data, which is worse than no verdict.
     """
+    if not owner_id:
+        raise ValueError(
+            "owner_id is required: a verification run against an unowned "
+            "graph cannot falsify anything"
+        )
+
     failures: list[str] = []
     notes: list[str] = []
 
-    # check 1 -- the cited clause exists at all
-    clause = retriever.clause_detail(draft.get("dpdp_citation_clause_id"))
+    # check 1 -- the cited clause exists at all. The clause is shared
+    # reference data, so this is a global question; the data types it
+    # comes back with are this owner's alone.
+    clause = retriever.clause_detail(
+        owner_id, draft.get("dpdp_citation_clause_id")
+    )
     if clause is None:
         # Checks 2 and 3 both read from `clause`, so this one alone is
         # genuinely fatal and short-circuits.

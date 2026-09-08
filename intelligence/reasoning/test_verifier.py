@@ -1,9 +1,16 @@
 """
 test_verifier.py - Unit tests for the remediation verifier.
+
+verify_remediation() takes an owner_id now (smoke/TENANCY_CONTRACT.md):
+every check it makes is falsified against ONE account's subgraph, and
+`data_types_governed` comes back scoped to that account.
 """
 
+import pytest
 from unittest.mock import Mock
 from reasoning.verifier import verify_remediation
+
+OWNER = "owner-1"
 
 
 def test_verify_remediation_success():
@@ -15,10 +22,10 @@ def test_verify_remediation_success():
 
     draft = {"dpdp_citation_clause_id": "c1", "data_type": "Email"}
 
-    res = verify_remediation(draft, retriever)
+    res = verify_remediation(draft, retriever, OWNER)
     assert res["verified"] is True
     assert len(res["reasons"]) == 0
-    retriever.clause_detail.assert_called_with("c1")
+    retriever.clause_detail.assert_called_with(OWNER, "c1")
 
 
 def test_verify_remediation_missing_clause():
@@ -27,7 +34,7 @@ def test_verify_remediation_missing_clause():
 
     draft = {"dpdp_citation_clause_id": "c1", "data_type": "Email"}
 
-    res = verify_remediation(draft, retriever)
+    res = verify_remediation(draft, retriever, OWNER)
     assert res["verified"] is False
     assert "does not exist" in res["reasons"][0]
 
@@ -41,7 +48,7 @@ def test_verify_remediation_wrong_data_type():
 
     draft = {"dpdp_citation_clause_id": "c1", "data_type": "Email"}
 
-    res = verify_remediation(draft, retriever)
+    res = verify_remediation(draft, retriever, OWNER)
     assert res["verified"] is False
     assert "no GOVERNED_BY edge" in res["reasons"][0]
 
@@ -56,7 +63,7 @@ def test_verify_remediation_success_is_a_violation():
 
     draft = {"dpdp_citation_clause_id": "c1", "data_type": "Email"}
 
-    res = verify_remediation(draft, retriever)
+    res = verify_remediation(draft, retriever, OWNER)
     assert res["classification"] == "violation"
 
 
@@ -74,7 +81,7 @@ def test_verify_remediation_not_in_force_is_a_future_obligation():
 
     draft = {"dpdp_citation_clause_id": "c1", "data_type": "Email"}
 
-    res = verify_remediation(draft, retriever)
+    res = verify_remediation(draft, retriever, OWNER)
     assert res["verified"] is True
     assert res["classification"] == "future_obligation"
     assert "future obligation" in res["reasons"][0]
@@ -89,7 +96,7 @@ def test_verify_remediation_unknown_commencement():
 
     draft = {"dpdp_citation_clause_id": "c1", "data_type": "Email"}
 
-    res = verify_remediation(draft, retriever)
+    res = verify_remediation(draft, retriever, OWNER)
     assert res["verified"] is True
     assert res["classification"] == "unverified"
 
@@ -105,6 +112,33 @@ def test_verify_remediation_bad_citation_still_fails():
 
     draft = {"dpdp_citation_clause_id": "c1", "data_type": "Email"}
 
-    res = verify_remediation(draft, retriever)
+    res = verify_remediation(draft, retriever, OWNER)
     assert res["verified"] is False
     assert res["classification"] == "future_obligation"
+
+
+def test_verify_remediation_requires_an_owner():
+    """An unowned verification cannot falsify anything -- it would run
+    against an empty subgraph and report every citation as unfounded, or
+    against a merged one and report another account's data as proof."""
+    retriever = Mock()
+    draft = {"dpdp_citation_clause_id": "c1", "data_type": "Email"}
+
+    with pytest.raises(ValueError):
+        verify_remediation(draft, retriever, "")
+
+    retriever.clause_detail.assert_not_called()
+
+
+def test_verify_remediation_scopes_the_lookup_to_the_owner():
+    """The owner has to reach the retriever, not just the signature."""
+    retriever = Mock()
+    retriever.clause_detail.return_value = {
+        "status": "in_force",
+        "data_types_governed": ["Email"],
+    }
+
+    draft = {"dpdp_citation_clause_id": "c1", "data_type": "Email"}
+    verify_remediation(draft, retriever, "owner-2")
+
+    retriever.clause_detail.assert_called_with("owner-2", "c1")
