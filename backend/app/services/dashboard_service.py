@@ -17,6 +17,19 @@ labelled accordingly.
 The TIMELINE has no such source. A reconciliation timeline needs
 per-stage event history that nothing records, so it stays empty unless
 USE_MOCKS is on, and sample_panels then tells the UI to label it.
+
+TENANCY (smoke/TENANCY_CONTRACT.md). get_dashboard_summary() takes
+`owner_id` and every query below filters the owned labels on it. The
+clause counts are the deliberate exception: :DPDPClause is the Act, one
+shared corpus, so "12 of 44 sections in force" is the same true sentence
+for every account.
+
+A BRAND-NEW ACCOUNT is the case this file has to get right. It has no
+:System, no :DataType and no :Gap, and the summary query answers with
+zeros rather than no rows -- so `summary is not None` and the cards
+render measured zeros. The score card is the one that must NOT: zero
+ungoverned out of zero data types is not 100% compliant and not 0%
+compliant, it is not a measurement at all, so it stays "—" and says why.
 """
 
 import logging
@@ -48,11 +61,37 @@ def _NOW():
 from retrieval.queries import GRAPH_SUMMARY as _QUERY_GRAPH_SUMMARY
 
 
+def score_from_summary(summary: dict) -> tuple[float | None, str]:
+    """compliance_score(), plus the one distinction a fresh account needs.
+
+    scoring.compliance_score() returns None for any empty denominator and
+    explains it as "no data types mapped yet". That is true for a brand-
+    new account and unhelpful: the reason nothing is mapped is that
+    nothing has been scanned, and the next action is a scan, not a
+    mapping exercise. Both branches return None. Neither ever returns a
+    number for an account with no data -- the empty graph is exactly
+    where the tempting fabrications are 100 ("nothing ungoverned!") and
+    0 ("nothing covered!"), and both would be assertions about a
+    repository we have never read.
+
+    Shared with gap_service, which reports the same score on two other
+    pages and must not word it differently.
+    """
+    if not summary.get("systems") and not summary.get("data_types"):
+        return None, (
+            "No repository scanned yet — nothing has been mapped, so "
+            "there is nothing to score. Run a scan to start."
+        )
+    return compliance_score(
+        summary["data_types_with_no_clause"], summary["data_types"]
+    )
+
+
 # One row per commit that produced at least one gap. gaps[0] is safe --
 # every gap sharing a sha shares all six source_commit_* values, because
 # they are copied from the same provenance entry.
 _QUERY_RECENT_COMMITS = """
-MATCH (g:Gap) WHERE g.source_commit_sha IS NOT NULL
+MATCH (g:Gap {owner_id: $owner_id}) WHERE g.source_commit_sha IS NOT NULL
 WITH g.source_commit_sha AS sha, collect(g) AS gaps
 WITH sha, gaps[0] AS g, size(gaps) AS gap_count
 RETURN sha,
@@ -67,16 +106,21 @@ LIMIT 8
 """
 
 
-def _live_recent_commits() -> list[CommitActivity]:
-    """Commits that produced gaps, newest first.
+def _live_recent_commits(owner_id: str) -> list[CommitActivity]:
+    """Commits that produced gaps, newest first, for one account.
 
     Returns an empty list -- not samples, not an exception -- when the
     graph has no gaps carrying a commit. That is the honest state for a
-    fresh instance, and for any graph scanned before the reconciler
+    fresh account, and for any graph scanned before the reconciler
     started recording provenance.
+
+    The rows here carry commit messages, author names, repository names
+    and SHAs out of a private repository. This is the sharpest
+    disclosure edge on the dashboard, which is why the owner filter is
+    in the pattern rather than applied to the results.
     """
     try:
-        rows = run_query(_QUERY_RECENT_COMMITS)
+        rows = run_query(_QUERY_RECENT_COMMITS, {"owner_id": owner_id})
     except RuntimeError as exc:
         logger.warning("Could not read recent commits from Neo4j: %s", exc)
         return []
@@ -99,15 +143,20 @@ def _live_recent_commits() -> list[CommitActivity]:
     ]
 
 
-def _live_graph_summary() -> dict | None:
+def _live_graph_summary(owner_id: str) -> dict | None:
     """
-    Returns the real graph summary stats from Neo4j, or None if the
+    Returns this account's graph summary stats from Neo4j, or None if the
     graph is unreachable. None (not an exception) is deliberate here —
     losing the graph shouldn't take down the whole dashboard
     response; the caller degrades these stat cards gracefully instead.
+
+    None means UNREACHABLE, never EMPTY. GRAPH_SUMMARY is built from
+    COUNT {} subqueries with no grouping key, so an account with nothing
+    in the graph still gets exactly one row, of zeros. Conflating the
+    two would put "Graph unreachable" in front of every new user.
     """
     try:
-        rows = run_query(_QUERY_GRAPH_SUMMARY)
+        rows = run_query(_QUERY_GRAPH_SUMMARY, {"owner_id": owner_id})
         return rows[0] if rows else None
     except RuntimeError as exc:
         logger.warning(
@@ -192,23 +241,29 @@ def _sample_commits(now):
         ]
 
 
-def get_dashboard_summary() -> DashboardSummaryResponse:
+def get_dashboard_summary(owner_id: str) -> DashboardSummaryResponse:
+    """The dashboard for ONE account.
+
+    `owner_id` is required and comes from Depends(require_auth). Every
+    stat below is this account's own except the clause counts, which are
+    the Act.
+    """
     now = _NOW()
 
-    summary = _live_graph_summary()
+    summary = _live_graph_summary(owner_id)
 
     if summary is not None:
-        ungoverned = summary["data_types_with_no_clause"]
-        total = summary["data_types"]
-        score, score_explanation = compliance_score(ungoverned, total)
+        score, score_explanation = score_from_summary(summary)
 
         score_card = StatCard(
             label="Overall Compliance Score",
-            # None means "nothing to score", not 0% and not 100%.
+            # None means "nothing to score", not 0% and not 100%. A
+            # brand-new account lands here, and "—" is the whole point:
+            # the score_explanation carried alongside says why.
             value=f"{score:.0f}%" if score is not None else "—",
             sub_label=(
                 "Live from graph" if score is not None
-                else "No data types mapped yet"
+                else "No repository scanned yet"
             ),
             sub_tone="neutral",
             score_explanation=score_explanation,
@@ -285,7 +340,7 @@ def get_dashboard_summary() -> DashboardSummaryResponse:
     # commit. The timeline still has no data source at all, so it stays
     # empty unless USE_MOCKS is on.
     use_mocks = get_settings().use_mocks
-    recent_commits = _live_recent_commits()
+    recent_commits = _live_recent_commits(owner_id)
 
     # Real data always wins. Falling back to samples while real commits
     # exist would put invented rows on top of measured ones, and

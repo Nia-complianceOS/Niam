@@ -16,6 +16,25 @@ Also home to the smaller "compliance surface" reads (vendors,
 regulations, policies, audit trail) since they are all views over the
 same reconciliation state and do not warrant their own service files
 yet -- split out later if any of them grows real logic.
+
+TENANCY (smoke/TENANCY_CONTRACT.md). Every public function here takes
+`owner_id` first, sourced from Depends(require_auth), and every query
+filters :Gap, :System, :DataType, :Vendor, :PolicyDocument and
+:PullRequest on it. This file held the plainest instance of the bug the
+contract exists for -- `MATCH (g:Gap)` -- which served every account's
+findings, complete with vendor names, source file paths and commit SHAs
+from private repositories, to whoever asked first.
+
+:DPDPClause is matched unfiltered throughout: the Act is one shared
+corpus. :RemediationDraft is unfiltered too, because it is only ever
+reached through a :Gap that is filtered.
+
+EMPTY ACCOUNT. Nothing here special-cases a new user, and nothing needs
+to: every read returns zero rows, every aggregate returns zero, and the
+score comes back None with an explanation rather than as a number. The
+one thing to protect is that last part -- an empty graph is precisely
+where 100% ("no ungoverned data types!") and 0% ("no coverage!") are
+both arithmetically reachable and both false.
 """
 
 import json
@@ -30,8 +49,10 @@ from legal.commencement import (
     TRANCHE_2_DATE,
     TRANCHE_3_DATE,
 )
-from app.services.dashboard_service import _QUERY_GRAPH_SUMMARY
-from app.services.scoring import compliance_score
+from app.services.dashboard_service import (
+    _QUERY_GRAPH_SUMMARY,
+    score_from_summary,
+)
 from app.db.database import run_query
 from app.schemas.vendors import Vendor, VendorsResponse
 from app.schemas.regulations import RegulationCoverage, RegulationsResponse
@@ -73,13 +94,29 @@ def _NOW():
 # -- the evidence wins. A finding that says "with legal" while appearing
 # in no review queue is worse than one that says nothing, because someone
 # stops chasing it.
+#
+# Every owned label in the pattern carries the filter, including the ones
+# reached by OPTIONAL MATCH from an already-filtered :Gap. That is
+# redundant on a correct graph and it is the thing that still holds if a
+# future edit changes how the pattern is anchored. :DPDPClause has no
+# filter (shared law); :RemediationDraft has none (reached only through
+# the filtered :Gap, per the contract).
+#
+# DEPENDENCY, worth stating because the failure is silent: :PullRequest
+# is an owned label per the contract, so it is filtered here -- but the
+# node is written by github_service._MERGE_PR, which must therefore SET
+# pr.owner_id. Until it does, this OPTIONAL MATCH finds nothing, and
+# _gap_from_graph_row() downgrades every 'pr_opened' gap to
+# 'fix_generated' on the (correct, given no evidence) grounds that no
+# :PullRequest node backs the claim. Any :PullRequest rows written
+# before owner_id existed need backfilling for the same reason.
 _QUERY_LIST_GAPS = """
-MATCH (g:Gap)
-OPTIONAL MATCH (g)-[:AFFECTS]->(v:Vendor)
-OPTIONAL MATCH (g)-[:INVOLVES]->(d:DataType)
+MATCH (g:Gap {owner_id: $owner_id})
+OPTIONAL MATCH (g)-[:AFFECTS]->(v:Vendor {owner_id: $owner_id})
+OPTIONAL MATCH (g)-[:INVOLVES]->(d:DataType {owner_id: $owner_id})
 OPTIONAL MATCH (g)-[:VIOLATES]->(c:DPDPClause)
 OPTIONAL MATCH (g)-[hd:HAS_DRAFT]->(rd:RemediationDraft)
-OPTIONAL MATCH (g)-[:HAS_PR]->(pr:PullRequest)
+OPTIONAL MATCH (g)-[:HAS_PR]->(pr:PullRequest {owner_id: $owner_id})
 WITH g, v, d, c, hd, rd,
      head(collect(pr)) AS pr
 RETURN g, pr,
@@ -93,8 +130,14 @@ RETURN g, pr,
 ORDER BY g.detected_at DESC
 """
 
+# Note the owner_id stays in the property map alongside the id. A gap id
+# is already owner-prefixed (`gap-{owner_id}-{system}-...`, see
+# reconciler.gap_id_prefix), so matching on the id alone would usually be
+# enough -- but "usually" is doing too much work for the query that backs
+# GET /gaps/{id}, and the id is user-supplied.
 _QUERY_GET_GAP = _QUERY_LIST_GAPS.replace(
-    "MATCH (g:Gap)", "MATCH (g:Gap {id: $gap_id})"
+    "MATCH (g:Gap {owner_id: $owner_id})",
+    "MATCH (g:Gap {id: $gap_id, owner_id: $owner_id})",
 )
 
 # generate_fix() and open_compliance_pr() (github_service.py) both need a
@@ -102,7 +145,8 @@ _QUERY_GET_GAP = _QUERY_LIST_GAPS.replace(
 # that stage is real — this project's job is to read/serve them, not draft
 # them (that's the Data & Graph module's job per the team boundary).
 _QUERY_HAS_DRAFTS = """
-MATCH (g:Gap {id: $gap_id})-[:HAS_DRAFT]->(rd:RemediationDraft)
+MATCH (g:Gap {id: $gap_id, owner_id: $owner_id})
+      -[:HAS_DRAFT]->(rd:RemediationDraft)
 RETURN count(rd) AS draft_count
 """
 
@@ -110,12 +154,14 @@ RETURN count(rd) AS draft_count
 # literal list ["Signup Form", "Database", "AWS"] -- three strings nobody
 # had measured, printed under a heading that implies they were found.
 _QUERY_SYSTEMS = """
-MATCH (s:System)-[:COLLECTS]->(:DataType)
+MATCH (s:System {owner_id: $owner_id})
+      -[:COLLECTS]->(:DataType {owner_id: $owner_id})
 RETURN collect(DISTINCT s.name) AS systems
 """
 
 _QUERY_DPDP_GAPS = """
-MATCH (d:DataType) WHERE NOT (d)-[:GOVERNED_BY]->(:DPDPClause)
+MATCH (d:DataType {owner_id: $owner_id})
+WHERE NOT (d)-[:GOVERNED_BY]->(:DPDPClause)
 RETURN collect(d.name) AS missing_requirements
 """
 
@@ -125,8 +171,8 @@ RETURN collect(d.name) AS missing_requirements
 # vendor we have actually integrated with from a name Gemini read in a
 # source file -- so the query has to return it.
 _QUERY_VENDORS = """
-MATCH (v:Vendor)
-OPTIONAL MATCH (d:DataType)-[st:SENT_TO]->(v)
+MATCH (v:Vendor {owner_id: $owner_id})
+OPTIONAL MATCH (d:DataType {owner_id: $owner_id})-[st:SENT_TO]->(v)
 WITH v, d, st,
      COUNT { MATCH (d)-[:GOVERNED_BY]->(c:DPDPClause)
              WHERE c.status = 'in_force'
@@ -144,8 +190,15 @@ ORDER BY name
 # Clauses that apply to all personal data, and so to every data type,
 # even though only the other_personal_data node carries the edge. Most of
 # the DPDP Act is written this way.
+#
+# The owner filter matters even here, where the answer is a count of
+# shared clauses: GOVERNED_BY edges are materialised per account by
+# GraphWriter.link_clauses(), so an unfiltered match would count another
+# account's edges and report general obligations in force for a user
+# whose graph is empty.
 _QUERY_GENERAL_IN_FORCE = """
-MATCH (:DataType {name: 'other_personal_data'})-[:GOVERNED_BY]->(c:DPDPClause)
+MATCH (:DataType {owner_id: $owner_id, name: 'other_personal_data'})
+      -[:GOVERNED_BY]->(c:DPDPClause)
 WHERE c.status = 'in_force' AND c.section IN $obligation_sections
 RETURN count(c) AS in_force
 """
@@ -163,8 +216,26 @@ def _gap_from_graph_row(row: dict) -> Gap:
     # Downgraded to fix_generated rather than open: the drafts are real
     # and were generated, it is the review that never got as far as GitHub.
     status = node["status"]
-    if status == "pr_opened" and pr is None:
+    if pr is None:
+        # A gap only counts as "with legal" if a pull request node backs
+        # it. Downgraded to fix_generated rather than open: the drafts are
+        # real and were generated; it is the review that never reached
+        # GitHub.
+        if status == "pr_opened":
+            status = "fix_generated"
+    elif pr.get("merged"):
+        # The amendment landed. This overrides the stored value because a
+        # reconcile between the merge and now would have reset the gap to
+        # 'open' (MERGE_GAP's ON MATCH), which would show a finding as
+        # outstanding while its fix sits merged in the repository.
+        status = "resolved"
+    elif pr.get("state") == "closed":
         status = "fix_generated"
+    elif status == "open":
+        # A reconcile that re-found this gap reset the status and lost the
+        # fact that a review is out. The :PullRequest node did not move,
+        # so it is the better evidence.
+        status = "pr_opened"
 
     drafts = [
         RemediationDraft(
@@ -224,9 +295,25 @@ def _gap_from_graph_row(row: dict) -> Gap:
 # ---------------------------------------------------------------------------
 
 
-def list_gaps() -> GapsResponse:
+def list_gaps(owner_id: str) -> GapsResponse:
+    """This account's gaps. An account with none gets an empty list, an
+    open_gap_count of 0 and a score of None -- never a placeholder gap
+    and never a placeholder number."""
+    owner = {"owner_id": owner_id}
     try:
-        rows = run_query(_QUERY_LIST_GAPS)
+        # Same refresh the pull-request listing does. A finding whose
+        # amendment was merged on GitHub should read as resolved here
+        # without the reviewer having to visit another page first --
+        # merging is the action that closes the loop, and it happens on
+        # GitHub, where nothing here was watching.
+        #
+        # Imported inside the function: github_service imports this module
+        # for Gap and RemediationDraft, so a module-level import would be
+        # circular.
+        from app.services import github_service
+
+        github_service.refresh_pull_request_states(owner_id)
+        rows = run_query(_QUERY_LIST_GAPS, owner)
         gaps = [_gap_from_graph_row(r) for r in rows]
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
@@ -235,16 +322,15 @@ def list_gaps() -> GapsResponse:
 
     # No invented default. If the graph cannot be read we say so, rather
     # than shipping 73.0 -- a number with no provenance that looked
-    # exactly like a real measurement.
+    # exactly like a real measurement. An account with an empty graph is
+    # a different sentence again, and score_from_summary() writes it:
+    # "No repository scanned yet", still with score None.
     score = None
     score_explanation = "Graph unreachable — no score available"
     try:
-        score_rows = run_query(_QUERY_GRAPH_SUMMARY)
+        score_rows = run_query(_QUERY_GRAPH_SUMMARY, owner)
         if score_rows:
-            summary = score_rows[0]
-            score, score_explanation = compliance_score(
-                summary["data_types_with_no_clause"], summary["data_types"]
-            )
+            score, score_explanation = score_from_summary(score_rows[0])
     except RuntimeError:
         pass
 
@@ -258,9 +344,17 @@ def list_gaps() -> GapsResponse:
     )
 
 
-def get_gap(gap_id: str) -> Gap:
+def get_gap(owner_id: str, gap_id: str) -> Gap:
+    """One gap belonging to this account.
+
+    A gap owned by somebody else is a 404, identical to a gap that does
+    not exist. Distinguishing the two would confirm the existence of
+    another account's finding to anyone who guessed its id.
+    """
     try:
-        rows = run_query(_QUERY_GET_GAP, {"gap_id": gap_id})
+        rows = run_query(
+            _QUERY_GET_GAP, {"gap_id": gap_id, "owner_id": owner_id}
+        )
         if not rows:
             raise HTTPException(
                 status_code=404, detail=f"Gap '{gap_id}' not found"
@@ -270,8 +364,8 @@ def get_gap(gap_id: str) -> Gap:
         raise HTTPException(status_code=503, detail=str(exc))
 
 
-def generate_fix(gap_id: str) -> list[RemediationDraft]:
-    gap = get_gap(gap_id)
+def generate_fix(owner_id: str, gap_id: str) -> list[RemediationDraft]:
+    gap = get_gap(owner_id, gap_id)
     if gap.status == GapStatus.RESOLVED:
         raise HTTPException(
             status_code=400,
@@ -279,7 +373,9 @@ def generate_fix(gap_id: str) -> list[RemediationDraft]:
         )
 
     try:
-        rows = run_query(_QUERY_HAS_DRAFTS, {"gap_id": gap_id})
+        rows = run_query(
+            _QUERY_HAS_DRAFTS, {"gap_id": gap_id, "owner_id": owner_id}
+        )
         draft_count = rows[0]["draft_count"] if rows else 0
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
@@ -297,7 +393,12 @@ def generate_fix(gap_id: str) -> list[RemediationDraft]:
             from reasoning.drafter import RemediationDrafter
 
             drafter = RemediationDrafter()
-            drafter.draft_and_write_for_gap(gap_id)
+            # (owner_id, gap_id), not (gap_id). The drafter reads the
+            # gap's data types and vendors to write the amendment, and
+            # it now scopes that read -- so drafting the wrong account's
+            # gap is refused at the query rather than producing a draft
+            # quoting somebody else's vendor list.
+            drafter.draft_and_write_for_gap(owner_id, gap_id)
             drafter.close()
         except Exception as exc:
             raise HTTPException(
@@ -305,15 +406,19 @@ def generate_fix(gap_id: str) -> list[RemediationDraft]:
             )
 
         # Re-fetch the gap to get the newly generated drafts
-        gap = get_gap(gap_id)
+        gap = get_gap(owner_id, gap_id)
 
     try:
         run_query(
             """
-        MATCH (g:Gap {id: $gap_id})
+        MATCH (g:Gap {id: $gap_id, owner_id: $owner_id})
         SET g.status = 'fix_generated', g.updated_at = $now
         """,
-            {"gap_id": gap_id, "now": _NOW().isoformat()},
+            {
+                "gap_id": gap_id,
+                "owner_id": owner_id,
+                "now": _NOW().isoformat(),
+            },
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
@@ -321,15 +426,23 @@ def generate_fix(gap_id: str) -> list[RemediationDraft]:
     return gap.remediation_drafts
 
 
-def mark_pr_opened(gap_id: str, pr_id: str) -> None:
-    get_gap(gap_id)
+def mark_pr_opened(owner_id: str, gap_id: str, pr_id: str) -> None:
+    # The get_gap() call is the authorisation check as much as the
+    # existence check -- it 404s on another account's gap before this
+    # writes a pull request id onto it.
+    get_gap(owner_id, gap_id)
     try:
         run_query(
             """
-        MATCH (g:Gap {id: $gap_id})
+        MATCH (g:Gap {id: $gap_id, owner_id: $owner_id})
         SET g.pr_id = $pr_id, g.status = 'pr_opened', g.updated_at = $now
         """,
-            {"gap_id": gap_id, "pr_id": pr_id, "now": _NOW().isoformat()},
+            {
+                "gap_id": gap_id,
+                "owner_id": owner_id,
+                "pr_id": pr_id,
+                "now": _NOW().isoformat(),
+            },
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
@@ -355,17 +468,20 @@ def _vendor_is_connected(sources: list) -> bool:
     return False
 
 
-def list_vendors() -> VendorsResponse:
+def list_vendors(owner_id: str) -> VendorsResponse:
+    """This account's vendors. Empty list for an account that has not
+    scanned anything -- there is no "no vendors found" placeholder row,
+    because an empty register and an unread one look identical once one
+    of them is printed as a row."""
     sections = sorted(FIDUCIARY_OBLIGATION_SECTIONS)
+    params = {"owner_id": owner_id, "obligation_sections": sections}
     try:
-        general_rows = run_query(
-            _QUERY_GENERAL_IN_FORCE, {"obligation_sections": sections}
-        )
+        general_rows = run_query(_QUERY_GENERAL_IN_FORCE, params)
         general_in_force = bool(
             general_rows and general_rows[0]["in_force"]
         )
 
-        rows = run_query(_QUERY_VENDORS, {"obligation_sections": sections})
+        rows = run_query(_QUERY_VENDORS, params)
         vendors = []
         for row in rows:
             pairs = [d for d in (row.get("dts") or []) if d and d.get("name")]
@@ -408,27 +524,29 @@ def list_vendors() -> VendorsResponse:
         raise HTTPException(status_code=503, detail=str(exc))
 
 
-def list_regulations() -> RegulationsResponse:
+def list_regulations(owner_id: str) -> RegulationsResponse:
     # Not "0%". An unread graph is not a graph scoring zero -- that is a
-    # measurement, and we do not have one until the query returns.
+    # measurement, and we do not have one until the query returns. Nor is
+    # an EMPTY graph a graph scoring zero: a brand-new account reaches
+    # the same "—" by the score_from_summary() branch below, with no
+    # missing requirements and no affected systems, which is the truthful
+    # shape of "we have not looked yet".
     dpdp_score = "—"
     missing_reqs = []
     affected_systems: list[str] = []
+    owner = {"owner_id": owner_id}
 
     try:
-        rows = run_query(_QUERY_GRAPH_SUMMARY)
+        rows = run_query(_QUERY_GRAPH_SUMMARY, owner)
         if rows:
-            summary = rows[0]
-            score, _ = compliance_score(
-                summary["data_types_with_no_clause"], summary["data_types"]
-            )
+            score, _ = score_from_summary(rows[0])
             dpdp_score = f"{score:.0f}%" if score is not None else "—"
 
-        gap_rows = run_query(_QUERY_DPDP_GAPS)
+        gap_rows = run_query(_QUERY_DPDP_GAPS, owner)
         if gap_rows:
             missing_reqs = gap_rows[0]["missing_requirements"]
 
-        system_rows = run_query(_QUERY_SYSTEMS)
+        system_rows = run_query(_QUERY_SYSTEMS, owner)
         if system_rows:
             affected_systems = [
                 s for s in (system_rows[0]["systems"] or []) if s
@@ -476,10 +594,21 @@ def list_regulations() -> RegulationsResponse:
     )
 
 
+# Deliberately NOT retrieval.queries.POLICY_DOCUMENTS, though the two
+# walk the same three patterns. That one returns the disclosed data type
+# and recipient NAMES for the reconciler to reason over; this one returns
+# only their counts, and orders privacy policies first because that is
+# the order the Policies page reads in. Unifying them would mean shipping
+# every disclosed data type name to a page that renders "7 of 12".
+#
+# What was NOT deliberate was this copy having no owner filter while the
+# retrieval one had three: unfiltered, it listed every account's legal
+# documents by name and path, and divided their disclosure counts by this
+# account's collected total to produce a coverage percentage about nobody.
 _QUERY_POLICY_DOCUMENTS = """
-MATCH (p:PolicyDocument)
-OPTIONAL MATCH (p)-[:DISCLOSES]->(d:DataType)
-OPTIONAL MATCH (p)-[:NAMES_RECIPIENT]->(v:Vendor)
+MATCH (p:PolicyDocument {owner_id: $owner_id})
+OPTIONAL MATCH (p)-[:DISCLOSES]->(d:DataType {owner_id: $owner_id})
+OPTIONAL MATCH (p)-[:NAMES_RECIPIENT]->(v:Vendor {owner_id: $owner_id})
 RETURN p.id AS id, p.name AS name, p.path AS path, p.kind AS kind,
        p.summary AS summary, p.extraction_ok AS extraction_ok,
        count(DISTINCT d) AS disclosed_count,
@@ -490,12 +619,13 @@ ORDER BY CASE p.kind WHEN 'privacy_policy' THEN 0 ELSE 1 END, p.path
 # How many data types the system actually collects -- the denominator for
 # "what fraction of what we collect have we disclosed".
 _QUERY_COLLECTED_COUNT = """
-MATCH (:System)-[:COLLECTS]->(d:DataType)
+MATCH (:System {owner_id: $owner_id})
+      -[:COLLECTS]->(d:DataType {owner_id: $owner_id})
 RETURN count(DISTINCT d) AS collected
 """
 
 
-def list_policies() -> PoliciesResponse:
+def list_policies(owner_id: str) -> PoliciesResponse:
     """The company's own legal documents, and how much they disclose.
 
     Real since Phase H. This returned an empty list before that, because
@@ -506,11 +636,17 @@ def list_policies() -> PoliciesResponse:
     coverage_percent is disclosed data types over collected data types.
     It is a disclosure measure, not a quality one: a policy can disclose
     everything and still be badly written.
+
+    An account with no policy documents gets an empty list, which is the
+    same answer this gave before any policy document existed anywhere --
+    and still the right one, because "no documents found" is a finding a
+    user can act on and an invented row is not.
     """
     if not get_settings().use_mocks:
+        owner = {"owner_id": owner_id}
         try:
-            rows = run_query(_QUERY_POLICY_DOCUMENTS)
-            collected_rows = run_query(_QUERY_COLLECTED_COUNT)
+            rows = run_query(_QUERY_POLICY_DOCUMENTS, owner)
+            collected_rows = run_query(_QUERY_COLLECTED_COUNT, owner)
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc))
 
@@ -599,8 +735,8 @@ def list_policies() -> PoliciesResponse:
 
 
 _QUERY_AUDIT = """
-MATCH (g:Gap)
-OPTIONAL MATCH (g)-[:AFFECTS]->(v:Vendor)
+MATCH (g:Gap {owner_id: $owner_id})
+OPTIONAL MATCH (g)-[:AFFECTS]->(v:Vendor {owner_id: $owner_id})
 RETURN g.id AS id, g.title AS title, g.status AS status,
        g.severity AS severity, g.kind AS kind, g.pr_id AS pr_id,
        g.detected_at AS detected_at, g.updated_at AS updated_at,
@@ -611,7 +747,7 @@ LIMIT 100
 """
 
 
-def list_audit_events() -> AuditResponse:
+def list_audit_events(owner_id: str) -> AuditResponse:
     """Real audit trail, derived from :Gap nodes.
 
     Every event here is backed by a property the reconciler actually
@@ -619,10 +755,13 @@ def list_audit_events() -> AuditResponse:
     person on a "Legal Team" merging pull request #241 -- which is the
     kind of detail that makes an audit trail look authoritative while
     being entirely fictional.
+
+    An account with no gaps has an empty trail. Nothing has happened to
+    it yet, and that is exactly what an audit trail should say.
     """
     if not get_settings().use_mocks:
         try:
-            rows = run_query(_QUERY_AUDIT)
+            rows = run_query(_QUERY_AUDIT, {"owner_id": owner_id})
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc))
 

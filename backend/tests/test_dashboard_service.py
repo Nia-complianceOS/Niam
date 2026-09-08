@@ -8,14 +8,19 @@ nova-labs/checkout-service). Phase C deleted that, so the old assertions
 now demand exactly the behaviour we removed.
 
 get_dashboard_summary() degrades rather than raising when Neo4j is
-unreachable, so these run without a database.
+unreachable, so these run without a database -- and since the tenancy
+pass it takes an owner_id, so they pass one.
 """
 
 from app.services.dashboard_service import get_dashboard_summary
 
+# Any string will do: without a database every query fails and the
+# service degrades. The point is that the parameter is required.
+OWNER = "test-owner"
+
 
 def test_dashboard_summary_matches_schema() -> None:
-    response = get_dashboard_summary()
+    response = get_dashboard_summary(OWNER)
 
     # Five stat cards, always -- they render "—" when the graph cannot be
     # read rather than disappearing.
@@ -35,7 +40,7 @@ def test_sample_panels_flag_is_honest() -> None:
     returned without it, unlabelled fiction reaches the front page -- which
     is the exact failure this flag exists to prevent.
     """
-    response = get_dashboard_summary()
+    response = get_dashboard_summary(OWNER)
 
     if response.timeline:
         assert response.sample_panels, "timeline present but not flagged as sample"
@@ -49,9 +54,12 @@ def test_no_score_is_never_a_number() -> None:
     this product measures.
     """
     score_card = response_score_card()
-    if score_card.sub_label in ("Graph unreachable", "No data types mapped yet"):
+    if score_card.sub_label in (
+        "Graph unreachable",
+        "No repository scanned yet",
+    ):
         assert score_card.value == "—"
 
 
 def response_score_card():
-    return get_dashboard_summary().stat_cards[0]
+    return get_dashboard_summary(OWNER).stat_cards[0]

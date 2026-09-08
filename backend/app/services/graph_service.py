@@ -32,9 +32,28 @@ Status is derived from the graph itself:
 Every colour on the page traces to a node or an edge. The Vendor/System
 rule is deliberately the same one gap_service.list_vendors() applies, so
 the Vendors page and the Graph page cannot disagree about a vendor -- and
-it is computed in Cypher over the WHOLE graph, not over the truncated
-page, so a system does not read "compliant" merely because the data types
-that would have contradicted it fell past the limit.
+it is computed in Cypher over the whole of THIS ACCOUNT'S graph, not over
+the truncated page, so a system does not read "compliant" merely because
+the data types that would have contradicted it fell past the limit.
+
+TENANCY (smoke/TENANCY_CONTRACT.md). This page was the worst offender:
+`MATCH (n) WHERE n:System OR n:DataType OR n:Vendor OR n:DPDPClause`
+drew every account's systems, data types and vendors onto one canvas,
+with the edges between them, labelled with the vendor names and data
+types of whoever else was on the instance. Every owned label now carries
+an `owner_id = $owner_id` filter.
+
+:DPDPClause is not owned and is not filtered by owner -- but it is not
+returned unconditionally either. A clause is included only when one of
+THIS account's data types is governed by it, which is what the page is
+for: the Act as it touches this product. That choice also settles the
+empty case honestly. A brand-new account has no :System, no :DataType
+and no :Vendor, so nothing reaches a clause, so the response is
+`nodes: [], edges: [], total_nodes: 0, truncated: false` -- an empty
+canvas, which is what an account that has never run a scan has. The
+alternative, dumping all ~44 unowned clause nodes into the graph of a
+user with nothing, would render a dense cloud of law with no edge to
+anything they own and read as "here is your compliance graph".
 """
 
 from datetime import datetime, timezone
@@ -74,8 +93,29 @@ MAX_NODE_LIMIT = 1000
 # The ORDER BY decides what survives truncation: the System -> DataType
 # -> Vendor flow map is the point of this page, so clauses are dropped
 # first. Ordering is also what makes the slice stable between requests.
+#
+# The owner predicate. :System/:DataType/:Vendor are this account's own.
+# A :DPDPClause is shared reference data and carries no owner_id at all,
+# so it earns its place on the canvas by being reachable from one of this
+# account's data types.
+#
+# EXISTS {} rather than COUNT {} deliberately, and not for style. The
+# note below this one explains why the aggregation in _QUERY_NODES avoids
+# COUNT {}: it would have to reference the outer `n`, which is the newer
+# and less portable form. This predicate has the same requirement, and
+# EXISTS { MATCH ... } is the one subquery form that has taken an outer
+# variable since 4.3 -- so it runs on whatever 5.x the local container
+# pulled as well as on Aura. It is also the cheaper question: "is there
+# at least one" stops at the first match.
+_OWNED_OR_REACHED = """
+  ((n:System OR n:DataType OR n:Vendor) AND n.owner_id = $owner_id)
+  OR (n:DPDPClause AND EXISTS {
+        MATCH (:DataType {owner_id: $owner_id})-[:GOVERNED_BY]->(n)
+      })
+"""
+
 _QUERY_NODES = """
-MATCH (n) WHERE n:System OR n:DataType OR n:Vendor OR n:DPDPClause
+MATCH (n) WHERE """ + _OWNED_OR_REACHED + """
 OPTIONAL MATCH (n)-[:GOVERNED_BY]->(c:DPDPClause)
 WHERE c.section IN $obligation_sections
 WITH n, labels(n)[0] AS node_type,
@@ -99,14 +139,18 @@ LIMIT $limit
 # made almost every data type render as ungoverned -- a harsher reading
 # than the Act supports, and one that contradicted the gap engine.
 _QUERY_GENERAL_COVERAGE = """
-MATCH (:DataType {name: $general_data_type})-[:GOVERNED_BY]->(c:DPDPClause)
+MATCH (:DataType {owner_id: $owner_id, name: $general_data_type})
+      -[:GOVERNED_BY]->(c:DPDPClause)
 WHERE c.section IN $obligation_sections
 RETURN count(c) AS total,
        count(CASE WHEN c.status = 'in_force' THEN 1 END) AS in_force
 """
 
+# Same predicate as _QUERY_NODES, so `truncated` compares like with
+# like. Counting every node in the instance here would have told a user
+# with 4 nodes that their graph was truncated from 900.
 _QUERY_NODE_COUNT = """
-MATCH (n) WHERE n:System OR n:DataType OR n:Vendor OR n:DPDPClause
+MATCH (n) WHERE """ + _OWNED_OR_REACHED + """
 RETURN count(n) AS total
 """
 
@@ -114,6 +158,14 @@ RETURN count(n) AS total
 # was truncated away is not merely untidy -- d3.forceLink throws on a
 # link whose source or target id is not in the node array, which would
 # take the whole canvas down rather than degrade it.
+#
+# $ids is what scopes this to one account: it comes from _QUERY_NODES,
+# which is owner-filtered, so an edge can only be returned when BOTH its
+# endpoints are nodes this account was already shown. There is no label
+# in this pattern to hang an owner_id on -- `(a)-[r]->(b)` is deliberately
+# label-free so one query covers all three relationship types -- so if
+# _QUERY_NODES ever loses its filter, this loses its scoping with it.
+# That is the coupling to watch when editing either one.
 _QUERY_EDGES = """
 MATCH (a)-[r]->(b)
 WHERE type(r) IN ['COLLECTS','SENT_TO','GOVERNED_BY']
@@ -125,8 +177,13 @@ RETURN elementId(r) AS id, elementId(a) AS source, elementId(b) AS target,
 # Coverage per Vendor and per System, over the entire graph rather than
 # the returned page. count() skips nulls, so `covered` counts exactly the
 # data types with at least one in-force clause.
+#
+# `owner` below is the graph node the coverage belongs to (a :System or a
+# :Vendor), not the account -- the account is $owner_id, filtered on
+# every owned label in both halves of the UNION.
 _QUERY_COVERAGE = """
-MATCH (s:System)-[:COLLECTS]->(d:DataType)
+MATCH (s:System {owner_id: $owner_id})
+      -[:COLLECTS]->(d:DataType {owner_id: $owner_id})
 OPTIONAL MATCH (d)-[:GOVERNED_BY]->(c:DPDPClause)
 WHERE c.status = 'in_force' AND c.section IN $obligation_sections
 WITH s AS owner, d, count(c) AS in_force
@@ -134,7 +191,8 @@ RETURN elementId(owner) AS id, count(d) AS total,
        count(CASE WHEN in_force > 0 THEN 1 END) AS covered,
        collect(d.name)[..12] AS data_types
 UNION
-MATCH (d:DataType)-[:SENT_TO]->(v:Vendor)
+MATCH (d:DataType {owner_id: $owner_id})
+      -[:SENT_TO]->(v:Vendor {owner_id: $owner_id})
 OPTIONAL MATCH (d)-[:GOVERNED_BY]->(c:DPDPClause)
 WHERE c.status = 'in_force' AND c.section IN $obligation_sections
 WITH v AS owner, d, count(c) AS in_force
@@ -199,21 +257,36 @@ def _coverage_status(total: int, covered: int) -> tuple[str, str]:
     return "gap", f"None of {total} data type(s) covered"
 
 
-def get_compliance_graph(limit: int = DEFAULT_NODE_LIMIT) -> GraphResponse:
+def get_compliance_graph(
+    owner_id: str, limit: int = DEFAULT_NODE_LIMIT
+) -> GraphResponse:
+    """One account's compliance graph.
+
+    `owner_id` is required and comes from Depends(require_auth).
+
+    An account with an empty subgraph gets an empty response, not an
+    error: no nodes, no edges, total_nodes 0, truncated False. Every
+    query below aggregates or returns rows, and none of them needs a
+    match to succeed -- so nothing here has to special-case "new user",
+    and nothing invents a node to fill the canvas.
+    """
     limit = max(1, min(limit, MAX_NODE_LIMIT))
     sections = sorted(FIDUCIARY_OBLIGATION_SECTIONS)
+    owner = {"owner_id": owner_id}
 
     node_records = run_query(
-        _QUERY_NODES, {"limit": limit, "obligation_sections": sections}
+        _QUERY_NODES,
+        {**owner, "limit": limit, "obligation_sections": sections},
     )
     node_ids = [record["id"] for record in node_records]
 
-    count_rows = run_query(_QUERY_NODE_COUNT)
+    count_rows = run_query(_QUERY_NODE_COUNT, owner)
     total_nodes = count_rows[0]["total"] if count_rows else len(node_records)
 
     general_rows = run_query(
         _QUERY_GENERAL_COVERAGE,
         {
+            **owner,
             "general_data_type": GENERAL_DATA_TYPE,
             "obligation_sections": sections,
         },
@@ -222,11 +295,16 @@ def get_compliance_graph(limit: int = DEFAULT_NODE_LIMIT) -> GraphResponse:
         general_rows[0] if general_rows else {"total": 0, "in_force": 0}
     )
 
-    edge_records = run_query(_QUERY_EDGES, {"ids": node_ids})
+    # No node ids means no edges, and no reason to ask. Neo4j would
+    # happily run both against an empty list; skipping is one less round
+    # trip on the request a brand-new account makes most often.
+    edge_records = (
+        run_query(_QUERY_EDGES, {"ids": node_ids}) if node_ids else []
+    )
     coverage = {
         row["id"]: row
         for row in run_query(
-            _QUERY_COVERAGE, {"obligation_sections": sections}
+            _QUERY_COVERAGE, {**owner, "obligation_sections": sections}
         )
     }
 
