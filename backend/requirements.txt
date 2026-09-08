@@ -48,6 +48,16 @@ PyJWT==2.13.0
 passlib==1.7.4
 bcrypt==4.0.1
 
+# Fernet, for core/crypto.py. Each user's GitHub token is stored on a
+# :GithubConnection node in the same Neo4j instance as everything else,
+# so it is encrypted before it gets there -- a database backup, an Aura
+# snapshot or a leaked NEO4J_PASSWORD would otherwise hand over a `repo`
+# scoped credential for every user at once. Not a transitive dependency
+# to rely on: PyGithub pulls cryptography in for its App-auth JWT signing
+# today, and a version of it that stops doing so would break this import
+# with no other warning.
+cryptography==50.0.1
+
 # --- dev -------------------------------------------------------------
 # Not installed by default. `pip install pytest` when you want to run
 # reconciliation/test_reconciler.py and reasoning/test_verifier.py.

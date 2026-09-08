@@ -53,11 +53,36 @@ class Settings(BaseSettings):
 
     use_mocks: bool = Field(default=False, alias="USE_MOCKS")
 
+    # Where the GitHub OAuth callback sends the browser when it is done.
+    # That route is reached by a top-level navigation from github.com with
+    # no Authorization header and no session of ours, so it cannot render
+    # anything the SPA would recognise -- it can only 302 back to the app
+    # with ?github=connected or ?github=error&reason=... A deploy must set
+    # this to the Vercel origin; the default is Vite's dev server.
+    frontend_url: str = Field(
+        default="http://localhost:5173", alias="FRONTEND_URL"
+    )
+
     # -------------------------
     # Authentication
     # -------------------------
     jwt_secret: str = Field(
         default="dev-secret-do-not-use-in-prod", alias="JWT_SECRET"
+    )
+
+    # A user's GitHub token is stored in the graph, so it is also in every
+    # backup, every `MATCH (n) RETURN n` a support script ever runs, and
+    # every Aura snapshot. It is encrypted at rest with this key (Fernet;
+    # see core/crypto.py). Generate one with:
+    #   python -c "from cryptography.fernet import Fernet; \
+    #              print(Fernet.generate_key().decode())"
+    # Left unset, core/crypto.py derives a stable key from JWT_SECRET in
+    # development (and says so, loudly) and REFUSES to store a token at all
+    # anywhere else. There is deliberately no plaintext fallback: storing
+    # somebody's `repo`-scoped credential in the clear because a variable
+    # was missing is not a degraded mode, it is a breach.
+    token_encryption_key: str = Field(
+        default="", alias="TOKEN_ENCRYPTION_KEY"
     )
 
     @property
@@ -86,9 +111,53 @@ class Settings(BaseSettings):
     # -------------------------
     # GitHub
     # -------------------------
+    # The instance-wide PAT. This is NO LONGER what the API authenticates
+    # to GitHub with: every user connects their own account (see
+    # services/github_identity.py) and repository listings, scans and pull
+    # requests all run on that user's token, so a PR is opened as them.
+    #
+    # It is kept as an EXPLICIT fallback for the headless CLIs in
+    # intelligence/, which run with no logged-in user and read GITHUB_TOKEN
+    # from the environment themselves. The API path must never fall back to
+    # it: a user with no connection would then be shown the repositories of
+    # whoever owns this PAT -- somebody else's private repo names, in their
+    # picker -- and a "your" pull request would be opened by a stranger.
     github_token: str = Field(default="", alias="GITHUB_TOKEN")
     github_webhook_secret: str = Field(
         default="", alias="GITHUB_WEBHOOK_SECRET"
+    )
+
+    # --- GitHub OAuth App -------------------------------------------
+    # Registered at https://github.com/settings/developers. These are what
+    # let a user connect their own account: the client id goes into the
+    # authorize URL the SPA navigates to, and the secret is what exchanges
+    # the returned code for that user's token. With either missing the
+    # OAuth routes report themselves unconfigured (503) and POST
+    # /github/connect-token -- paste a personal access token -- is the only
+    # way to connect, which is the intended offline-demo path.
+    # Which of the OAuth App's registered redirect URIs this deployment
+    # uses. GitHub now allows up to ten per app, so ONE app covers local
+    # development and production -- but with more than one registered,
+    # omitting redirect_uri from the authorize request leaves GitHub to
+    # pick, and it will not pick per-environment. Sending it explicitly is
+    # what makes one app work for both.
+    #
+    # It must match a registered URI exactly (GitHub rejects anything
+    # else, which is what stops a stolen client_id being pointed at an
+    # attacker's collector), and the SAME value must be sent again during
+    # the token exchange or GitHub refuses the code.
+    #
+    # Local:      http://localhost:8000/api/v1/github/oauth/callback
+    # Production: https://<service>.onrender.com/api/v1/github/oauth/callback
+    #
+    # Empty is still valid: with a single registered URI, GitHub uses it.
+    github_oauth_redirect_uri: str = Field(
+        default="", alias="GITHUB_OAUTH_REDIRECT_URI"
+    )
+
+    github_client_id: str = Field(default="", alias="GITHUB_CLIENT_ID")
+    github_client_secret: str = Field(
+        default="", alias="GITHUB_CLIENT_SECRET"
     )
 
     # Opening a pull request is the one action in this app that writes to

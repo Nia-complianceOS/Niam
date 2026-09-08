@@ -75,6 +75,45 @@ services:
       - key: SCAN_MAX_CONCURRENT
         value: "2"
 
+      # --- per-user GitHub connection --------------------------------
+      # Each user connects their own GitHub account; the deployment no
+      # longer holds one token that acts for everybody. Register an OAuth
+      # App at github.com/settings/developers with the callback
+      #   https://niam-api.onrender.com/api/v1/github/oauth/callback
+      # An OAuth App takes exactly one callback URL, so local development
+      # needs its own app with the localhost callback.
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+
+      # Which of the OAuth App's registered redirect URIs this deployment
+      # uses. GitHub allows up to ten per app, so one app serves both
+      # local development and this one -- but with more than one
+      # registered, GitHub will not choose per-environment, so it is sent
+      # explicitly. Must match a registered URI exactly:
+      #   https://niam-api.onrender.com/api/v1/github/oauth/callback
+      - key: GITHUB_OAUTH_REDIRECT_URI
+        sync: false
+
+      # Fernet key encrypting each user's stored GitHub token at rest.
+      # Generate with:
+      #   python -c "from cryptography.fernet import Fernet; \
+      #              print(Fernet.generate_key().decode())"
+      # Outside development the app REFUSES to store a token without
+      # this, rather than keeping one in plaintext. Rotating it
+      # invalidates stored connections -- users are asked to reconnect,
+      # which is the correct failure.
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+
+      # Where the OAuth callback sends the browser once GitHub answers.
+      # The Vercel origin, same value as CORS_ORIGINS. Left at its
+      # localhost default, every user who connects GitHub in production
+      # is redirected to their own machine.
+      - key: FRONTEND_URL
+        sync: false
+
       # --- webhook ---------------------------------------------------
       # Required outside development: without it the webhook route
       # refuses every delivery rather than trusting an unsigned one.
