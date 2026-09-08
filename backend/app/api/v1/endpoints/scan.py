@@ -10,6 +10,12 @@ globally -- see _enforce_rate_limit().
 GET /scan/{id}/events streams progress. Both routes require auth
 (router.py mounts this router behind require_auth); the stream accepts
 the token as a query parameter because EventSource cannot set headers.
+
+The authenticated user is also the OWNER of everything the scan writes:
+it is stored on the :Scan node, and passed to run_scan(), which hands it
+to GraphWriter and Reconciler so the :System, :DataType, :Vendor and
+:Gap nodes produced belong to this account and nobody else's dashboard
+shows them.
 """
 
 import asyncio
@@ -25,7 +31,7 @@ from pydantic import BaseModel, field_validator
 
 from app.api.deps import require_auth
 from app.core.config import get_settings
-from app.services import scan_service, scan_store
+from app.services import scan_service, scan_store, workspace_service
 
 logger = logging.getLogger("niam.scan")
 
@@ -135,14 +141,25 @@ def start_scan(
 ):
     _enforce_rate_limit(user_id)
 
+    # One :System per repository, per account. Left to the default, every
+    # scan from the UI landed in the same :System -- so scanning a second
+    # repository merged it into the first, and nothing afterwards could
+    # say which codebase a vendor came from. That is wrong data, not
+    # merely untidy: a finding attributed to the wrong repository sends a
+    # reviewer to read the wrong file. An explicit system_name still wins,
+    # which is what keeps the CLI's --system working.
+    system_name = body.system_name or workspace_service.system_name_for_repo(
+        body.repo_full_name
+    )
+
     scan_id = uuid4().hex
     try:
         scan_store.create(
+            user_id,
             scan_id,
             repo=body.repo_full_name,
             ref=body.ref,
-            system_name=body.system_name,
-            user_id=user_id,
+            system_name=system_name,
         )
     except RuntimeError as exc:
         # Registering the scan is what makes it observable. Starting the
@@ -151,25 +168,28 @@ def start_scan(
 
     background.add_task(
         scan_service.run_scan,
+        user_id,
         scan_id,
         body.repo_full_name,
         body.ref,
-        body.system_name,
+        system_name,
     )
     return ScanStartedResponse(scan_id=scan_id)
 
 
 @router.get("/{scan_id}/events")
 async def scan_events(scan_id: str, user_id: str = Depends(require_auth)):
+    # The ownership check is now inside scan_store.get()'s Cypher, so
+    # another account's scan simply does not come back. The old check
+    # here ran in Python AFTER the row -- repo name, ref and progress log
+    # included -- had already been read out of the graph, and it was
+    # conditional on `scan.get("user_id")` being truthy, so a scan stored
+    # with no user (the webhook path) was streamed to any caller.
     try:
-        scan = scan_store.get(scan_id)
+        scan = scan_store.get(user_id, scan_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     if scan is None:
-        raise HTTPException(status_code=404, detail="Scan not found")
-    # A scan id is a uuid4 hex, so this is not the only thing standing
-    # between one user and another's stream -- but it should not be.
-    if scan.get("user_id") and scan["user_id"] != user_id:
         raise HTTPException(status_code=404, detail="Scan not found")
 
     async def event_stream():
@@ -178,7 +198,7 @@ async def scan_events(scan_id: str, user_id: str = Depends(require_auth)):
         # now, and the events being reported take seconds each anyway.
         while True:
             try:
-                current = scan_store.get(scan_id)
+                current = scan_store.get(user_id, scan_id)
             except RuntimeError as exc:
                 yield f"data: {json.dumps({'event': 'failed', 'error': str(exc)})}\n\n"
                 return
