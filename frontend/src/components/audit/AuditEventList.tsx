@@ -1,7 +1,8 @@
+import type { ComponentType } from 'react'
 import type { AuditEvent } from '@/types/api'
 import { GitCommit, FileText, Tags, Cookie, Database, CheckCircle2, User, Clock } from 'lucide-react'
 
-const EVENT_CONFIG: Record<string, { icon: any, color: string, label: string }> = {
+const EVENT_CONFIG: Record<string, { icon: ComponentType<{ className?: string; size?: string | number }>, color: string, label: string }> = {
   commit_detected: { icon: GitCommit, color: 'text-accent-clause', label: 'CODEBASE COMMIT' },
   policy_updated: { icon: FileText, color: 'text-accent-datatype', label: 'POLICY REVISION' },
   vendor_added: { icon: Tags, color: 'text-accent-vendor', label: 'PROCESSOR INDEXED' },

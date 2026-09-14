@@ -252,24 +252,33 @@ def consume_state(state: str) -> str | None:
 
     try:
         supabase = get_supabase()
-        
-        # Select first to get the info
-        response = (
+
+        # Try atomic RPC first
+        try:
+            rpc_resp = supabase.rpc("consume_oauth_state", {"p_state": state}).execute()
+            if rpc_resp and rpc_resp.data is not None:
+                if isinstance(rpc_resp.data, str) and rpc_resp.data:
+                    return rpc_resp.data
+                if isinstance(rpc_resp.data, list) and rpc_resp.data:
+                    first = rpc_resp.data[0]
+                    return first.get("user_id") if isinstance(first, dict) else str(first)
+        except Exception:
+            # Fallback to atomic delete-first if RPC is not registered
+            pass
+
+        # Atomic DELETE-first: PostgREST returns the deleted row(s).
+        # The DELETE serializes concurrent requests so only one caller gets the row back.
+        del_resp = (
             supabase.table("oauth_states")
-            .select("user_id, expires_at")
+            .delete()
             .eq("state", state)
-            .maybe_single()
             .execute()
         )
-        
-        if not response or getattr(response, "data", None) is None or not response.data:
+        rows = del_resp.data if del_resp and hasattr(del_resp, "data") and del_resp.data else []
+        if not rows:
             return None
 
-        row = response.data
-        
-        # Delete it to ensure it's one-time use
-        supabase.table("oauth_states").delete().eq("state", state).execute()
-
+        row = rows[0]
         expires_at = row.get("expires_at") or ""
         try:
             if datetime.fromisoformat(expires_at.replace('Z', '+00:00')) < _now():

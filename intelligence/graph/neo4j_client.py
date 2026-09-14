@@ -48,10 +48,6 @@ class Neo4jClient:
                 "literals in code."
             )
 
-        assert self._uri is not None
-        assert self._user is not None
-        assert self._password is not None
-
         self._driver = GraphDatabase.driver(
             self._uri, auth=(self._user, self._password)
         )

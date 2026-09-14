@@ -576,7 +576,7 @@ export default function LandingPage() {
 
           <div className="pt-8 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4 text-text-tertiary">
             <div>
-              © 2024–2026 Niam Compliance Platform. Built for India DPDP Act 2023.
+              {`© ${new Date().getFullYear()} Niam`} Compliance Platform. Built for India DPDP Act 2023.
             </div>
             <div className="flex items-center gap-6 font-mono text-[11px]">
               <span>CONFIDENTIAL // STATUTORY ARBITRATION</span>

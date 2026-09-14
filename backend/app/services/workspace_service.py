@@ -313,8 +313,12 @@ def reset_account_data(owner_id: str) -> dict:
         audit_resp = supabase.table("audit_logs").delete().eq("user_id", owner_id).execute()
         removed["audit_logs"] = len(audit_resp.data or [])
         
-    except (RuntimeError, Exception) as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        logger.error("Reset failed for %s: %s", owner_id, exc, exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail="Could not reset account data due to an internal error.",
+        )
 
     logger.info("Reset account data for %s: %s", owner_id, removed)
     return {"removed": removed, "reset_at": datetime.now(timezone.utc).isoformat()}

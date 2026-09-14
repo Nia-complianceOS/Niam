@@ -68,14 +68,15 @@ export const useScan = () => {
 
         closeStreamRef.current = subscribeToScan(
           scan_id,
-          (event: ScanEvent) => {
-            setLogs((prev) => [...prev, event])
-            if (event.event === 'completed') {
+          (event: MessageEvent) => {
+            const scanEvent = event as unknown as ScanEvent
+            setLogs((prev) => [...prev, scanEvent])
+            if (scanEvent.event === 'completed') {
               setStatus('completed')
               isFinishedRef.current = true
-            } else if (event.event === 'failed') {
+            } else if (scanEvent.event === 'failed') {
               setStatus('failed')
-              setError(event.error || 'Scan failed during execution')
+              setError(scanEvent.error || 'Scan failed during execution')
               isFinishedRef.current = true
             }
           },
@@ -94,7 +95,7 @@ export const useScan = () => {
         // Signing out cancels the request. Nothing to report to a person
         // who is no longer here.
         if (isAbortError(err)) return
-        const code = (err as any)?.response?.status
+        const code = (err as { response?: { status?: number } })?.response?.status
         // 409 here is NOT the GitHub "not connected" 409 -- POST /scan
         // answers 409 when a scan is already running for this account.
         // Both are states rather than faults, and both are said plainly.

@@ -12,29 +12,35 @@ Import `get_driver()` for direct session control, or `run_query()`
 for the common case of "run this Cypher, get back a list of dicts".
 """
 
+import logging
+
 from neo4j import Driver, GraphDatabase
 from neo4j.exceptions import Neo4jError, ServiceUnavailable
 
 from app.core.config import get_settings
 
+logger = logging.getLogger(__name__)
 
 _driver: Driver | None = None
+
 
 def get_driver() -> Driver:
     global _driver
     settings = get_settings()
-    
+
     if _driver is not None:
         try:
             _driver.verify_connectivity()
             return _driver
-        except Exception:
+        except (ServiceUnavailable, Exception) as exc:
+            logger.warning("Neo4j connectivity check failed (%s); reconnecting...", exc)
             try:
                 _driver.close()
             except Exception:
                 pass
             _driver = None
 
+    logger.info("Creating new Neo4j driver connection to %s", settings.neo4j_uri)
     _driver = GraphDatabase.driver(
         settings.neo4j_uri,
         auth=(settings.neo4j_user, settings.neo4j_password),

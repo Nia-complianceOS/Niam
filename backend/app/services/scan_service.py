@@ -251,7 +251,7 @@ def run_scan(
             {"event": "completed", "message": "Scan completed successfully"},
         )
     except Exception as exc:
-        logger.error(f"Scan {scan_id} failed: {exc}", exc_info=True)
+        logger.error("Scan %s failed: %s", scan_id, exc, exc_info=True)
         try:
             scan_store.set_status(owner_id, scan_id, "failed", error=str(exc))
             audit_service.log_event(

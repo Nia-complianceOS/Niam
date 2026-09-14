@@ -37,7 +37,7 @@ logger = get_logger(__name__)
 # resolved to gemini-3.5-flash during testing, which only allows 5
 # free-tier requests/minute and returns frequent 503s. Flash-Lite is
 # the more generous, more stable free-tier option as of July 2026.
-# "auto" triggers _resolve_available_model() at init time, which asks
+# "auto" triggers resolve_available_model() at init time, which asks
 # the Gemini API what this specific key can actually access and picks
 # the best match — instead of hardcoding a model name that Google may
 # restrict for this account tomorrow (as happened twice already: 2.5-flash
@@ -161,7 +161,7 @@ def _validate_taxonomy(parsed: List[dict]) -> None:
             )
 
 
-def _parse_retry_delay(error_str: str, default: float) -> float:
+def parse_retry_delay(error_str: str, default: float) -> float:
     """Gemini's 429 errors often include 'Please retry in 38.9s' — use
     that instead of guessing when we can."""
     match = _RETRY_DELAY_RE.search(error_str)
@@ -169,7 +169,7 @@ def _parse_retry_delay(error_str: str, default: float) -> float:
     return float(match.group(1)) + 1.0 if match else default
 
 
-def _resolve_available_model(
+def resolve_available_model(
     client, preferred: List[str] = PREFERRED_MODELS
 ) -> str:
     """Asks the Gemini API which models this key can actually call, and
@@ -209,6 +209,11 @@ def _resolve_available_model(
     )
 
 
+# Backward-compatible aliases
+_parse_retry_delay = parse_retry_delay
+_resolve_available_model = resolve_available_model
+
+
 class DataHandlingClassifier:
     """Wraps the Gemini client for stage-2 classification."""
 
@@ -225,7 +230,7 @@ class DataHandlingClassifier:
             )
         self.client = genai.Client(api_key=key)
         self.model = (
-            _resolve_available_model(self.client) if model == "auto" else model
+            resolve_available_model(self.client) if model == "auto" else model
         )
         self._min_interval = 60.0 / requests_per_minute
         self._last_call_at = 0.0
@@ -357,7 +362,7 @@ class DataHandlingClassifier:
                     break  # out of retries, fall through to fallback below
 
                 if is_rate_limited:
-                    delay = _parse_retry_delay(
+                    delay = parse_retry_delay(
                         error_str, default=BASE_BACKOFF_SECONDS * attempt
                     )
                     logger.warning(

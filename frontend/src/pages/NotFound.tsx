@@ -13,12 +13,6 @@ export default function NotFound() {
       
       {/* Background Effect */}
       <div className="absolute inset-0 pointer-events-none z-0 flex items-center justify-center overflow-hidden">
-        <style>{`
-          @keyframes slide-grid {
-            from { background-position: 0 0; }
-            to { background-position: -48px -48px; }
-          }
-        `}</style>
         <div 
           className="absolute inset-0 opacity-[0.04]"
           style={{

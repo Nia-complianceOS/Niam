@@ -53,10 +53,9 @@ export function AppLayout() {
 
             <button 
               className="p-1.5 text-text-secondary hover:text-text-primary transition-colors relative rounded hover:bg-surface border border-transparent hover:border-border"
-              title="Notifications"
+              title="Notifications coming soon"
             >
               <Bell size={16} strokeWidth={1.75} />
-              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-status-warning" />
             </button>
             
             <div className="h-4 w-[1px] bg-border mx-1" />

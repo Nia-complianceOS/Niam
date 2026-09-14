@@ -29,8 +29,8 @@ from graph.env import load_env
 
 from ingestion.github.classifier import (
     ALLOWED_DATA_TYPES,
-    _resolve_available_model,
-    _parse_retry_delay,
+    resolve_available_model,
+    parse_retry_delay,
 )
 
 load_env()
@@ -103,7 +103,7 @@ class PolicyExtractor:
             )
         self.client = genai.Client(api_key=key)
         self.model = (
-            _resolve_available_model(self.client) if model == "auto" else model
+            resolve_available_model(self.client) if model == "auto" else model
         )
         self._min_interval = 60.0 / requests_per_minute
         self._last_call_at = 0.0
@@ -177,7 +177,7 @@ class PolicyExtractor:
                 if attempt == MAX_RETRIES:
                     break
                 if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                    delay = _parse_retry_delay(
+                    delay = parse_retry_delay(
                         error_str, default=BASE_BACKOFF_SECONDS * attempt
                     )
                 elif "503" in error_str or "UNAVAILABLE" in error_str:

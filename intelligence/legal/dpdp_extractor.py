@@ -27,8 +27,8 @@ from graph.env import load_env
 
 from ingestion.github.classifier import (
     ALLOWED_DATA_TYPES,
-    _resolve_available_model,
-    _parse_retry_delay,
+    resolve_available_model,
+    parse_retry_delay,
 )
 from legal.commencement import status_for_section
 
@@ -128,7 +128,7 @@ class DPDPClauseExtractor:
             )
         self.client = genai.Client(api_key=key)
         self.model = (
-            _resolve_available_model(self.client) if model == "auto" else model
+            resolve_available_model(self.client) if model == "auto" else model
         )
         self._min_interval = 60.0 / requests_per_minute
         self._last_call_at = 0.0
@@ -244,7 +244,7 @@ class DPDPClauseExtractor:
                     break
 
                 if is_rate_limited:
-                    delay = _parse_retry_delay(
+                    delay = parse_retry_delay(
                         error_str, default=BASE_BACKOFF_SECONDS * attempt
                     )
                     logger.warning(

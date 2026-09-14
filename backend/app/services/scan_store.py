@@ -108,10 +108,39 @@ def set_status(
 
 
 def append_log(owner_id: str, scan_id: str, event: dict) -> None:
-    """Never let a logging failure kill a scan that is otherwise working."""
+    """Never let a logging failure kill a scan that is otherwise working.
+
+    Uses PostgreSQL function `append_scan_log` for atomic append:
+        CREATE OR REPLACE FUNCTION append_scan_log(
+          p_scan_id TEXT, p_user_id TEXT, p_event JSONB
+        ) RETURNS VOID AS $$
+          UPDATE scans
+          SET log = COALESCE(log, '[]'::jsonb) || p_event,
+              updated_at = NOW()
+          WHERE id = p_scan_id AND user_id = p_user_id;
+        $$ LANGUAGE SQL;
+
+    Falls back to read-then-write if the RPC function has not been applied
+    to the Supabase instance. Note: concurrent events could race under the fallback,
+    but progress logs are append-only telemetry, so lost entries are cosmetic.
+    """
     try:
         supabase = get_supabase()
-        
+
+        try:
+            supabase.rpc(
+                "append_scan_log",
+                {
+                    "p_scan_id": scan_id,
+                    "p_user_id": owner_id,
+                    "p_event": event,
+                },
+            ).execute()
+            return
+        except Exception:
+            # RPC function unavailable or failed; fall back to select-append-update
+            pass
+
         # Read the current log
         response = (
             supabase.table("scans")
@@ -121,13 +150,13 @@ def append_log(owner_id: str, scan_id: str, event: dict) -> None:
             .maybe_single()
             .execute()
         )
-        
-        if not response.data:
+
+        if not response or not response.data:
             return
-            
+
         current_log = response.data.get("log") or []
         current_log.append(event)
-        
+
         # Write back
         supabase.table("scans").update(
             {
@@ -135,9 +164,7 @@ def append_log(owner_id: str, scan_id: str, event: dict) -> None:
                 "updated_at": _now(),
             }
         ).eq("id", scan_id).eq("user_id", owner_id).execute()
-        
-    except RuntimeError as exc:
-        logger.warning("Could not record scan event for %s: %s", scan_id, exc)
+
     except Exception as exc:
         logger.warning("Could not record scan event for %s: %s", scan_id, exc)
 

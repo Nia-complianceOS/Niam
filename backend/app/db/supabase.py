@@ -1,14 +1,18 @@
 import logging
-from functools import lru_cache
-
 from supabase import create_client, Client
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-@lru_cache
+_client: Client | None = None
+
+
 def get_supabase() -> Client:
-    """Returns a cached Supabase client instance."""
+    """Returns a singleton Supabase client instance."""
+    global _client
+    if _client is not None:
+        return _client
+
     settings = get_settings()
     url = settings.supabase_url
     key = settings.supabase_secret_key
@@ -16,7 +20,9 @@ def get_supabase() -> Client:
     if not url or not key:
         logger.warning("SUPABASE_URL or SUPABASE_SECRET_KEY is missing. Client may fail to initialize.")
 
-    return create_client(url, key)
+    logger.info("Initializing Supabase client singleton")
+    _client = create_client(url, key)
+    return _client
 
 def verify_connectivity() -> bool:
     """

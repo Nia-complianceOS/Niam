@@ -10,8 +10,12 @@ export default defineConfig(({ mode }) => {
       sourcemap: false,
       rollupOptions: {
         output: {
+          // Manual chunk splitting for caching. Heavy visual dependencies (Framer Motion, Recharts, D3)
+          // are lazy-loaded via React.lazy() at route level so they only download when the user navigates
+          // to the relevant page.
           manualChunks: {
             vendor: ['react', 'react-dom', 'react-router-dom'],
+            framer: ['framer-motion'],
             charts: ['recharts', 'd3'],
             ui: ['lucide-react', 'class-variance-authority', 'clsx'],
           }

@@ -8,7 +8,7 @@ import { ScannedRepositories } from '@/components/repositories/ScannedRepositori
 import { useGitHubConnection } from '@/hooks/useGitHubConnection'
 import { useRepos } from '@/hooks/useRepos'
 import { useScannedRepositories } from '@/hooks/useScannedRepositories'
-import { useScan } from '@/hooks/useScan'
+import { useScan, type ScanEvent } from '@/hooks/useScan'
 import { useSEO } from '@/hooks/useSEO'
 import { describeConnectFailure } from '@/lib/githubMessages'
 import type { Repository } from '@/types/api'
@@ -333,7 +333,7 @@ function RepoItem({ repo }: { repo: Repository }) {
   )
 }
 
-function ScanProgress({ status, logs, error }: { status: string, logs: any[], error: string | null }) {
+function ScanProgress({ status, logs, error }: { status: string, logs: ScanEvent[], error: string | null }) {
   return (
     <div className="mt-3 pt-3 border-t border-border font-mono text-[11px]">
       <div className="space-y-1.5">

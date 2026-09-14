@@ -24,8 +24,8 @@ from google.genai import types
 from dotenv import load_dotenv, find_dotenv
 
 from ingestion.github.classifier import (
-    _resolve_available_model,
-    _parse_retry_delay,
+    resolve_available_model,
+    parse_retry_delay,
 )
 from graph.neo4j_client import Neo4jClient
 from retrieval.dpdp_retrieval import DPDPRetriever
@@ -127,7 +127,7 @@ class RemediationDrafter:
             )
         self.client = genai.Client(api_key=key)
         self.model = (
-            _resolve_available_model(self.client) if model == "auto" else model
+            resolve_available_model(self.client) if model == "auto" else model
         )
         self.neo4j_client = neo4j_client or Neo4jClient()
         self._min_interval = 60.0 / requests_per_minute
@@ -190,7 +190,7 @@ class RemediationDrafter:
                     break
 
                 if is_rate_limited:
-                    delay = _parse_retry_delay(
+                    delay = parse_retry_delay(
                         error_str, default=BASE_BACKOFF_SECONDS * attempt
                     )
                     logger.warning("Rate limited, retrying in %.1fs...", delay)

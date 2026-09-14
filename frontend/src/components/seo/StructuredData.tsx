@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 
-export function StructuredData({ data }: { data: Record<string, any> }) {
+export function StructuredData({ data }: { data: Record<string, unknown> }) {
   const jsonString = JSON.stringify(data)
 
   useEffect(() => {

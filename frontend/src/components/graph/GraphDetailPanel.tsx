@@ -1,3 +1,4 @@
+import type { ComponentType } from 'react'
 import { motion } from 'framer-motion'
 import { X, Code2, Database, Building2, Scale, AlertTriangle, ArrowRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -11,7 +12,7 @@ interface Props {
   onClose: () => void
 }
 
-const TYPE_CONFIG: Record<string, { icon: any; color: string; label: string; badgeColor: string }> = {
+const TYPE_CONFIG: Record<string, { icon: ComponentType<{ className?: string; size?: string | number; strokeWidth?: string | number }>; color: string; label: string; badgeColor: string }> = {
   System: { 
     icon: Code2, 
     color: 'text-entity-system', 

@@ -230,7 +230,7 @@ export const startScan = (repoFullName: string, ref: string = 'main') =>
 
 export const subscribeToScan = (
   scanId: string,
-  onMessage: (event: any) => void,
+  onMessage: (event: MessageEvent) => void,
   onError: (error: Event) => void,
   onComplete: () => void
 ) => {
@@ -248,7 +248,7 @@ export const subscribeToScan = (
       eventSource.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data)
-          onMessage(data)
+          onMessage(data as unknown as MessageEvent)
           if (data.event === 'completed' || data.event === 'failed') {
             eventSource?.close()
             onComplete()
