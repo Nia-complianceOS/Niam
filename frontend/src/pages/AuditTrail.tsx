@@ -8,7 +8,7 @@ import { motion } from 'framer-motion'
 export default function AuditTrail() {
   useSEO({
     title: 'Audit Trail',
-    description: 'An immutable log of actions taken in the platform.',
+    description: 'Forensic immutable log of compliance events and regulatory amendments.',
   })
 
   const { data, loading, error } = useAuditTrail()
@@ -17,9 +17,9 @@ export default function AuditTrail() {
     return (
       <div className="max-w-[1280px]">
         <PageHeader
-          eyebrow="Immutable Log"
+          eyebrow="Forensic Ledger"
           title="Audit Trail"
-          subtitle="Every action, timestamped and traceable — built for the auditor, not just the engineer."
+          subtitle="Immutable, timestamped record of AST scans, detected data flows, and remediation amendments."
         />
         <ErrorState message={error} />
       </div>
@@ -30,9 +30,9 @@ export default function AuditTrail() {
     return (
       <div className="max-w-[1280px]">
         <PageHeader
-          eyebrow="Immutable Log"
+          eyebrow="Forensic Ledger"
           title="Audit Trail"
-          subtitle="Every action, timestamped and traceable — built for the auditor, not just the engineer."
+          subtitle="Immutable, timestamped record of AST scans, detected data flows, and remediation amendments."
         />
         <TableSkeleton rows={6} />
       </div>
@@ -41,20 +41,20 @@ export default function AuditTrail() {
 
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
+      transition={{ duration: 0.25 }}
       className="max-w-[1280px]"
     >
       <PageHeader
-        eyebrow="Immutable Log"
+        eyebrow="Forensic Ledger"
         title="Audit Trail"
-        subtitle="Every action, timestamped and traceable — built for the auditor, not just the engineer."
+        subtitle="Immutable, timestamped record of AST scans, detected data flows, and remediation amendments."
       />
       {!data || data.events.length === 0 ? (
         <GetStartedState
-          title="Nothing recorded yet"
-          message="Connect GitHub and scan a repository to get started. From then on every scan, every finding and every policy amendment is logged here with a timestamp, ready for an auditor."
+          title="Audit Ledger Empty"
+          message="Connect a source repository to initiate static compliance analysis. Every subsequent scan, AST finding, vendor indexing, and remediation diff is permanently recorded here."
         />
       ) : (
         <AuditEventList events={data.events} />

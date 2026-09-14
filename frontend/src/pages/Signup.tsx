@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { Shield, Mail, Lock, User, ArrowRight, CheckCircle, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { ShieldCheck, Mail, Lock, User, Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react'
 import { useSEO } from '@/hooks/useSEO'
 
 export default function Signup() {
   useSEO({
-    title: 'Create Account',
-    description: 'Create a new Niam workspace.'
+    title: 'Create Workspace — Niam Statutory Ledger',
+    description: 'Register a new Niam continuous DPDP compliance audit workspace.'
   })
 
   const [name, setName] = useState('')
@@ -30,11 +30,11 @@ export default function Signup() {
   const strength = calculateStrength(password)
 
   const getStrengthDisplay = () => {
-    if (password.length === 0) return { label: '', color: 'bg-white/10' }
-    if (strength <= 1) return { label: 'Weak', color: 'bg-red-500' }
-    if (strength === 2) return { label: 'Fair', color: 'bg-yellow-500' }
-    if (strength === 3) return { label: 'Strong', color: 'bg-accent-blue' }
-    return { label: 'Excellent', color: 'bg-green-500' }
+    if (password.length === 0) return { label: '', color: 'bg-border' }
+    if (strength <= 1) return { label: 'Low Complexity', color: 'bg-status-gap' }
+    if (strength === 2) return { label: 'Moderate', color: 'bg-status-warning' }
+    if (strength === 3) return { label: 'Adequate', color: 'bg-entity-system' }
+    return { label: 'Institutional Grade', color: 'bg-status-compliant' }
   }
 
   const strengthDisplay = getStrengthDisplay()
@@ -48,188 +48,193 @@ export default function Signup() {
     try {
       await signup(email, name, password)
     } catch (err) {
-      setError((err as Error).message || 'Could not create the account')
+      setError((err as Error).message || 'Could not create the workspace')
     } finally {
       setIsSubmitting(false)
     }
   }
 
   return (
-    <div className="min-h-screen w-full flex flex-col md:flex-row bg-bg overflow-hidden font-sans">
-      {/* LEFT SIDE (Branding & Value Prop) */}
-      <div className="w-full md:w-[55%] relative flex flex-col justify-center p-8 md:p-16 lg:p-24 border-b md:border-b-0 md:border-r border-white/5">
-        {/* Background elements */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-          <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-accent-blue/20 blur-[120px] animate-float" />
-          <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-accent-purple/20 blur-[120px] animate-float" style={{ animationDelay: '-5s' }} />
-        </div>
-
-        <div className="relative z-10 max-w-lg">
-          <Link to="/" className="flex items-center gap-2 mb-12">
-            <Shield className="w-10 h-10 text-accent-blue" />
-            <span className="text-3xl font-bold tracking-tight">Niam</span>
+    <div className="min-h-screen w-full flex flex-col md:flex-row bg-bg text-text-primary font-sans">
+      {/* LEFT COLUMN: Regulatory Briefing & Ledger Identity */}
+      <div className="w-full md:w-[50%] lg:w-[48%] flex flex-col justify-between p-8 md:p-14 lg:p-18 border-b md:border-b-0 md:border-r border-border bg-bg-subtle/40">
+        <div>
+          <Link to="/" className="inline-flex items-center gap-2.5 group mb-12">
+            <div className="w-8 h-8 rounded border border-border bg-surface flex items-center justify-center text-text-primary transition-colors group-hover:border-text-tertiary">
+              <ShieldCheck size={18} strokeWidth={1.75} />
+            </div>
+            <span className="font-serif font-semibold text-xl tracking-tight text-text-primary">Niam</span>
+            <span className="text-[10px] font-mono text-text-tertiary px-1.5 py-0.5 rounded border border-border bg-bg">
+              DPDP ACT 2023
+            </span>
           </Link>
 
-          <h1 className="text-4xl lg:text-5xl font-bold mb-6 tracking-tight leading-tight" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-            Automate your privacy compliance instantly.
-          </h1>
-          
-          <div className="space-y-6 mt-12">
-            {[
-              "Free to start — no credit card",
-              "Connect GitHub in one click",
-              "See your first findings in minutes"
-            ].map((feature, idx) => (
-              <div key={idx} className="flex items-center gap-4">
-                <div className="w-8 h-8 rounded-full bg-accent-blue/10 border border-accent-blue/30 flex items-center justify-center shrink-0">
-                  <CheckCircle className="w-4 h-4 text-accent-blue" />
-                </div>
-                <span className="text-lg text-text-dim">{feature}</span>
+          <div className="max-w-md space-y-6">
+            <h1 className="font-serif text-3xl lg:text-4xl font-medium tracking-tight leading-[1.15] text-text-primary">
+              Establish continuous statutory oversight before shipping.
+            </h1>
+            <p className="text-[14px] text-text-secondary leading-relaxed">
+              Connect your repositories to generate a comprehensive AST compliance graph, audit personal data egress, and receive automated remedial policy pull requests.
+            </p>
+
+            <div className="pt-6 space-y-3 font-mono text-xs text-text-secondary border-t border-border">
+              <div className="flex items-center gap-2.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-status-compliant" />
+                <span>Zero Database Credentials Required</span>
               </div>
-            ))}
+              <div className="flex items-center gap-2.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-status-compliant" />
+                <span>GitHub App Scoped Read Permissions</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-status-compliant" />
+                <span>Encrypted Fernet Token Storage</span>
+              </div>
+            </div>
           </div>
-          
-          {/* Abstract Graph Visualization */}
-          <div className="mt-16 h-32 relative border-t border-white/10 pt-8 opacity-60">
-            <div className="absolute top-12 left-0 w-3 h-3 rounded-full bg-accent-blue animate-pulse" />
-            <div className="absolute top-8 left-[30%] w-3 h-3 rounded-full bg-accent-purple animate-pulse" style={{ animationDelay: '1s' }} />
-            <div className="absolute top-16 left-[60%] w-3 h-3 rounded-full bg-accent-blue animate-pulse" style={{ animationDelay: '2s' }} />
-            <div className="absolute top-4 left-[90%] w-3 h-3 rounded-full bg-accent-purple animate-pulse" style={{ animationDelay: '0.5s' }} />
-            
-            <svg className="w-full h-full absolute top-8 left-0 pointer-events-none" preserveAspectRatio="none">
-              <path d="M 6 16 Q 15% -10, 30% 8 T 60% 16 T 90% 4" fill="none" stroke="rgba(91,140,255,0.3)" strokeWidth="2" strokeDasharray="4 4" className="animate-[dash_20s_linear_infinite]" />
-            </svg>
-          </div>
+        </div>
+
+        <div className="pt-10 text-[11px] font-mono text-text-tertiary border-t border-border/60 flex items-center justify-between">
+          <span>INSTITUTIONAL REGISTRY</span>
+          <span>DPDP AUDIT COMPLIANCE ENGINE</span>
         </div>
       </div>
 
-      {/* RIGHT SIDE (Form) */}
-      <div className="w-full md:w-[45%] flex items-center justify-center p-6 sm:p-12 lg:p-24 bg-black/20">
-        <div className="w-full max-w-[400px]">
-          <div className="mb-8">
-            <h2 className="text-3xl font-bold mb-2">Create your account</h2>
-            <p className="text-text-dim">Start your compliance journey today.</p>
+      {/* RIGHT COLUMN: Authentication Form */}
+      <div className="w-full md:w-[50%] lg:w-[52%] flex items-center justify-center p-6 sm:p-12 lg:p-16 bg-bg">
+        <div className="w-full max-w-[380px] space-y-6">
+          <div className="space-y-1.5">
+            <span className="font-mono text-[11px] text-text-tertiary uppercase tracking-wider block">
+              Workspace Registration
+            </span>
+            <h2 className="font-serif text-2xl font-medium text-text-primary">Register Organization</h2>
+            <p className="text-xs text-text-secondary">Set up your administrative account to initiate repository scans.</p>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl p-6 sm:p-8 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
-            <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-              
-              <div className="flex flex-col gap-2">
-                <label htmlFor="name" className="text-sm font-medium text-text-dim">Workspace Name</label>
+          <div className="rounded border border-border bg-surface p-6 sm:p-7 shadow-sm">
+            {error && (
+              <div className="mb-5 p-3 rounded border border-status-gap/30 bg-status-gap/10 text-status-gap text-xs leading-relaxed flex items-start gap-2 font-sans">
+                <span className="font-mono text-[11px] font-bold">ERR:</span>
+                <span>{error}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <label htmlFor="name" className="block text-xs font-medium text-text-secondary">
+                  Legal / Organization Name
+                </label>
                 <div className="relative">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-text-faint pointer-events-none">
-                    <User size={18} />
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none">
+                    <User size={15} strokeWidth={1.75} />
                   </div>
-                  <input 
+                  <input
                     id="name"
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Acme Corp"
-                    className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm text-text placeholder:text-text-faint focus:outline-none focus:border-accent-blue/50 focus:ring-1 focus:ring-accent-blue/50 transition-all"
                     required
-                    aria-label="Workspace Name"
-                    aria-invalid={error ? "true" : "false"}
+                    placeholder="Acme Technologies Ltd."
+                    autoComplete="name"
+                    className="w-full pl-9 pr-3 py-2 rounded bg-bg border border-border text-text-primary text-xs focus:outline-none focus:border-text-tertiary transition-colors placeholder:text-text-tertiary"
                   />
                 </div>
               </div>
 
-              <div className="flex flex-col gap-2">
-                <label htmlFor="email" className="text-sm font-medium text-text-dim">Work Email</label>
+              <div className="space-y-1.5">
+                <label htmlFor="email" className="block text-xs font-medium text-text-secondary">
+                  Work Email Address
+                </label>
                 <div className="relative">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-text-faint pointer-events-none">
-                    <Mail size={18} />
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none">
+                    <Mail size={15} strokeWidth={1.75} />
                   </div>
-                  <input 
+                  <input
                     id="email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="name@company.com"
-                    className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm text-text placeholder:text-text-faint focus:outline-none focus:border-accent-blue/50 focus:ring-1 focus:ring-accent-blue/50 transition-all"
                     required
-                    aria-label="Work Email"
-                    aria-invalid={error ? "true" : "false"}
+                    placeholder="counsel@acme.com"
+                    autoComplete="email"
+                    className="w-full pl-9 pr-3 py-2 rounded bg-bg border border-border text-text-primary text-xs focus:outline-none focus:border-text-tertiary transition-colors placeholder:text-text-tertiary"
                   />
                 </div>
               </div>
 
-              <div className="flex flex-col gap-2">
-                <label htmlFor="password" className="text-sm font-medium text-text-dim">Password</label>
+              <div className="space-y-1.5">
+                <label htmlFor="password" aria-label="Password" className="text-xs font-medium text-text-secondary">
+                  Password
+                </label>
                 <div className="relative">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-text-faint pointer-events-none">
-                    <Lock size={18} />
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none">
+                    <Lock size={15} strokeWidth={1.75} />
                   </div>
-                  <input 
+                  <input
                     id="password"
-                    type={showPassword ? "text" : "password"}
+                    type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-10 py-3 text-sm text-text placeholder:text-text-faint focus:outline-none focus:border-accent-blue/50 focus:ring-1 focus:ring-accent-blue/50 transition-all"
                     required
-                    aria-label="Password"
-                    aria-invalid={error ? "true" : "false"}
+                    placeholder="••••••••••••"
+                    autoComplete="new-password"
+                    className="w-full pl-9 pr-9 py-2 rounded bg-bg border border-border text-text-primary text-xs focus:outline-none focus:border-text-tertiary transition-colors placeholder:text-text-tertiary"
                   />
                   <button
                     type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-faint hover:text-text transition-colors focus:outline-none"
                     onClick={() => setShowPassword(!showPassword)}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
                   >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
                 </div>
-                
-                {/* Password Strength Indicator */}
+
                 {password.length > 0 && (
-                  <div className="flex flex-col gap-1 mt-1">
-                    <div className="flex gap-1 h-1">
-                      {[1, 2, 3, 4].map((level) => (
-                        <div 
-                          key={level} 
-                          className={`flex-1 rounded-full ${strength >= level ? strengthDisplay.color : 'bg-white/10'} transition-all duration-300`} 
+                  <div className="pt-2 space-y-1">
+                    <div className="flex items-center justify-between font-mono text-[10px] text-text-tertiary">
+                      <span>ENTROPY:</span>
+                      <span className="font-sans font-medium text-text-secondary">{strengthDisplay.label}</span>
+                    </div>
+                    <div className="h-1 w-full rounded bg-border overflow-hidden flex gap-1">
+                      {[1, 2, 3, 4].map((step) => (
+                        <div
+                          key={step}
+                          className={`h-full flex-1 transition-colors duration-200 ${
+                            step <= strength ? strengthDisplay.color : 'bg-border/40'
+                          }`}
                         />
                       ))}
                     </div>
-                    <span className="text-[11px] text-text-dim text-right">{strengthDisplay.label}</span>
                   </div>
                 )}
               </div>
 
-              {error && (
-                <div 
-                  role="alert" 
-                  aria-live="assertive"
-                  className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={isSubmitting || !email || !password || !name}
+                  className="w-full py-2.5 px-4 rounded text-xs font-medium bg-text-primary text-bg hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2 shadow-xs cursor-pointer"
                 >
-                  {error}
-                </div>
-              )}
-
-              <button 
-                type="submit" 
-                disabled={isSubmitting}
-                className="mt-2 w-full bg-gradient-to-r from-accent-blue to-accent-purple text-white hover:opacity-90 flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed group shadow-lg shadow-accent-blue/20"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 size={18} className="animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    Create account
-                    <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
-                  </>
-                )}
-              </button>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>Creating Workspace...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Initialize Statutory Ledger</span>
+                      <ArrowRight size={13} />
+                    </>
+                  )}
+                </button>
+              </div>
             </form>
 
-            <div className="mt-8 text-center text-sm text-text-dim">
-              Already have an account?{' '}
-              <Link to="/login" className="text-white font-medium hover:text-accent-blue transition-colors">
-                Sign in
+            <div className="mt-5 pt-4 border-t border-border text-center text-xs text-text-secondary">
+              Already have an active workspace?{' '}
+              <Link to="/login" className="text-text-primary font-medium hover:underline underline-offset-4">
+                Sign In
               </Link>
             </div>
           </div>

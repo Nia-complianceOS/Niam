@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,41 +6,73 @@
 
 @layer base {
   :root, .light {
-    --bg: #ffffff;
-    --bg-elevated: #f8f9fa;
-    --card: rgba(0, 0, 0, 0.035);
-    --surface: rgba(0, 0, 0, 0.05);
-    --border: rgba(0, 0, 0, 0.1);
-    --border-soft: rgba(0, 0, 0, 0.05);
-    
-    --text: #1a1a2e;
-    --text-dim: #6b7280;
-    --text-faint: #9ca3af;
-    
-    --accent-blue: #3b82f6;
-    --accent-purple: #8b5cf6;
-    --accent-green: #22c55e;
-    --accent-amber: #f59e0b;
-    --accent-red: #ef4444;
+    --bg: #FBFBFD;
+    --bg-subtle: #F1F3F6;
+    --bg-elevated: #FFFFFF;
+    --card: #FFFFFF;
+    --surface: #FFFFFF;
+    --surface-elevated: #F8FAFC;
+    --border: rgba(0, 0, 0, 0.09);
+    --border-subtle: rgba(0, 0, 0, 0.04);
+    --border-soft: rgba(0, 0, 0, 0.06);
+
+    --text-primary: #0E1118;
+    --text-secondary: #4B5565;
+    --text-tertiary: #8C95A6;
+    --text: #0E1118;
+    --text-dim: #4B5565;
+    --text-faint: #8C95A6;
+
+    --status-gap: #E11D48;
+    --status-warning: #D97706;
+    --status-compliant: #059669;
+    --status-neutral: #64748B;
+
+    --entity-system: #0284C7;
+    --entity-datatype: #7C3AED;
+    --entity-vendor: #D97706;
+    --entity-clause: #059669;
+
+    --accent-blue: #0284C7;
+    --accent-purple: #7C3AED;
+    --accent-green: #059669;
+    --accent-amber: #D97706;
+    --accent-red: #E11D48;
   }
 
   .dark {
-    --bg: #08080d;
-    --bg-elevated: #0d0e16;
-    --card: rgba(255, 255, 255, 0.035);
-    --surface: rgba(255, 255, 255, 0.05);
-    --border: rgba(255, 255, 255, 0.09);
-    --border-soft: rgba(255, 255, 255, 0.05);
-    
-    --text: #f2f2f7;
-    --text-dim: #9494ab;
-    --text-faint: #5e5e72;
-    
-    --accent-blue: #5b8cff;
-    --accent-purple: #a56bff;
-    --accent-green: #33d17a;
-    --accent-amber: #f5a623;
-    --accent-red: #f0555a;
+    --bg: #090A0E;
+    --bg-subtle: #101217;
+    --bg-elevated: #161920;
+    --card: #14171F;
+    --surface: #14171F;
+    --surface-elevated: #1C202B;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-subtle: rgba(255, 255, 255, 0.04);
+    --border-soft: rgba(255, 255, 255, 0.06);
+
+    --text-primary: #F1F3F7;
+    --text-secondary: #9BA3AF;
+    --text-tertiary: #5D6475;
+    --text: #F1F3F7;
+    --text-dim: #9BA3AF;
+    --text-faint: #5D6475;
+
+    --status-gap: #F43F5E;
+    --status-warning: #F59E0B;
+    --status-compliant: #10B981;
+    --status-neutral: #64748B;
+
+    --entity-system: #38BDF8;
+    --entity-datatype: #A78BFA;
+    --entity-vendor: #FBBF24;
+    --entity-clause: #34D399;
+
+    --accent-blue: #38BDF8;
+    --accent-purple: #A78BFA;
+    --accent-green: #10B981;
+    --accent-amber: #F59E0B;
+    --accent-red: #F43F5E;
   }
 
   * {
@@ -51,11 +83,14 @@
   body,
   #root {
     min-height: 100%;
+    background-color: var(--bg);
+    color: var(--text-primary);
   }
 
   body {
-    @apply bg-bg text-text font-body antialiased;
+    @apply bg-bg text-text-primary font-body antialiased;
     margin: 0;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   }
 
   a {
@@ -64,25 +99,34 @@
 
   /* Global focus rings for accessibility */
   *:focus-visible {
-    @apply outline-none ring-2 ring-accent-blue ring-offset-1 ring-offset-bg;
+    @apply outline-none ring-1 ring-accent-blue ring-offset-1 ring-offset-bg;
   }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
 }
 
 /* Skip link for a11y */
 .skip-link {
-  @apply sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-4 focus:bg-bg focus:text-accent-blue focus:font-semibold focus:border focus:border-border;
+  @apply sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-3 focus:bg-surface focus:text-text-primary focus:font-medium focus:border focus:border-border focus:shadow-md;
 }
 
 html {
   scroll-behavior: smooth;
-}
-
-@keyframes float {
-  0% { transform: translate(0, 0); }
-  50% { transform: translate(30px, -20px); }
-  100% { transform: translate(0, 0); }
-}
-
-.animate-float {
-  animation: float 20s ease-in-out infinite;
 }

@@ -1,7 +1,5 @@
 import { useState } from 'react'
 import {
-  AlertTriangle,
-  Check,
   ChevronDown,
   Github,
   Loader2,
@@ -9,9 +7,7 @@ import {
   ArrowRight,
 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
 import { CONNECT_ASSURANCE, CONNECT_BENEFITS } from '@/lib/githubMessages'
-import { motion, AnimatePresence } from 'framer-motion'
 
 export function GitHubConnectPanel({
   connecting,
@@ -39,128 +35,103 @@ export function GitHubConnectPanel({
   }
 
   return (
-    <div className="flex flex-col items-center justify-center py-12 px-4 w-full">
-      <Card className="w-full max-w-[640px] p-8 md:p-10 flex flex-col items-center text-center bg-surface/50 backdrop-blur-md shadow-xl border-border-soft/60 relative overflow-hidden">
-        {/* Decorative background glow */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 bg-accent-blue/10 blur-[100px] pointer-events-none" />
-
-        <div className="w-20 h-20 rounded-2xl bg-gradient-to-b from-white/10 to-white/5 border border-white/10 flex items-center justify-center mb-6 shadow-lg shadow-black/20">
-          <Github size={40} className="text-white drop-shadow-md" />
+    <div className="flex flex-col items-center justify-center py-10 px-4 w-full font-sans">
+      <Card className="w-full max-w-[620px] p-8 md:p-10 flex flex-col items-center text-center bg-surface border border-border shadow-xs relative">
+        <div className="w-14 h-14 rounded border border-border bg-bg flex items-center justify-center mb-5 text-text-primary shadow-xs">
+          <Github size={28} strokeWidth={1.75} />
         </div>
 
-        <h2 className="font-display text-[28px] font-bold tracking-tight mb-3">
-          Connect your GitHub account
+        <span className="font-mono text-[11px] uppercase tracking-wider text-text-tertiary mb-2 block">
+          Step 01 // Source Ingestion
+        </span>
+
+        <h2 className="font-serif text-2xl sm:text-3xl font-medium tracking-tight text-text-primary mb-3">
+          Authorize Source Repository
         </h2>
-        <p className="text-[15px] text-text-dim max-w-[480px] leading-relaxed mb-8">
-          This is the first step. Until Niam can read your code, it has nothing to check your privacy obligations against.
+        <p className="text-xs text-text-secondary max-w-[460px] leading-relaxed mb-6">
+          Connect your GitHub organization to scan source code Abstract Syntax Trees against India&apos;s DPDP Act 2023. Niam reads AST nodes without executing code.
         </p>
 
-        <div className="w-full text-left bg-black/20 rounded-xl p-5 border border-border-soft mb-8">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-text-faint mb-3">
-            What connecting lets Niam do
+        <div className="w-full text-left bg-bg rounded border border-border p-4 mb-5 space-y-2.5">
+          <div className="font-mono text-[10px] uppercase tracking-wider text-text-tertiary">
+            Scope & Statutory Protections
           </div>
-          <ul className="flex flex-col gap-3">
+          <ul className="space-y-2 text-xs text-text-secondary">
             {CONNECT_BENEFITS.map((benefit) => (
-              <li key={benefit} className="flex items-start gap-3 text-[13.5px] text-text-dim leading-relaxed">
-                <div className="mt-0.5 w-4 h-4 rounded-full bg-accent-green/20 flex items-center justify-center flex-shrink-0">
-                  <Check size={10} className="text-accent-green" />
-                </div>
+              <li key={benefit} className="flex items-start gap-2.5 leading-relaxed">
+                <span className="mt-0.5 text-status-compliant font-bold font-mono text-[11px]">✓</span>
                 <span>{benefit}</span>
               </li>
             ))}
           </ul>
         </div>
 
-        <div className="flex items-start justify-center gap-2.5 text-[13px] text-text-dim leading-relaxed mb-8 bg-accent-blue/5 px-4 py-3 rounded-lg border border-accent-blue/10 w-full text-left">
-          <ShieldCheck size={16} className="text-accent-blue mt-[1px] flex-shrink-0" />
+        <div className="flex items-start gap-2.5 text-xs text-text-tertiary leading-relaxed mb-6 bg-bg-subtle/70 px-3.5 py-2.5 rounded border border-border w-full text-left font-mono">
+          <ShieldCheck size={14} className="text-status-compliant mt-0.5 flex-shrink-0" />
           <span>{CONNECT_ASSURANCE}</span>
         </div>
 
         {actionError && (
-          <div className="w-full mb-6 flex items-start gap-2.5 px-4 py-3 rounded-[10px] bg-accent-red/10 border border-accent-red/30 text-[13px] leading-relaxed text-accent-red text-left">
-            <AlertTriangle size={16} className="mt-[1px] flex-shrink-0" />
-            <span>{actionError}</span>
+          <div className="w-full mb-5 p-3 rounded border border-status-gap/30 bg-status-gap/10 text-xs text-status-gap text-left leading-relaxed">
+            <div className="font-mono font-bold text-[10px] uppercase mb-0.5">Connection Fault</div>
+            {actionError}
           </div>
         )}
 
         <button
           onClick={onConnect}
           disabled={connecting}
-          className="group relative w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 bg-gradient-to-r from-accent-blue to-[#8e6ef6] text-white rounded-xl font-semibold text-[15px] hover:opacity-90 transition-all shadow-[0_0_20px_rgba(91,140,255,0.3)] hover:shadow-[0_0_30px_rgba(91,140,255,0.5)] disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden"
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-text-primary text-bg rounded text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer shadow-xs"
         >
           {connecting ? (
             <>
-              <Loader2 size={18} className="animate-spin" />
-              Taking you to GitHub…
+              <Loader2 size={14} className="animate-spin" />
+              <span>Redirecting to GitHub OAuth…</span>
             </>
           ) : (
             <>
-              <Github size={18} />
-              Connect with GitHub
-              <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+              <Github size={14} />
+              <span>Connect with GitHub</span>
+              <ArrowRight size={13} />
             </>
           )}
         </button>
 
-        <p className="text-[12px] text-text-faint mt-4 mb-8">
-          You'll approve this securely on GitHub, then return here.
-        </p>
-
-        <div className="w-full pt-6 border-t border-border-soft">
+        {/* Access Token Fallback Accordion */}
+        <div className="mt-8 pt-5 border-t border-border w-full text-left">
           <button
             type="button"
-            onClick={() => setTokenOpen((open) => !open)}
-            className="flex items-center justify-center gap-1.5 text-[13px] font-medium text-text-dim hover:text-text transition-colors mx-auto"
+            onClick={() => setTokenOpen((o) => !o)}
+            className="text-xs font-mono text-text-tertiary hover:text-text-primary transition-colors flex items-center justify-between w-full"
           >
-            Or paste a personal access token
-            <ChevronDown
-              size={14}
-              className={`transition-transform duration-300 ${tokenOpen ? 'rotate-180' : ''}`}
-            />
+            <span>Or configure with Personal Access Token</span>
+            <ChevronDown size={14} className={`transition-transform duration-200 ${tokenOpen ? 'rotate-180' : ''}`} />
           </button>
 
-          <AnimatePresence>
-            {tokenOpen && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden w-full text-left"
-              >
-                <div className="pt-5">
-                  <div className="text-[13px] text-text-dim leading-relaxed mb-4">
-                    If your organisation has not set up one-click sign-in, create a GitHub access token and paste it here.
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <input
-                      type="password"
-                      value={token}
-                      onChange={(e) => setToken(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') void submit()
-                      }}
-                      placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                      spellCheck={false}
-                      autoComplete="off"
-                      className="flex-1 bg-black/20 border border-border-soft rounded-xl px-4 py-2.5 text-[14px] font-mono text-text placeholder:text-text-faint focus:outline-none focus:border-accent-blue/50 focus:ring-1 focus:ring-accent-blue/50 transition-all"
-                    />
-                    <Button
-                      variant="primary"
-                      onClick={() => void submit()}
-                      disabled={submitting || connecting || token.trim() === ''}
-                      className="whitespace-nowrap"
-                    >
-                      {submitting ? 'Checking…' : 'Use Token'}
-                    </Button>
-                  </div>
-                  <div className="mt-3 text-[11.5px] text-text-faint text-center">
-                    The token is verified securely and stored encrypted.
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {tokenOpen && (
+            <div className="mt-3 space-y-3 pt-2">
+              <p className="text-[11px] text-text-secondary leading-relaxed">
+                If OAuth is restricted by enterprise policy, provide a fine-grained token with repository <code className="font-mono bg-bg px-1 py-0.5 rounded border border-border text-text-primary">contents:read</code> scope.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder="ghp_..."
+                  className="flex-1 bg-bg border border-border rounded px-3 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-text-tertiary"
+                />
+                <button
+                  type="button"
+                  onClick={submit}
+                  disabled={submitting || !token.trim()}
+                  className="px-3 py-1.5 rounded bg-surface border border-border text-xs font-medium text-text-primary hover:bg-bg disabled:opacity-50 transition-colors"
+                >
+                  {submitting ? 'Verifying…' : 'Save Token'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </Card>
     </div>

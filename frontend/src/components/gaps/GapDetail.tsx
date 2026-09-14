@@ -1,12 +1,9 @@
 import { useState } from 'react'
-import { CheckCircle2, Clock, ExternalLink, GitPullRequest, Sparkles, ArrowLeft } from 'lucide-react'
-import { Card } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
+import { CheckCircle2, Clock, ExternalLink, GitPullRequest, Sparkles, ArrowLeft, Scale } from 'lucide-react'
 import type { Gap } from '@/types/api'
 import {
   dataTypeLabel,
   kindCopy,
-  severityClasses,
   SEVERITY_LABELS,
   readableActionError,
   GAP_STATUS_LABELS,
@@ -23,6 +20,12 @@ interface Props {
   isMobile: boolean
 }
 
+const severityPillClasses: Record<string, string> = {
+  high: 'border-status-gap/30 bg-status-gap/10 text-status-gap',
+  medium: 'border-status-warning/30 bg-status-warning/10 text-status-warning',
+  low: 'border-status-compliant/30 bg-status-compliant/10 text-status-compliant',
+}
+
 export function GapDetail({
   gap,
   fixLoading,
@@ -37,68 +40,69 @@ export function GapDetail({
 
   if (!gap) {
     return (
-      <Card className="p-5 h-full flex flex-col items-center justify-center text-center bg-surface/50 backdrop-blur-sm border-border-soft/60">
-        <div className="text-text-faint text-[14px] max-w-[240px] leading-relaxed">
-          <span className="text-4xl block mb-4 opacity-50">👀</span>
-          Select a finding to review it
+      <div className="p-8 h-full flex flex-col items-center justify-center text-center bg-surface border border-border rounded font-sans text-xs text-text-tertiary space-y-2">
+        <Scale size={24} className="opacity-40 mb-1" />
+        <div className="font-mono text-[11px] uppercase tracking-wider">
+          Finding Inspector Inactive
         </div>
-      </Card>
+        <p className="max-w-[240px] text-text-secondary leading-relaxed">
+          Select a compliance gap from the ledger queue to examine statutory citations, affected code paths, and drafted remedies.
+        </p>
+      </div>
     )
   }
 
   const copy = kindCopy(gap.kind)
   const hasDrafts = gap.remediation_drafts.length > 0
   const activeDraft = gap.remediation_drafts[activeTab]
+  const severityPill = severityPillClasses[gap.severity ?? ''] || severityPillClasses.low
 
   return (
-    <Card className="p-5 flex flex-col h-full bg-surface/80 backdrop-blur-sm border-border-soft overflow-y-auto relative">
+    <div className="p-5 flex flex-col h-full bg-surface border border-border rounded overflow-y-auto relative font-sans text-xs">
       {isMobile && (
         <button 
           onClick={onBack}
-          className="flex items-center gap-2 text-text-dim hover:text-text text-[13px] font-medium mb-4 transition-colors w-fit"
+          className="flex items-center gap-1.5 text-text-secondary hover:text-text-primary text-xs font-medium mb-4 transition-colors w-fit"
         >
-          <ArrowLeft size={16} />
-          Back to list
+          <ArrowLeft size={14} />
+          <span>Return to findings list</span>
         </button>
       )}
 
       {/* Header */}
-      <div className="flex flex-col gap-3 mb-6 pb-5 border-b border-border-soft">
-        <div className="flex items-start gap-2.5 flex-wrap">
-          <span
-            className={`text-[10px] font-semibold px-1.5 py-[3px] rounded border uppercase tracking-wide ${severityClasses(
-              gap.severity
-            )}`}
-          >
-            {SEVERITY_LABELS[gap.severity ?? ''] ?? 'Unrated'}
+      <div className="flex flex-col gap-2.5 mb-5 pb-4 border-b border-border">
+        <div className="flex items-center gap-2 flex-wrap font-mono text-[10px]">
+          <span className={`px-1.5 py-0.2 rounded border uppercase font-medium ${severityPill}`}>
+            {SEVERITY_LABELS[gap.severity ?? ''] ?? 'Unrated Severity'}
           </span>
-          <span className="px-2 py-[3px] rounded-full bg-accent-blue/10 border border-accent-blue/20 text-[10px] font-semibold text-accent-blue uppercase tracking-wide">
+          <span className="px-1.5 py-0.2 rounded border border-entity-clause/30 bg-entity-clause/10 text-entity-clause uppercase">
             {copy.label}
           </span>
           {gap.status && (
-            <span className="px-2 py-[3px] rounded-full bg-white/5 border border-border-soft text-[10px] font-medium text-text-dim uppercase tracking-wide">
+            <span className="px-1.5 py-0.2 rounded border border-border bg-bg text-text-tertiary uppercase">
               {GAP_STATUS_LABELS[gap.status] ?? gap.status}
             </span>
           )}
         </div>
-        <div className="font-display text-[18px] font-semibold leading-snug">
+        
+        <h2 className="font-serif text-lg sm:text-xl font-medium text-text-primary leading-snug">
           {gap.title}
-        </div>
+        </h2>
       </div>
 
       {/* What the code does */}
-      <Field label="What the code does">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-black/10 rounded-[10px] p-4 border border-border-soft/50">
+      <Field label="01 // Codebase Behavior & Lineage">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-bg rounded border border-border p-3.5">
           <div>
-            <div className="text-[11px] text-text-faint mb-1">Data Types</div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="font-mono text-[10px] text-text-tertiary mb-1">DATA IDENTIFIERS</div>
+            <div className="flex flex-wrap gap-1">
               {gap.data_types.length === 0 ? (
-                <span className="text-[13px] text-text-faint">Not recorded</span>
+                <span className="text-text-tertiary">Unspecified</span>
               ) : (
                 gap.data_types.map((d) => (
                   <span
                     key={d}
-                    className="text-[12px] px-2 py-[3px] rounded-[7px] bg-white/5 border border-border-soft"
+                    className="font-mono text-[10px] px-1.5 py-0.2 rounded bg-surface border border-border text-text-secondary"
                   >
                     {dataTypeLabel(d)}
                   </span>
@@ -109,25 +113,25 @@ export function GapDetail({
           
           {gap.vendor && (
             <div>
-              <div className="text-[11px] text-text-faint mb-1">Vendor</div>
-              <div className="text-[13px] font-medium text-text">{gap.vendor}</div>
+              <div className="font-mono text-[10px] text-text-tertiary mb-1">EGRESS PROCESSOR</div>
+              <div className="text-xs font-medium text-text-primary">{gap.vendor}</div>
             </div>
           )}
 
           {gap.source_file && (
-            <div>
-              <div className="text-[11px] text-text-faint mb-1">Source File</div>
-              <div className="text-[12px] font-mono text-text-dim break-all">
+            <div className="sm:col-span-2">
+              <div className="font-mono text-[10px] text-text-tertiary mb-0.5">SOURCE PATH</div>
+              <div className="font-mono text-[11px] text-text-primary break-all bg-surface px-2 py-1 rounded border border-border">
                 {gap.source_file}
               </div>
             </div>
           )}
           
           {gap.source_commit?.sha && (
-            <div>
-              <div className="text-[11px] text-text-faint mb-1">Source Commit</div>
-              <div className="text-[12px] font-mono text-text-dim truncate" title={gap.source_commit.message}>
-                {gap.source_commit.sha.substring(0, 7)} — {gap.source_commit.message}
+            <div className="sm:col-span-2">
+              <div className="font-mono text-[10px] text-text-tertiary mb-0.5">PROVENANCE COMMIT</div>
+              <div className="font-mono text-[11px] text-text-secondary truncate" title={gap.source_commit.message}>
+                <span className="text-text-primary font-medium">{gap.source_commit.sha.slice(0, 7)}</span> — {gap.source_commit.message}
               </div>
             </div>
           )}
@@ -135,22 +139,22 @@ export function GapDetail({
       </Field>
 
       {/* What the DPDP Act requires */}
-      <Field label="What the DPDP Act requires">
-        <div className="bg-accent-blue/5 border border-accent-blue/20 rounded-[10px] p-4 text-[13px] text-text leading-relaxed">
+      <Field label="02 // Statutory Mandate (DPDP Act 2023)">
+        <div className="bg-bg rounded border border-border p-3.5 text-xs text-text-secondary leading-relaxed font-sans">
           {gap.ai_recommendation || copy.fix || copy.meaning}
         </div>
       </Field>
 
       {/* Remediation */}
       {hasDrafts && (
-        <Field label="Remediation">
-          <div className="flex overflow-x-auto border-b border-border-soft mb-3 no-scrollbar">
+        <Field label="03 // Drafted Remedial Amendment">
+          <div className="flex overflow-x-auto border-b border-border mb-2.5 font-mono text-[11px]">
             {gap.remediation_drafts.map((draft, idx) => (
               <button
                 key={idx}
                 onClick={() => setActiveTab(idx)}
-                className={`px-4 py-2.5 text-[12.5px] font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  activeTab === idx ? 'border-accent-blue text-accent-blue' : 'border-transparent text-text-dim hover:text-text'
+                className={`px-3 py-1.5 font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  activeTab === idx ? 'border-text-primary text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-primary'
                 }`}
               >
                 {draft.document}
@@ -159,17 +163,19 @@ export function GapDetail({
           </div>
           
           {activeDraft && (
-            <div className="bg-black/20 rounded-[8px] p-4 border border-border-soft/50 text-[12.5px] text-text-dim">
-              <div className="font-semibold text-text mb-2 text-[12px] uppercase tracking-wide">Summary</div>
-              <div className="mb-4 leading-relaxed">{activeDraft.summary}</div>
+            <div className="bg-bg rounded border border-border p-3.5 space-y-3">
+              <div>
+                <div className="font-mono text-[10px] uppercase text-text-tertiary mb-1">Amendment Summary</div>
+                <p className="text-xs text-text-secondary leading-relaxed">{activeDraft.summary}</p>
+              </div>
               
               {activeDraft.diff_text && (
-                <>
-                  <div className="font-semibold text-text mb-2 text-[12px] uppercase tracking-wide">Changes</div>
-                  <pre className="bg-[#1e1e2e] p-4 rounded-[6px] overflow-x-auto border border-border-soft/30 text-[12px] font-mono leading-relaxed">
+                <div>
+                  <div className="font-mono text-[10px] uppercase text-text-tertiary mb-1">Proposed Policy Clause</div>
+                  <pre className="bg-surface p-3 rounded border border-border overflow-x-auto text-[11px] font-mono text-text-primary leading-relaxed">
                     <code>{activeDraft.diff_text}</code>
                   </pre>
-                </>
+                </div>
               )}
             </div>
           )}
@@ -180,48 +186,52 @@ export function GapDetail({
         (() => {
           const { title, message } = readableActionError(actionError)
           return (
-            <div className="mt-4 px-3.5 py-3 rounded-[10px] bg-accent-red/10 border border-accent-red/25 text-[12px] text-[#f5b7b9] leading-relaxed">
-              <div className="font-semibold mb-1">{title}</div>
-              <div className="text-[#e8b9bb]">{message}</div>
+            <div className="mt-3 p-3 rounded border border-status-gap/30 bg-status-gap/10 text-xs text-status-gap leading-relaxed space-y-0.5">
+              <div className="font-medium font-mono text-[11px]">{title}</div>
+              <div className="opacity-90">{message}</div>
             </div>
           )
         })()}
 
-      <div className="mt-auto pt-6 border-t border-border-soft/50">
+      {/* Action Footer */}
+      <div className="mt-auto pt-5 border-t border-border space-y-2.5">
         {gap.status === 'resolved' ? (
-          <Banner tone="good" icon={<CheckCircle2 size={15} />}>
-            Resolved — this finding is no longer detected.
-          </Banner>
+          <div className="p-2.5 rounded border border-status-compliant/30 bg-status-compliant/10 text-status-compliant text-xs font-medium flex items-center gap-2">
+            <CheckCircle2 size={14} className="flex-shrink-0" />
+            <span>Remediated — this statutory breach is no longer detected in repository code.</span>
+          </div>
         ) : gap.status === 'pr_opened' ? (
-          <Banner tone="neutral" icon={<Clock size={15} />}>
+          <div className="p-2.5 rounded border border-border bg-bg text-text-secondary text-xs flex items-center gap-2">
+            <Clock size={14} className="flex-shrink-0 text-text-tertiary" />
             <span>
-              With legal for review
-              {gap.pr_number ? ` · pull request #${gap.pr_number}` : ''}. You can
-              keep working on other findings.
+              Pending Legal Review
+              {gap.pr_number ? ` · Pull Request #${gap.pr_number}` : ''}.
             </span>
-          </Banner>
+          </div>
         ) : !hasDrafts ? (
-          <Button size="block" onClick={onGenerateFix} disabled={fixLoading}>
+          <button
+            onClick={onGenerateFix}
+            disabled={fixLoading}
+            className="w-full py-2 px-3 rounded bg-text-primary text-bg text-xs font-medium hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center justify-center gap-1.5 shadow-xs"
+          >
             {fixLoading ? (
-              'Drafting the amendment…'
+              'Drafting Statutory Amendment…'
             ) : (
               <>
-                <Sparkles size={14} /> Draft a fix for this finding
+                <Sparkles size={13} />
+                <span>Draft Remedial Policy Amendment</span>
               </>
             )}
-          </Button>
+          </button>
         ) : (
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Button
-              size="block"
-              onClick={onOpenPR}
-              disabled={prLoading}
-              className="flex-1"
-            >
-              <GitPullRequest size={14} />
-              {prLoading ? 'Sending for review…' : 'Send for legal review'}
-            </Button>
-          </div>
+          <button
+            onClick={onOpenPR}
+            disabled={prLoading}
+            className="w-full py-2 px-3 rounded bg-text-primary text-bg text-xs font-medium hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center justify-center gap-1.5 shadow-xs"
+          >
+            <GitPullRequest size={13} />
+            <span>{prLoading ? 'Submitting Pull Request…' : 'Submit for Legal Review via PR'}</span>
+          </button>
         )}
 
         {gap.pr_url && (
@@ -229,13 +239,14 @@ export function GapDetail({
             href={gap.pr_url}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center justify-center gap-1.5 mt-4 text-[13px] text-accent-blue hover:underline font-medium"
+            className="flex items-center justify-center gap-1 text-xs text-text-primary hover:underline underline-offset-4 font-medium pt-1"
           >
-            View on GitHub <ExternalLink size={14} />
+            <span>Inspect Pull Request on GitHub</span>
+            <ExternalLink size={12} />
           </a>
         )}
       </div>
-    </Card>
+    </div>
   )
 }
 
@@ -247,34 +258,11 @@ function Field({
   children: React.ReactNode
 }) {
   return (
-    <div className="mb-6">
-      <div className="text-[11.5px] font-semibold text-text-faint uppercase tracking-wide mb-2.5">
+    <div className="mb-4">
+      <div className="font-mono text-[10px] text-text-tertiary uppercase tracking-wider mb-1.5">
         {label}
       </div>
       {children}
-    </div>
-  )
-}
-
-function Banner({
-  tone,
-  icon,
-  children,
-}: {
-  tone: 'good' | 'neutral'
-  icon: React.ReactNode
-  children: React.ReactNode
-}) {
-  const classes =
-    tone === 'good'
-      ? 'bg-accent-green/10 border-accent-green/25 text-accent-green'
-      : 'bg-white/5 border-border-soft text-text-dim'
-  return (
-    <div
-      className={`flex items-start gap-2 px-3.5 py-3 rounded-[10px] border text-[12.5px] font-medium leading-relaxed ${classes}`}
-    >
-      <span className="mt-[1px] shrink-0">{icon}</span>
-      <span className="flex flex-col items-start w-full">{children}</span>
     </div>
   )
 }

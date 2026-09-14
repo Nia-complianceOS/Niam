@@ -99,7 +99,7 @@ export const useScan = () => {
         // answers 409 when a scan is already running for this account.
         // Both are states rather than faults, and both are said plainly.
         setStatus(code === 409 || code === 429 ? 'rejected' : 'failed')
-        setError(err.message || 'Failed to start scan')
+        setError((err as Error)?.message || 'Failed to start scan')
       }
     },
     [stopStream]

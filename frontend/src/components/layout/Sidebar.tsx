@@ -18,9 +18,10 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
-  TriangleAlert,
+  ShieldAlert,
   Sun,
   Moon,
+  Scale,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -39,25 +40,25 @@ interface NavSection {
 
 const NAV_SECTIONS: NavSection[] = [
   {
-    title: 'Overview',
+    title: 'Executive',
     items: [
-      { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+      { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { to: '/graph', label: 'Compliance Graph', icon: Share2 },
     ]
   },
   {
-    title: 'Analysis',
+    title: 'Audit & Analysis',
     items: [
-      { to: '/gaps', label: 'Compliance Gaps', icon: TriangleAlert, badge: (count) => count > 0 ? count : null },
+      { to: '/gaps', label: 'Compliance Gaps', icon: ShieldAlert, badge: (count) => count > 0 ? count : null },
       { to: '/repositories', label: 'Repositories', icon: FolderGit2 },
-      { to: '/vendors', label: 'Vendors', icon: Building2 },
+      { to: '/vendors', label: 'Data Processors', icon: Building2 },
     ]
   },
   {
-    title: 'Legal',
+    title: 'Statutory & Policy',
     items: [
-      { to: '/regulations', label: 'Regulations', icon: ShieldCheck },
-      { to: '/policies', label: 'Policies', icon: FileText },
+      { to: '/regulations', label: 'DPDP Clauses', icon: Scale },
+      { to: '/policies', label: 'Privacy Policies', icon: FileText },
       { to: '/pull-requests', label: 'Pull Requests', icon: GitPullRequest },
       { to: '/audit', label: 'Audit Trail', icon: ScrollText },
     ]
@@ -85,34 +86,43 @@ export function Sidebar({
   }, [isCollapsed])
 
   const sidebarContent = (
-    <div 
+    <aside 
       className={`
-        h-full flex-shrink-0 bg-bg md:bg-white/[0.015] border-r border-border-soft flex flex-col px-3.5 py-5 relative
-        ${isCollapsed ? 'w-[72px]' : 'w-[260px]'}
-        transition-all duration-300
+        h-full flex-shrink-0 bg-bg-subtle border-r border-border flex flex-col px-3 py-4 relative font-sans
+        ${isCollapsed ? 'w-[68px]' : 'w-[250px]'}
+        transition-all duration-200 ease-out
       `}
     >
+      {/* Desktop Collapse Toggle */}
       <button 
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="hidden md:flex absolute -right-3 top-6 bg-surface border border-border-soft rounded-full p-1 text-text-dim hover:text-text z-10 transition-colors shadow-sm"
+        className="hidden md:flex absolute -right-3 top-5 bg-surface border border-border rounded p-1 text-text-tertiary hover:text-text-primary z-20 transition-colors shadow-sm"
+        title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >
-        {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        {isCollapsed ? <ChevronRight size={12} strokeWidth={2} /> : <ChevronLeft size={12} strokeWidth={2} />}
       </button>
 
-      <div className={`flex items-center gap-2.5 pb-8 ${isCollapsed ? 'justify-center px-0' : 'px-2'}`}>
-        <div className="relative w-[28px] h-[28px] rounded-[8px] bg-gradient-to-tr from-accent-blue via-purple-500 to-accent-blue flex-shrink-0 shadow-lg shadow-accent-blue/20">
-          <div className="absolute inset-[2px] rounded-[6px] bg-bg flex items-center justify-center">
-            <ShieldCheck size={14} className="text-accent-blue" />
-          </div>
+      {/* Brand Header */}
+      <div className={`flex items-center gap-2.5 pb-6 pt-1 border-b border-border/60 ${isCollapsed ? 'justify-center px-0' : 'px-2'}`}>
+        <div className="w-7 h-7 rounded border border-border bg-surface flex items-center justify-center text-text-primary flex-shrink-0">
+          <ShieldCheck size={16} strokeWidth={1.75} className="text-text-primary" />
         </div>
-        {!isCollapsed && <div className="font-display font-bold text-[17px] tracking-wide whitespace-nowrap overflow-hidden bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">Niam</div>}
+        {!isCollapsed && (
+          <div className="flex items-baseline gap-2 overflow-hidden">
+            <span className="font-serif font-semibold text-[17px] tracking-tight text-text-primary">Niam</span>
+            <span className="font-mono text-[9px] uppercase tracking-wider text-text-tertiary px-1 py-0.5 rounded border border-border bg-bg">
+              DPDP
+            </span>
+          </div>
+        )}
       </div>
 
-      <nav className="flex flex-col gap-6 flex-1 overflow-y-auto overflow-x-hidden no-scrollbar pb-4">
+      {/* Navigation Sections */}
+      <nav className="flex flex-col gap-5 flex-1 overflow-y-auto overflow-x-hidden pt-4 pb-2">
         {NAV_SECTIONS.map((section, idx) => (
-          <div key={idx} className="flex flex-col gap-1">
+          <div key={idx} className="flex flex-col gap-0.5">
             {!isCollapsed && (
-              <span className="px-3 text-[11px] font-semibold text-text-faint uppercase tracking-wider mb-1">
+              <span className="px-2.5 text-[10px] font-mono font-medium text-text-tertiary uppercase tracking-wider mb-1.5">
                 {section.title}
               </span>
             )}
@@ -123,34 +133,30 @@ export function Sidebar({
                 end={end} 
                 onClick={() => onCloseMobile?.()}
                 className={({ isActive }) => `
-                  group relative flex items-center gap-3 ${isCollapsed ? 'justify-center px-0' : 'px-3'} py-2.5 rounded-[9px] text-[13.5px] font-medium transition-all duration-300 overflow-hidden
-                  ${isActive ? 'text-[#cddbff]' : 'text-text-dim hover:text-text'}
+                  group relative flex items-center gap-2.5 ${isCollapsed ? 'justify-center px-0' : 'px-2.5'} py-2 rounded text-[13px] transition-colors
+                  ${isActive 
+                    ? 'bg-surface text-text-primary border border-border font-medium shadow-sm' 
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface/50 border border-transparent'}
                 `}
               >
                 {({ isActive }) => (
                   <>
-                    {/* Background animation on hover & active */}
-                    <div className={`absolute inset-0 rounded-[9px] transition-all duration-300 ease-out z-0
-                      ${isActive ? 'bg-accent-blue/[0.12]' : 'bg-white/[0.00] group-hover:bg-white/[0.04]'}
-                    `} />
+                    <Icon 
+                      size={16} 
+                      strokeWidth={1.75} 
+                      className={`flex-shrink-0 transition-colors ${isActive ? 'text-text-primary' : 'text-text-tertiary group-hover:text-text-primary'}`} 
+                    />
                     
-                    {/* Active indicator */}
-                    <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[60%] rounded-r-full bg-accent-blue transition-all duration-300 ease-out z-10
-                      ${isActive ? 'opacity-100' : 'opacity-0 -translate-x-full'}
-                    `} />
+                    {!isCollapsed && <span className="truncate">{label}</span>}
                     
-                    <Icon size={18} strokeWidth={2} className={`flex-shrink-0 z-10 transition-colors duration-300 ${isActive ? 'text-accent-blue' : ''}`} />
-                    {!isCollapsed && <span className="whitespace-nowrap z-10 relative">{label}</span>}
-                    
-                    {/* Badge */}
                     {!isCollapsed && badge && badge(openGapsCount) !== null && (
-                      <span className="z-10 ml-auto bg-accent-blue/20 text-accent-blue text-[11px] px-2 py-0.5 rounded-full font-bold">
+                      <span className="ml-auto font-mono text-[10px] px-1.5 py-0.2 rounded border border-status-gap/30 bg-status-gap/10 text-status-gap font-medium">
                         {badge(openGapsCount)}
                       </span>
                     )}
 
                     {isCollapsed && (
-                      <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-surface border border-border-soft text-text text-[12px] rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-50 pointer-events-none shadow-lg shadow-black/20 font-medium">
+                      <div className="absolute left-full ml-2 px-2 py-1 bg-surface-elevated border border-border text-text-primary text-[11px] font-mono rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-50 pointer-events-none shadow-md">
                         {label}
                       </div>
                     )}
@@ -162,83 +168,81 @@ export function Sidebar({
         ))}
       </nav>
 
-      <div className={`flex flex-col gap-2 pt-5 border-t border-border-soft/50 mt-2 ${isCollapsed ? 'items-center px-0' : 'px-2'}`}>
+      {/* Footer Controls & User Profile */}
+      <div className={`flex flex-col gap-1.5 pt-3 border-t border-border mt-auto ${isCollapsed ? 'items-center px-0' : 'px-1'}`}>
         <NavLink 
           to="/settings" 
           onClick={() => onCloseMobile?.()}
           className={({ isActive }) => `
-            group relative flex items-center gap-3 ${isCollapsed ? 'justify-center w-10 h-10 px-0' : 'px-3 py-2.5'} rounded-[9px] text-[13.5px] font-medium transition-all duration-300 overflow-hidden
-            ${isActive ? 'text-[#cddbff]' : 'text-text-dim hover:text-text'}
+            group relative flex items-center gap-2.5 ${isCollapsed ? 'justify-center w-8 h-8 px-0' : 'px-2.5 py-1.5'} rounded text-[13px] transition-colors
+            ${isActive 
+              ? 'bg-surface text-text-primary border border-border font-medium' 
+              : 'text-text-secondary hover:text-text-primary hover:bg-surface/50 border border-transparent'}
           `}
+          title="System Settings"
         >
-          {({ isActive }) => (
-            <>
-              <div className={`absolute inset-0 rounded-[9px] transition-all duration-300 ease-out z-0
-                ${isActive ? 'bg-accent-blue/[0.12]' : 'bg-white/[0.00] group-hover:bg-white/[0.04]'}
-              `} />
-              <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[60%] rounded-r-full bg-accent-blue transition-all duration-300 ease-out z-10
-                ${isActive ? 'opacity-100' : 'opacity-0 -translate-x-full'}
-              `} />
-              <SettingsIcon size={18} strokeWidth={2} className={`flex-shrink-0 z-10 transition-colors duration-300 ${isActive ? 'text-accent-blue' : ''}`} />
-              {!isCollapsed && <span className="whitespace-nowrap z-10 relative">Settings</span>}
-              {isCollapsed && (
-                <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-surface border border-border-soft text-text text-[12px] rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-50 pointer-events-none shadow-lg shadow-black/20 font-medium">
-                  Settings
-                </div>
-              )}
-            </>
+          <SettingsIcon size={16} strokeWidth={1.75} className="flex-shrink-0 text-text-tertiary group-hover:text-text-primary" />
+          {!isCollapsed && <span>Settings</span>}
+          {isCollapsed && (
+            <div className="absolute left-full ml-2 px-2 py-1 bg-surface-elevated border border-border text-text-primary text-[11px] font-mono rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-50 pointer-events-none shadow-md">
+              Settings
+            </div>
           )}
         </NavLink>
         
         <button
           onClick={toggleTheme}
           className={`
-            group relative flex items-center gap-3 ${isCollapsed ? 'justify-center w-10 h-10 px-0' : 'px-3 py-2.5'} rounded-[9px] text-[13.5px] font-medium transition-all duration-300 overflow-hidden
-            text-text-dim hover:text-text
+            group relative flex items-center gap-2.5 ${isCollapsed ? 'justify-center w-8 h-8 px-0' : 'px-2.5 py-1.5'} rounded text-[13px] transition-colors text-text-secondary hover:text-text-primary hover:bg-surface/50 border border-transparent
           `}
           title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
         >
-          <div className="absolute inset-0 rounded-[9px] transition-all duration-300 ease-out z-0 bg-white/[0.00] group-hover:bg-white/[0.04]" />
-          <div className="flex-shrink-0 z-10 transition-colors duration-300 relative w-[18px] h-[18px]">
-            <Sun size={18} strokeWidth={2} className={`absolute inset-0 transition-all duration-500 ${theme === 'dark' ? 'opacity-0 rotate-90 scale-50' : 'opacity-100 rotate-0 scale-100'}`} />
-            <Moon size={18} strokeWidth={2} className={`absolute inset-0 transition-all duration-500 ${theme === 'dark' ? 'opacity-100 rotate-0 scale-100' : 'opacity-0 -rotate-90 scale-50'}`} />
+          <div className="flex-shrink-0 relative w-4 h-4 flex items-center justify-center">
+            {theme === 'dark' ? (
+              <Sun size={15} strokeWidth={1.75} className="text-text-tertiary group-hover:text-text-primary" />
+            ) : (
+              <Moon size={15} strokeWidth={1.75} className="text-text-tertiary group-hover:text-text-primary" />
+            )}
           </div>
-          {!isCollapsed && <span className="whitespace-nowrap z-10 relative">Theme</span>}
+          {!isCollapsed && <span>{theme === 'dark' ? 'Light Appearance' : 'Dark Appearance'}</span>}
           {isCollapsed && (
-            <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-surface border border-border-soft text-text text-[12px] rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-50 pointer-events-none shadow-lg shadow-black/20 font-medium">
-              Theme
+            <div className="absolute left-full ml-2 px-2 py-1 bg-surface-elevated border border-border text-text-primary text-[11px] font-mono rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-50 pointer-events-none shadow-md">
+              Appearance
             </div>
           )}
         </button>
 
-        <div className="flex items-center gap-3 w-full group relative mt-2">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-accent-blue/80 to-purple-500/80 p-[2px] flex-shrink-0 cursor-pointer">
-            <div className="w-full h-full rounded-full bg-bg flex items-center justify-center text-[12px] font-bold text-text">
-              {user?.name?.substring(0, 2).toUpperCase() || user?.email?.substring(0, 2).toUpperCase() || 'US'}
-            </div>
+        {/* User Badge */}
+        <div className={`flex items-center gap-2.5 w-full pt-2 mt-1 border-t border-border/50 ${isCollapsed ? 'justify-center' : 'px-1'}`}>
+          <div className="w-6 h-6 rounded border border-border bg-surface flex items-center justify-center text-[10px] font-mono font-medium text-text-primary flex-shrink-0">
+            {user?.name?.slice(0, 2).toUpperCase() || user?.email?.slice(0, 2).toUpperCase() || 'LE'}
           </div>
+          
           {!isCollapsed && (
-            <div className="flex flex-col leading-tight overflow-hidden flex-1">
-              <b className="text-[13px] font-semibold truncate text-text">{user?.name || user?.email?.split('@')[0] || 'User'}</b>
-              <span className="text-[11px] text-text-faint truncate">{user?.email}</span>
+            <div className="flex flex-col min-w-0 flex-1 leading-tight">
+              <span className="text-[12px] font-medium text-text-primary truncate">
+                {user?.name || user?.email?.split('@')[0] || 'Counsel'}
+              </span>
+              <span className="text-[10px] font-mono text-text-tertiary truncate">
+                {user?.email || 'dpdp-audit'}
+              </span>
             </div>
           )}
           
           <button 
             onClick={logout}
-            className={`${isCollapsed ? 'hidden' : 'opacity-0 group-hover:opacity-100'} p-2 text-text-faint hover:text-red-400 hover:bg-red-400/10 rounded-md transition-all absolute right-0 bg-bg`}
-            title="Log out"
+            className={`p-1 text-text-tertiary hover:text-status-gap hover:bg-surface rounded transition-colors ${isCollapsed ? 'hidden' : ''}`}
+            title="Sign out"
           >
-            <LogOut size={16} />
+            <LogOut size={14} strokeWidth={1.75} />
           </button>
         </div>
       </div>
-    </div>
+    </aside>
   )
 
   return (
     <>
-      {/* Mobile Sidebar */}
       <AnimatePresence>
         {isOpenMobile && (
           <>
@@ -246,16 +250,16 @@ export function Sidebar({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-sm" 
+              transition={{ duration: 0.15 }}
+              className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-xs" 
               onClick={onCloseMobile}
             />
             <motion.div
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed inset-y-0 left-0 z-50 md:hidden h-full shadow-2xl"
+              transition={{ type: 'spring', damping: 26, stiffness: 260 }}
+              className="fixed inset-y-0 left-0 z-50 md:hidden h-full shadow-xl"
             >
               {sidebarContent}
             </motion.div>
@@ -263,8 +267,7 @@ export function Sidebar({
         )}
       </AnimatePresence>
       
-      {/* Desktop Sidebar */}
-      <div className="hidden md:block h-full">
+      <div className="hidden md:block h-full flex-shrink-0">
         {sidebarContent}
       </div>
     </>

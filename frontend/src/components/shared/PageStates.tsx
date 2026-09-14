@@ -5,7 +5,8 @@ import { Card } from '@/components/ui/Card'
 
 export function LoadingState({ label }: { label: string }) {
   return (
-    <div className="max-w-[1280px] flex items-center justify-center h-[60vh] text-text-dim text-sm font-mono">
+    <div className="max-w-[1280px] flex items-center justify-center h-[50vh] text-text-muted text-xs font-mono tracking-wide">
+      <span className="inline-block w-2 h-2 rounded-full bg-accent-clause animate-pulse mr-2.5" />
       {label}
     </div>
   )
@@ -14,24 +15,16 @@ export function LoadingState({ label }: { label: string }) {
 export function ErrorState({ message }: { message: string | null }) {
   return (
     <div className="max-w-[1280px]">
-      <Card className="p-6 border-accent-red/30">
-        <div className="text-accent-red font-semibold mb-1">Couldn't reach the backend</div>
-        <div className="text-text-dim text-sm">{message}</div>
+      <Card className="p-6 border-danger/30 bg-danger/5">
+        <div className="text-danger font-mono text-xs font-semibold uppercase tracking-wider mb-1">Backend Connection Failure</div>
+        <div className="text-text-secondary text-sm font-sans">{message || 'Unable to establish communication with regulatory API server.'}</div>
       </Card>
     </div>
   )
 }
 
 /**
- * For the "request succeeded, there's just nothing there yet" case —
- * distinct from ErrorState. Used when a backend/graph call returns 200
- * with an empty list/graph (e.g. no repos connected yet, no vendors
- * ingested yet, or a fresh Neo4j instance with no nodes written).
- *
- * An empty state that only says "nothing here" leaves a new account
- * stranded, so it takes an optional action: one link to the single next
- * thing that would fill the page. `GetStartedState` below is that link,
- * pre-written, for every page whose data begins with a scan.
+ * For the "request succeeded, there's just nothing there yet" case.
  */
 export function EmptyState({
   title,
@@ -45,16 +38,16 @@ export function EmptyState({
   children?: ReactNode
 }) {
   return (
-    <Card className="p-6 border-white/5">
-      <div className="font-semibold mb-1">{title}</div>
-      <div className="text-text-dim text-sm max-w-[560px] leading-relaxed">{message}</div>
+    <Card className="p-8 border-border bg-surface">
+      <div className="font-serif text-lg font-normal text-text-primary mb-1.5">{title}</div>
+      <div className="text-text-secondary text-sm max-w-[560px] leading-relaxed font-sans">{message}</div>
       {children}
       {action && (
         <Link
           to={action.to}
-          className="inline-flex items-center gap-1.5 mt-4 px-3.5 py-2 rounded-[10px] bg-grad-primary text-white text-[13px] font-semibold shadow-[0_4px_18px_rgba(91,140,255,0.28)] hover:-translate-y-px hover:shadow-[0_6px_22px_rgba(91,140,255,0.4)] transition-all"
+          className="inline-flex items-center gap-2 mt-5 px-3.5 py-1.5 rounded border border-border-strong bg-surface text-text-primary hover:bg-surface-raised text-xs font-medium transition-colors"
         >
-          {action.label} <ArrowRight size={14} />
+          {action.label} <ArrowRight size={13} className="text-text-muted" />
         </Link>
       )}
     </Card>
@@ -63,17 +56,6 @@ export function EmptyState({
 
 /**
  * The empty state for a brand-new account.
- *
- * Every page in this app is downstream of one action: connect GitHub, then
- * scan a repository. Until that happens there is genuinely nothing to
- * show, and each page used to say so in its own words — or worse, show a
- * spinner that never resolved into anything, or a dashboard of zeros that
- * read as "we checked, you are fine". This says the same true thing
- * everywhere and points at the one door.
- *
- * `detail` carries the backend's own explanation when it sends one (the
- * score is null with a sentence saying why). That sentence is rendered as
- * written; it is never replaced with a number.
  */
 export function GetStartedState({
   title,
@@ -88,10 +70,10 @@ export function GetStartedState({
     <EmptyState
       title={title}
       message={message}
-      action={{ label: 'Connect GitHub', to: '/repositories' }}
+      action={{ label: 'Connect Source Repository', to: '/repositories' }}
     >
       {detail && (
-        <div className="mt-3 text-[12.5px] text-text-faint bg-black/30 border border-border-soft rounded-[10px] px-3.5 py-2.5 max-w-[560px] leading-relaxed">
+        <div className="mt-3 text-xs font-mono text-text-muted bg-surface-sunken border border-border-subtle rounded p-3 max-w-[560px] leading-relaxed">
           {detail}
         </div>
       )}
@@ -101,13 +83,13 @@ export function GetStartedState({
 
 export function PageHeader({ eyebrow, title, subtitle }: { eyebrow: string; title: string; subtitle: string }) {
   return (
-    <div className="mb-6">
-      <div className="flex items-center gap-1.5 text-[11.5px] font-semibold text-accent-blue uppercase tracking-wide mb-2">
-        <span className="w-1.5 h-1.5 rounded-full bg-accent-green" style={{ boxShadow: '0 0 8px #33d17a' }} />
+    <div className="mb-8 border-b border-border-subtle pb-5">
+      <div className="flex items-center gap-2 text-[11px] font-mono tracking-wider text-text-muted uppercase mb-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-status-compliant" />
         {eyebrow}
       </div>
-      <h1 className="font-display text-[28px] font-semibold tracking-tight">{title}</h1>
-      <div className="text-text-dim text-sm mt-1.5 max-w-[560px]">{subtitle}</div>
+      <h1 className="font-serif text-2xl md:text-3xl font-normal text-text-primary tracking-tight">{title}</h1>
+      <div className="text-text-secondary text-sm mt-1.5 max-w-[620px] font-sans leading-relaxed">{subtitle}</div>
     </div>
   )
 }

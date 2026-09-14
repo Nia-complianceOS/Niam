@@ -61,33 +61,27 @@ export function ResetWorkspacePanel() {
   }
 
   return (
-    <Card className="p-5 mt-4 border-accent-red/25">
-      <div className="font-display text-[15px] font-semibold mb-1.5">
-        Delete all findings
+    <Card className="p-5 mt-4 border-border bg-surface">
+      <div className="font-serif text-base font-normal text-text-primary mb-1.5">
+        Purge Compliance Ledger
       </div>
-      <div className="text-[13px] text-text-dim leading-relaxed max-w-[620px]">
-        This deletes everything Niam has found for your account: every
-        repository it has scanned, the personal data and outside services it
-        mapped, every finding, every fix it drafted, and the history of every
-        scan. It cannot be undone.
+      <div className="text-xs text-text-secondary leading-relaxed max-w-[620px] font-sans">
+        This wipes all findings discovered for your account: repository links, mapped personal data entities, external processor associations, identified statutory gaps, and scan telemetry. This action is irreversible.
       </div>
 
-      <div className="mt-4 rounded-[10px] bg-black/30 border border-border-soft p-4">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-text-faint mb-2">
-          What this does not touch
+      <div className="mt-4 rounded bg-surface-sunken border border-border-subtle p-4">
+        <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-text-muted mb-2">
+          Scope Boundaries (Unaffected Elements)
         </div>
-        <ul className="flex flex-col gap-1.5 text-[12.5px] text-text-dim leading-relaxed">
+        <ul className="flex flex-col gap-1.5 text-xs text-text-secondary font-sans leading-relaxed">
           <li>
-            Your account. You stay signed in and can carry on using Niam
-            straight away.
+            <strong className="text-text-primary font-medium">Session & Account:</strong> Your credentials and active session remain valid.
           </li>
           <li>
-            Your GitHub connection. It stays connected, so you can scan a
-            repository again whenever you are ready.
+            <strong className="text-text-primary font-medium">GitHub Authorization:</strong> Repository tokens stay connected for subsequent scans.
           </li>
           <li>
-            Your code. Nothing is changed or deleted on GitHub, and any pull
-            request you have already opened there stays open.
+            <strong className="text-text-primary font-medium">Upstream Source Code:</strong> No files or branches on GitHub are altered or removed.
           </li>
         </ul>
       </div>
@@ -95,29 +89,27 @@ export function ResetWorkspacePanel() {
       {result && <ResetReceipt result={result} />}
 
       {error && (
-        <div className="mt-4 flex items-start gap-2.5 px-3.5 py-2.5 rounded-[10px] bg-accent-red/10 border border-accent-red/30 text-[12.5px] leading-relaxed text-accent-red">
-          <AlertTriangle size={15} className="mt-[1px] flex-shrink-0" />
+        <div className="mt-4 flex items-start gap-2.5 p-3 rounded border border-danger/30 bg-danger/5 text-xs font-mono text-danger leading-relaxed">
+          <AlertTriangle size={15} className="mt-0.5 flex-shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
       {armed ? (
-        <div className="mt-4 rounded-[10px] border border-accent-red/30 bg-accent-red/[0.06] p-4">
+        <div className="mt-4 rounded border border-danger/40 bg-danger/5 p-4">
           <div className="flex items-start gap-2.5">
-            <AlertTriangle size={15} className="text-accent-red mt-[2px] flex-shrink-0" />
-            <div className="text-[12.5px] leading-relaxed max-w-[560px]">
-              <div className="text-[13px] font-semibold text-accent-red">
-                This deletes every finding on your account
+            <AlertTriangle size={16} className="text-danger mt-0.5 flex-shrink-0" />
+            <div className="text-xs leading-relaxed max-w-[560px]">
+              <div className="font-semibold text-danger">
+                Final Confirmation Required
               </div>
-              <div className="text-text-dim mt-1">
-                Type <span className="font-mono text-text">reset</span> below to
-                confirm. There is no further prompt after this, and nothing
-                deleted here can be brought back.
+              <div className="text-text-secondary mt-1 font-sans">
+                Type <span className="font-mono text-text-primary bg-surface-sunken px-1.5 py-0.5 rounded border border-border-subtle font-bold">reset</span> below to execute ledger purge. No secondary confirmation modal will be displayed.
               </div>
             </div>
           </div>
 
-          <div className="mt-3.5 flex flex-wrap items-center gap-2">
+          <div className="mt-4 flex flex-wrap items-center gap-2.5">
             <input
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
@@ -128,15 +120,15 @@ export function ResetWorkspacePanel() {
               spellCheck={false}
               autoComplete="off"
               aria-label="Type reset to confirm"
-              className="w-[180px] bg-black/20 border border-border-soft rounded-[10px] px-3 py-2 text-[14px] font-mono text-text placeholder:text-text-faint focus:outline-none focus:border-accent-red/50 focus:ring-1 focus:ring-accent-red/50 transition-all"
+              className="w-48 bg-surface-sunken border border-border rounded px-3 py-1.5 text-xs font-mono text-text-primary placeholder:text-text-muted focus:outline-none focus:border-danger transition-colors"
             />
             <button
               onClick={() => void run()}
               disabled={!matches || busy}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-[10px] text-[13px] font-semibold text-white bg-accent-red hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded text-xs font-mono font-medium text-white bg-danger hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
-              {busy && <Loader2 size={14} className="animate-spin" />}
-              {busy ? 'Deleting…' : 'Delete everything'}
+              {busy && <Loader2 size={13} className="animate-spin" />}
+              {busy ? 'Purging...' : 'Confirm Purge'}
             </button>
             <Button variant="ghost" onClick={cancel} disabled={busy}>
               Cancel
@@ -147,14 +139,14 @@ export function ResetWorkspacePanel() {
         <div className="mt-4">
           <Button
             variant="ghost"
-            className="text-accent-red"
+            className="text-danger hover:bg-danger/10 text-xs font-mono"
             onClick={() => {
               setArmed(true)
               setResult(null)
               setError(null)
             }}
           >
-            Delete all findings…
+            Purge all findings…
           </Button>
         </div>
       )}
@@ -163,23 +155,21 @@ export function ResetWorkspacePanel() {
 }
 
 /**
- * The counts the server reports after the fact. Someone who has just
- * deleted everything they had is owed an exact account of it.
+ * The counts the server reports after the fact.
  */
 function ResetReceipt({ result }: { result: RemovalResponse }) {
   const summary = summariseRemoval(result.removed, { includeRepositories: true })
 
   return (
-    <div className="mt-4 flex items-start gap-2.5 px-3.5 py-2.5 rounded-[10px] bg-accent-green/10 border border-accent-green/30 text-[12.5px] leading-relaxed text-accent-green">
-      <CheckCircle2 size={15} className="mt-[1px] flex-shrink-0" />
+    <div className="mt-4 flex items-start gap-2.5 p-3.5 rounded border border-status-compliant/30 bg-status-compliant/10 text-xs font-sans text-status-compliant leading-relaxed">
+      <CheckCircle2 size={15} className="mt-0.5 flex-shrink-0" />
       <div>
-        <div className="font-semibold">Your findings have been deleted</div>
-        <div className="text-accent-green/80">
+        <div className="font-semibold text-text-primary">Ledger Purged Successfully</div>
+        <div className="text-text-secondary mt-0.5">
           {summary
-            ? `Deleted: ${summary}.`
-            : 'There was nothing recorded on this account to delete.'}{' '}
-          Your account and your GitHub connection are still in place — scan a
-          repository whenever you are ready to start again.
+            ? `Removed entities: ${summary}.`
+            : 'No active graph findings were indexed for this workspace.'}{' '}
+          Repository connections remain intact. Initiate a new scan whenever ready.
         </div>
       </div>
     </div>

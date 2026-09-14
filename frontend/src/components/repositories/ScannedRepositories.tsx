@@ -1,30 +1,9 @@
 import { useState } from 'react'
-import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
-import { Card } from '@/components/ui/Card'
-import { Badge } from '@/components/ui/Badge'
-import { Button } from '@/components/ui/Button'
+import { AlertTriangle, CheckCircle2, Loader2, Trash2 } from 'lucide-react'
 import { httpStatus, isAbortError, removeScannedRepository } from '@/services/api/client'
 import { describeLastScan, summariseRemoval } from '@/lib/workspaceMessages'
 import type { RemovalResponse, ScannedRepository } from '@/types/api'
 
-/**
- * What this account has actually scanned, and the only way to undo it.
- *
- * Until this existed a scan was permanent: a repository scanned by mistake
- * kept its vendors, data types and findings on the account forever, and
- * because every scan from the UI merged into one system, a second
- * repository quietly blended into the first. This is the list that makes
- * both visible and the second one fixable.
- *
- * `system_name` never reaches the screen. It is a slug the graph uses as a
- * key, and it is sent straight back to the delete call; the person reading
- * this recognises `owner/repo` and nothing else.
- *
- * Removal is destructive and irreversible, so it confirms in place — not
- * with a browser confirm(), which cannot name what goes and what stays —
- * and reports afterwards using the counts the server returns rather than
- * the ones the UI assumed.
- */
 export function ScannedRepositories({
   repositories,
   loading,
@@ -34,8 +13,6 @@ export function ScannedRepositories({
   repositories: ScannedRepository[]
   loading: boolean
   error: string | null
-  /** Refresh everything downstream of the graph: this list, and the scores
-   *  and scan dates on the repository list above. */
   onRemoved: () => void
 }) {
   const [removing, setRemoving] = useState<string | null>(null)
@@ -55,9 +32,6 @@ export function ScannedRepositories({
       onRemoved()
     } catch (err) {
       if (isAbortError(err)) return
-      // The one failure that is not a fault: the repository is already
-      // gone, which means this list was out of date. Refreshing it is the
-      // whole fix, so say that rather than reporting an error.
       if (httpStatus(err) === 404) {
         setFailure(
           `${repo.repo} had already been removed from this account. The list below is now up to date.`
@@ -72,74 +46,71 @@ export function ScannedRepositories({
   }
 
   return (
-    <Card className="p-5 mb-4">
-      <div className="font-display text-[15px] font-semibold mb-1">
-        Scanned repositories
-      </div>
-      <div className="text-xs text-text-faint mb-4">
-        Everything Niam has mapped for this account. Each repository is kept
-        separate, so removing one leaves the others exactly as they are.
+    <div className="p-5 rounded border border-border bg-surface mb-4 font-sans shadow-xs">
+      <div className="flex items-center justify-between pb-3 mb-3 border-b border-border">
+        <div>
+          <h2 className="font-medium text-sm text-text-primary">Mapped Systems in Compliance Graph</h2>
+          <p className="text-xs text-text-secondary mt-0.5">
+            Repositories actively arbitrated against the DPDP Act. Each codebase is isolated in graph ontology.
+          </p>
+        </div>
+        <span className="font-mono text-[10px] text-text-tertiary px-1.5 py-0.5 rounded border border-border bg-bg">
+          ONTOLOGY LEDGER
+        </span>
       </div>
 
       {result && <RemovalReceipt result={result} />}
       {failure && (
-        <div className="mb-3 flex items-start gap-2.5 px-3.5 py-2.5 rounded-[10px] bg-accent-amber/10 border border-accent-amber/30 text-[12.5px] leading-relaxed text-accent-amber">
-          <AlertTriangle size={15} className="mt-[1px] flex-shrink-0" />
+        <div className="mb-3 flex items-start gap-2 p-2.5 rounded border border-status-warning/30 bg-status-warning/10 text-xs text-status-warning">
+          <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
           <span>{failure}</span>
         </div>
       )}
 
       {loading ? (
-        <div className="text-[12.5px] text-text-dim font-mono py-2">
-          Loading what you've scanned…
+        <div className="text-xs text-text-tertiary font-mono py-4">
+          Loading mapped repositories…
         </div>
       ) : error ? (
-        <div className="rounded-[10px] bg-black/30 border border-border-soft p-3.5 text-[12.5px] leading-relaxed">
-          <div className="text-accent-amber font-semibold mb-1">
-            We couldn't list what you've scanned
+        <div className="rounded border border-status-warning/30 bg-status-warning/5 p-3 text-xs text-text-secondary">
+          <div className="text-status-warning font-medium mb-1">
+            Unable to load scanned repositories
           </div>
-          <div className="text-text-dim">
-            {error} Nothing has been changed — your findings are still there.
-          </div>
+          <div>{error} Existing graph nodes remain intact.</div>
         </div>
       ) : repositories.length === 0 ? (
-        <div className="rounded-[10px] bg-black/30 border border-border-soft p-4 text-[12.5px] leading-relaxed">
-          <div className="font-semibold text-[13px] mb-1">Nothing scanned yet</div>
-          <div className="text-text-dim max-w-[560px]">
-            Your GitHub account is connected, but Niam has not read any code
-            yet. Choose a repository in the panel above and start a scan — what
-            it finds will be listed here, and you can remove it again at any
-            time.
-          </div>
+        <div className="rounded border border-border bg-bg p-4 text-xs text-text-secondary space-y-1">
+          <div className="font-medium text-text-primary">Zero Repositories Mapped</div>
+          <p className="leading-relaxed">
+            Choose a repository in the panel above and trigger a scan to populate your compliance graph.
+          </p>
         </div>
       ) : (
         <>
-          <div className="flex items-center gap-2 mb-4 px-3.5 py-2.5 bg-black/20 rounded-[10px] border border-border-soft text-[12.5px] font-medium text-text-dim">
-            <span>{totalRepos} {totalRepos === 1 ? 'repository' : 'repositories'} scanned</span>
-            <span className="text-text-faint">·</span>
-            <span>{totalDataTypes} {totalDataTypes === 1 ? 'data type' : 'data types'}</span>
-            <span className="text-text-faint">·</span>
-            <span className={totalFindings > 0 ? 'text-accent-amber/90' : ''}>
-              {totalFindings} {totalFindings === 1 ? 'finding' : 'findings'}
+          <div className="flex items-center gap-3 mb-3 px-3 py-2 bg-bg rounded border border-border font-mono text-[11px] text-text-tertiary">
+            <span className="text-text-primary font-medium">{totalRepos} {totalRepos === 1 ? 'REPOSITORY' : 'REPOSITORIES'}</span>
+            <span className="text-border">/</span>
+            <span>{totalDataTypes} DATA TYPES</span>
+            <span className="text-border">/</span>
+            <span className={totalFindings > 0 ? 'text-status-gap font-medium' : 'text-status-compliant'}>
+              {totalFindings} STATUTORY GAPS
             </span>
           </div>
-          <div className="flex flex-col gap-2.5">
+
+          <div className="space-y-2">
             {repositories.map((repo) => (
               <ScannedRepositoryRow
                 key={repo.system_name}
-              repo={repo}
-              busy={removing === repo.system_name}
-              // One removal at a time. A second confirmation opened while
-              // the first is in flight would be confirming against a list
-              // that is about to change underneath it.
-              disabled={removing !== null && removing !== repo.system_name}
-              onConfirm={() => void remove(repo)}
-            />
-          ))}
+                repo={repo}
+                busy={removing === repo.system_name}
+                disabled={removing !== null && removing !== repo.system_name}
+                onConfirm={() => void remove(repo)}
+              />
+            ))}
           </div>
         </>
       )}
-    </Card>
+    </div>
   )
 }
 
@@ -161,107 +132,77 @@ function ScannedRepositoryRow({
   const [confirming, setConfirming] = useState(false)
 
   return (
-    <div className="rounded-[10px] bg-black/30 border border-border-soft p-3.5">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+    <div className="p-3.5 rounded border border-border/80 bg-bg space-y-2">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
-          <div className="text-[13.5px] font-semibold truncate">{repo.repo}</div>
-          <div className="text-[12px] text-text-faint mt-0.5">
+          <div className="text-xs font-mono font-medium text-text-primary truncate">{repo.repo}</div>
+          <div className="font-mono text-[11px] text-text-tertiary mt-0.5">
             {describeLastScan(repo)}
           </div>
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
-            <Badge tone="muted">{count(repo.data_types, 'data type', 'data types')}</Badge>
-            <Badge tone="muted">{count(repo.vendors, 'vendor', 'vendors')}</Badge>
-            <Badge tone={repo.gaps > 0 ? 'gap' : 'muted'}>
-              {count(repo.gaps, 'finding', 'findings')}
-            </Badge>
+            <span className="px-1.5 py-0.2 rounded border border-entity-datatype/30 bg-entity-datatype/10 text-entity-datatype font-mono text-[10px]">
+              {count(repo.data_types, 'data type', 'data types')}
+            </span>
+            <span className="px-1.5 py-0.2 rounded border border-entity-vendor/30 bg-entity-vendor/10 text-entity-vendor font-mono text-[10px]">
+              {count(repo.vendors, 'vendor', 'vendors')}
+            </span>
+            <span className={`px-1.5 py-0.2 rounded font-mono text-[10px] ${
+              repo.gaps > 0 
+                ? 'border border-status-gap/30 bg-status-gap/10 text-status-gap' 
+                : 'border border-status-compliant/30 bg-status-compliant/10 text-status-compliant'
+            }`}>
+              {count(repo.gaps, 'statutory gap', 'statutory gaps')}
+            </span>
           </div>
         </div>
 
         {!confirming && (
-          <Button
-            variant="ghost"
-            className="text-accent-red flex-shrink-0"
+          <button
             disabled={disabled || busy}
             onClick={() => setConfirming(true)}
+            className="px-2.5 py-1 rounded border border-border text-xs text-text-secondary hover:text-status-gap hover:border-status-gap/30 transition-colors disabled:opacity-40 flex items-center gap-1"
           >
             {busy ? (
               <>
-                <Loader2 size={14} className="animate-spin" />
-                Removing…
+                <Loader2 size={12} className="animate-spin" />
+                <span>Removing…</span>
               </>
             ) : (
-              'Remove'
+              <>
+                <Trash2 size={12} />
+                <span>Purge Node</span>
+              </>
             )}
-          </Button>
+          </button>
         )}
       </div>
 
       {confirming && (
-        <div className="mt-3 rounded-[10px] border border-accent-red/30 bg-accent-red/[0.06] p-3.5">
-          <div className="flex items-start gap-2.5">
-            <AlertTriangle size={15} className="text-accent-red mt-[2px] flex-shrink-0" />
-            <div className="min-w-0">
-              <div className="text-[13px] font-semibold text-accent-red">
-                Remove {repo.repo} from Niam?
-              </div>
-              <div className="text-[12.5px] text-text-dim leading-relaxed mt-1 max-w-[620px]">
-                This cannot be undone. You can scan {repo.repo} again later, but
-                everything Niam has found in it so far will be gone.
-              </div>
-            </div>
+        <div className="mt-3 p-3 rounded border border-status-gap/30 bg-status-gap/5 space-y-2">
+          <div className="flex items-start gap-2 text-status-gap text-xs font-medium">
+            <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+            <span>Purge {repo.repo} from statutory compliance graph?</span>
           </div>
+          <p className="text-[11px] text-text-secondary leading-relaxed">
+            This will remove all AST entities, data egress edges, and unresolved compliance gaps associated with this codebase. Source code at GitHub remains untouched.
+          </p>
 
-          <div className="grid gap-3 sm:grid-cols-2 mt-3.5">
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-text-faint mb-2">
-                What this deletes
-              </div>
-              <ul className="flex flex-col gap-1.5 text-[12.5px] text-text-dim leading-relaxed">
-                <li>
-                  Everything Niam found in {repo.repo} — the personal data it
-                  handles, the outside services it sends that data to, and every
-                  finding raised against it.
-                </li>
-                <li>
-                  Any fix Niam drafted for those findings. A pull request you
-                  have already opened on GitHub stays open there; Niam simply
-                  stops tracking it.
-                </li>
-                <li>The record of when this repository was scanned.</li>
-              </ul>
-            </div>
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-text-faint mb-2">
-                What this leaves alone
-              </div>
-              <ul className="flex flex-col gap-1.5 text-[12.5px] text-text-dim leading-relaxed">
-                <li>
-                  Your GitHub connection, and the repository itself. Nothing is
-                  changed in your code.
-                </li>
-                <li>
-                  Every other repository you have scanned — including anything
-                  they have in common with this one, such as a service both send
-                  data to.
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 pt-1">
             <button
               onClick={() => {
                 setConfirming(false)
                 onConfirm()
               }}
-              disabled={busy}
-              className="px-4 py-2 rounded-[10px] text-[13px] font-semibold text-white bg-accent-red hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              className="px-3 py-1 rounded border border-status-gap/40 bg-status-gap/10 text-status-gap text-xs hover:bg-status-gap/20 transition-colors font-medium"
             >
-              Yes, remove {repo.repo}
+              Confirm Deletion
             </button>
-            <Button variant="ghost" onClick={() => setConfirming(false)} disabled={busy}>
-              Keep it
-            </Button>
+            <button
+              onClick={() => setConfirming(false)}
+              className="px-3 py-1 rounded border border-border text-text-secondary text-xs hover:text-text-primary transition-colors"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -269,28 +210,11 @@ function ScannedRepositoryRow({
   )
 }
 
-/**
- * What actually went, counted by the server. A fixed "Removed." would read
- * the same whether eleven findings were deleted or none were, which is
- * exactly the reassurance nobody should be given after a destructive
- * action.
- */
 function RemovalReceipt({ result }: { result: RemovalResponse }) {
-  const summary = summariseRemoval(result.removed)
-  const name = result.repo ?? 'That repository'
-
   return (
-    <div className="mb-3 flex items-start gap-2.5 px-3.5 py-2.5 rounded-[10px] bg-accent-green/10 border border-accent-green/30 text-[12.5px] leading-relaxed text-accent-green">
-      <CheckCircle2 size={15} className="mt-[1px] flex-shrink-0" />
-      <div>
-        <div className="font-semibold">{name} has been removed</div>
-        <div className="text-accent-green/80">
-          {summary
-            ? `Deleted along with it: ${summary}.`
-            : 'There was nothing else recorded against it.'}{' '}
-          Your GitHub connection and your other repositories are untouched.
-        </div>
-      </div>
+    <div className="mb-3 p-2.5 rounded border border-status-compliant/30 bg-status-compliant/10 text-xs text-status-compliant flex items-start gap-2">
+      <CheckCircle2 size={14} className="mt-0.5 flex-shrink-0" />
+      <span>{summariseRemoval(result.removed)}</span>
     </div>
   )
 }

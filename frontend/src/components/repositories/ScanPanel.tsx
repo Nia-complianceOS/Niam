@@ -1,27 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, Lock, Search } from 'lucide-react'
-import { Card } from '@/components/ui/Card'
+import { ChevronDown, Lock, Search, Terminal, Play, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { useScan } from '@/hooks/useScan'
 import type { Repository } from '@/types/api'
 
 const REPO_RE = /^[\w.\-]+\/[\w.\-]+$/
 
-/**
- * Start a scan against any repository you name.
- *
- * Previously the only way to trigger a scan was a button attached to a row
- * in the repository list -- and that list was four invented `nova-labs/*`
- * repos that do not exist, so every click ended in a GitHub 404. There was
- * no path in the UI to scan a real repository at all. Taking the repo
- * directly is also what makes an empty repository list harmless.
- *
- * The repository list is passed in rather than fetched here. It used to
- * call useRepos() itself while the page that renders it did the same, so
- * every visit made the request twice -- and now that the request can come
- * back 409 ("connect GitHub first"), the two copies could disagree about
- * whether this account is connected at all. The page owns that answer and
- * only mounts this panel once it is "yes".
- */
 export function ScanPanel({
   repositories = [],
   truncated = false,
@@ -29,13 +12,6 @@ export function ScanPanel({
 }: {
   repositories?: Repository[]
   truncated?: boolean
-  /**
-   * Fired once when a scan finishes. The scan is what changes the graph,
-   * so everything drawn from the graph on this page -- the list of
-   * repositories this account has scanned, and their counts -- is stale
-   * the moment it completes. The panel owns the scan; the page owns what
-   * to refresh.
-   */
   onScanComplete?: () => void
 }) {
   const [repo, setRepo] = useState('')
@@ -47,8 +23,6 @@ export function ScanPanel({
   const busy = status === 'starting' || status === 'running'
   const valid = REPO_RE.test(repo.trim())
 
-  // Kept in a ref so an inline arrow from the parent does not re-fire this
-  // on every render; the effect depends on the status transition alone.
   const onCompleteRef = useRef(onScanComplete)
   onCompleteRef.current = onScanComplete
   useEffect(() => {
@@ -63,13 +37,20 @@ export function ScanPanel({
   }, [repositories, repo])
 
   return (
-    <Card className="p-5 mb-4">
-      <div className="font-display text-[15px] font-semibold mb-1">Scan a repository</div>
-      <div className="text-xs text-text-faint mb-4">
-        Reads the repository with your own GitHub connection. Nothing is written to it.
+    <div className="p-5 rounded border border-border bg-surface mb-4 font-sans shadow-xs">
+      <div className="flex items-center justify-between pb-3 mb-3 border-b border-border">
+        <div>
+          <h2 className="font-medium text-sm text-text-primary">Initiate Codebase AST Scan</h2>
+          <p className="text-xs text-text-secondary mt-0.5">
+            Parses file trees and abstract syntax nodes for personal data handling without storing code.
+          </p>
+        </div>
+        <span className="font-mono text-[10px] text-text-tertiary px-1.5 py-0.5 rounded border border-border bg-bg">
+          STATIC AST
+        </span>
       </div>
 
-      <div className="flex flex-wrap items-start gap-2">
+      <div className="flex flex-wrap items-start gap-2 pt-1">
         <div className="flex-1 min-w-[260px]">
           <div className="relative">
             <input
@@ -81,38 +62,34 @@ export function ScanPanel({
               }}
               onFocus={() => setPickerOpen(true)}
               onBlur={() => window.setTimeout(() => setPickerOpen(false), 150)}
-              placeholder="owner/repo — or pick from the list"
+              placeholder="organization/repository"
               spellCheck={false}
-              className="w-full bg-black/20 border border-border-soft rounded-[10px] px-3 py-2 pr-9 text-[14px] font-mono text-text placeholder:text-text-faint focus:outline-none focus:border-accent-blue/50 focus:ring-1 focus:ring-accent-blue/50 transition-all"
+              className="w-full bg-bg border border-border rounded px-3 py-1.5 pr-8 text-xs font-mono text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-text-tertiary transition-colors"
             />
             {repositories.length > 0 && (
               <button
                 type="button"
-                aria-label="Show repositories"
+                aria-label="Select repository"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   setPickerOpen((o) => !o)
                   inputRef.current?.focus()
                 }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 grid place-items-center rounded text-text-faint hover:text-text"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary"
               >
-                <ChevronDown size={15} />
+                <ChevronDown size={14} />
               </button>
             )}
 
             {pickerOpen && repositories.length > 0 && (
-              /* ~10 rows then scroll, so a hundred repositories do not push
-                 the scan log off the page. */
-              <div className="absolute z-20 mt-1 w-full max-h-[300px] overflow-y-auto rounded-[10px] border border-border bg-bg-elevated shadow-[0_16px_40px_rgba(0,0,0,0.55)]">
-                <div className="px-3 py-2 text-[11px] text-text-faint border-b border-border-soft flex items-center gap-1.5 sticky top-0 bg-bg-elevated">
-                  <Search size={12} />
-                  {matches.length} of {repositories.length} repositories
-                  {truncated ? ' (first 100)' : ''}
+              <div className="absolute z-30 mt-1 w-full max-h-[260px] overflow-y-auto rounded border border-border bg-surface-elevated shadow-md">
+                <div className="px-3 py-1.5 text-[10px] font-mono text-text-tertiary border-b border-border flex items-center gap-1.5 sticky top-0 bg-surface-elevated">
+                  <Search size={11} />
+                  <span>{matches.length} OF {repositories.length} REPOSITORIES AVAILABLE{truncated ? ' (FIRST 100)' : ''}</span>
                 </div>
                 {matches.length === 0 ? (
-                  <div className="px-3 py-3 text-[12.5px] text-text-faint">
-                    No match. You can still type any owner/repo your GitHub
-                    account can read.
+                  <div className="px-3 py-2 text-xs text-text-tertiary">
+                    No matching repository. You can type any valid repository name.
                   </div>
                 ) : (
                   matches.map((r) => (
@@ -125,15 +102,15 @@ export function ScanPanel({
                         setRef(r.branch || 'main')
                         setPickerOpen(false)
                       }}
-                      className="w-full text-left px-3 py-2 hover:bg-white/[0.05] flex items-center gap-2"
+                      className="w-full text-left px-3 py-1.5 hover:bg-bg flex items-center gap-2 border-b border-border/40 last:border-0"
                     >
-                      <span className="font-mono text-[13px] truncate">
+                      <span className="font-mono text-xs text-text-primary truncate">
                         {r.full_name}
                       </span>
                       {r.private && (
-                        <Lock size={11} className="text-text-faint flex-shrink-0" />
+                        <Lock size={11} className="text-text-tertiary flex-shrink-0" />
                       )}
-                      <span className="ml-auto text-[11px] text-text-faint flex-shrink-0">
+                      <span className="ml-auto font-mono text-[10px] text-text-tertiary flex-shrink-0">
                         {r.branch}
                       </span>
                     </button>
@@ -143,8 +120,8 @@ export function ScanPanel({
             )}
           </div>
           {repo.trim() !== '' && !valid && (
-            <div className="mt-1.5 text-xs text-accent-red">
-              Expected the form <span className="font-mono">owner/repo</span>.
+            <div className="mt-1 font-mono text-[11px] text-status-gap">
+              Expected standard format: owner/repository
             </div>
           )}
         </div>
@@ -154,48 +131,71 @@ export function ScanPanel({
           onChange={(e) => setRef(e.target.value)}
           placeholder="main"
           spellCheck={false}
-          className="w-[140px] bg-black/20 border border-border-soft rounded-[10px] px-3 py-2 text-[14px] font-mono text-text placeholder:text-text-faint focus:outline-none focus:border-accent-blue/50 focus:ring-1 focus:ring-accent-blue/50 transition-all"
+          className="w-[110px] bg-bg border border-border rounded px-3 py-1.5 text-xs font-mono text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-text-tertiary transition-colors"
         />
 
         <button
           onClick={() => triggerScan(repo.trim(), ref.trim() || 'main')}
           disabled={busy || !valid}
-          className="px-4 py-2 rounded-[10px] text-sm font-semibold text-white bg-accent-blue hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          className="px-4 py-1.5 rounded text-xs font-medium text-bg bg-text-primary hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 shadow-xs"
         >
-          {busy ? 'Scanning…' : 'Start scan'}
+          {busy ? (
+            <>
+              <Loader2 size={13} className="animate-spin" />
+              <span>Scanning…</span>
+            </>
+          ) : (
+            <>
+              <Play size={12} />
+              <span>Trigger Scan</span>
+            </>
+          )}
         </button>
       </div>
 
       {status !== 'idle' && (
-        <div className="mt-4 rounded-[10px] bg-black/40 border border-border-soft p-3 text-sm max-h-[320px] overflow-y-auto">
-          <div className="font-mono text-text-dim space-y-1">
+        <div className="mt-4 rounded border border-border bg-bg p-3 text-xs max-h-[280px] overflow-y-auto font-mono">
+          <div className="flex items-center gap-2 pb-2 mb-2 border-b border-border/80 text-[10px] text-text-tertiary uppercase">
+            <Terminal size={12} />
+            <span>Telemetry SSE Stream // {repo}</span>
+          </div>
+
+          <div className="space-y-1 text-text-secondary text-[11px]">
             {logs.map((log, i) => (
-              <div key={i}>
-                <span className="text-accent-blue">[{log.event}]</span>{' '}
-                {log.message || log.error || 'event received'}
+              <div key={i} className="flex items-start gap-2">
+                <span className="text-text-primary">[{log.event}]</span>
+                <span>{log.message || log.error || 'stream packet received'}</span>
               </div>
             ))}
-            {busy && <div className="animate-pulse text-text-faint">_</div>}
+            {busy && <div className="text-text-tertiary animate-pulse">_ executing graph arbitration</div>}
           </div>
 
           {status === 'completed' && (
-            <div className="mt-3 text-accent-green font-semibold text-sm">
-              Scan completed. The graph now reflects this repository.
+            <div className="mt-3 pt-2 border-t border-border flex items-center gap-2 text-status-compliant font-medium text-xs">
+              <CheckCircle2 size={13} />
+              <span>Scan complete. Compliance knowledge graph and findings ledger updated.</span>
             </div>
           )}
           {status === 'failed' && (
-            <div className="mt-3 text-accent-red font-semibold text-sm">Scan failed: {error}</div>
+            <div className="mt-3 pt-2 border-t border-border flex items-center gap-2 text-status-gap font-medium text-xs">
+              <AlertTriangle size={13} />
+              <span>Scan failed: {error}</span>
+            </div>
           )}
           {status === 'rejected' && (
-            <div className="mt-3 text-accent-amber font-semibold text-sm">{error}</div>
+            <div className="mt-3 pt-2 border-t border-border flex items-center gap-2 text-status-warning font-medium text-xs">
+              <AlertTriangle size={13} />
+              <span>{error}</span>
+            </div>
           )}
           {status === 'connection_lost' && (
-            <div className="mt-3 text-accent-amber font-semibold text-sm">
-              Lost the scan stream. The scan may still be running on the server.
+            <div className="mt-3 pt-2 border-t border-border flex items-center gap-2 text-status-warning font-medium text-xs">
+              <AlertTriangle size={13} />
+              <span>SSE stream disconnected. Background worker may still be active.</span>
             </div>
           )}
         </div>
       )}
-    </Card>
+    </div>
   )
 }

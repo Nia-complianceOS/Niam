@@ -1,23 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as d3 from 'd3'
 import { Maximize2, Minus, Plus, Code2, Database, Building2, AlertTriangle, Search, Scale } from 'lucide-react'
-import { Card } from '@/components/ui/Card'
 import { GraphTooltip } from '@/components/graph/GraphTooltip'
 import { dataTypeLabel } from '@/lib/gapLanguage'
 import type { ComplianceStatus, GraphEdge, GraphNode } from '@/types/api'
 
 const STATUS_COLOR: Record<ComplianceStatus, string> = {
-  compliant: '#10b981', // green for compliant
-  warning: '#f5a623',
-  gap: '#ef4444', // red
-  unknown: '#6b7280',
+  compliant: '#10B981', // emerald
+  warning: '#F59E0B',   // amber
+  gap: '#F43F5E',       // crimson
+  unknown: '#64748B',   // slate
 }
 
 const TYPE_COLOR: Record<string, string> = {
-  System: '#3b82f6', // blue
-  DataType: '#a855f7', // purple
-  Vendor: '#f59e0b', // amber
-  DPDPClause: '#10b981', // green
+  System: '#38BDF8',     // entity-system sky
+  DataType: '#A78BFA',   // entity-datatype orchid
+  Vendor: '#FBBF24',     // entity-vendor topaz
+  DPDPClause: '#34D399', // entity-clause jade
 }
 
 function colorFor(status: ComplianceStatus): string {
@@ -26,17 +25,17 @@ function colorFor(status: ComplianceStatus): string {
 
 const COLUMNS = ['System', 'DataType', 'Vendor', 'DPDPClause'] as const
 const COLUMN_LABELS: Record<string, string> = {
-  System: 'Systems',
-  DataType: 'Data Collected',
-  Vendor: 'Vendors',
-  DPDPClause: 'Regulations',
+  System: '01 // SYSTEMS',
+  DataType: '02 // DATA TYPES',
+  Vendor: '03 // THIRD-PARTY PROCESSORS',
+  DPDPClause: '04 // DPDP CLAUSES',
 }
 
-const ROW_HEIGHT = 42
-const TOP_PAD = 60
+const ROW_HEIGHT = 44
+const TOP_PAD = 64
 const NODE_R = 14
 const LABEL_GAP = 12
-const GUTTER = 120
+const GUTTER = 110
 const FONT = '12px Inter, sans-serif'
 
 interface Props {
@@ -60,7 +59,7 @@ function displayLabel(n: GraphNode): string {
 function makeMeasurer(): (text: string) => number {
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
-  if (!ctx) return (t: string) => t.length * 6.6
+  if (!ctx) return (t: string) => t.length * 6.8
   ctx.font = FONT
   const cache = new Map<string, number>()
   return (text: string) => {
@@ -87,11 +86,11 @@ export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNode
   const [showClauses, setShowClauses] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
 
-  const [containerSize, setContainerSize] = useState({ width: 1180, height: 560 })
+  const [containerSize, setContainerSize] = useState({ width: 1180, height: 600 })
 
   // --- Filter nodes and edges ---
   const { visibleNodes, visibleEdges } = useMemo(() => {
-    let ns = nodes.filter((n) => {
+    const ns = nodes.filter((n) => {
       if (!showSystems && n.node_type === 'System') return false
       if (!showDataTypes && n.node_type === 'DataType') return false
       if (!showVendors && n.node_type === 'Vendor') return false
@@ -106,7 +105,7 @@ export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNode
     }
   }, [nodes, edges, showSystems, showDataTypes, showVendors, showClauses])
 
-  // --- Compute Layout (Deterministic columns) ---
+  // --- Compute Deterministic Columnar Layout ---
   const { positioned, extent, columnsData, linksData, reachableMap } = useMemo(() => {
     const measure = makeMeasurer()
     const rank: Record<string, number> = { gap: 0, warning: 1, unknown: 2, compliant: 3 }
@@ -150,7 +149,7 @@ export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNode
       : containerSize.width
     const extentH = TOP_PAD + tallest * ROW_HEIGHT + 60
 
-    // Compute edges
+    // Edges calculation connecting actual boundaries
     const linkGen = d3.linkHorizontal<unknown, [number, number]>().x((d) => d[0]).y((d) => d[1])
     const linksData = visibleEdges.map((e) => {
       const a = pos.get(e.source)
@@ -170,7 +169,7 @@ export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNode
       }
     }).filter(Boolean) as (GraphEdge & { path: string, color: string, sourceNode: Positioned, targetNode: Positioned })[]
 
-    // Reachability graph for highlighting
+    // Reachability graph for isolating active flow
     const outM = new Map<string, string[]>()
     const incM = new Map<string, string[]>()
     visibleEdges.forEach((e) => {
@@ -206,8 +205,7 @@ export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNode
     const { width, height } = containerSize
     const { w, h } = extent
     
-    // Calculate scale to fit width and height with some padding
-    const scale = Math.min(1.2, Math.min(width / Math.max(1, w + 40), height / Math.max(1, h + 40)))
+    const scale = Math.min(1.15, Math.min(width / Math.max(1, w + 40), height / Math.max(1, h + 40)))
     const tx = (width - w * scale) / 2
     const ty = (height - h * scale) / 2
     
@@ -247,7 +245,6 @@ export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNode
     fitToView(0)
   }, [fitToView])
   
-  // Re-fit if extent changes drastically
   useEffect(() => {
     fitToView(400)
   }, [extent.w, extent.h, fitToView])
@@ -257,11 +254,10 @@ export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNode
     d3.select(svgRef.current).transition().duration(200).call(zoomRef.current.scaleBy, factor)
   }
 
-  // --- Searching & Selection logic ---
+  // Active Focus and Search Selection
   const activeFocus = selectedNodeId
   const litNodes = activeFocus ? reachableMap.get(activeFocus) : null
 
-  // Handle Search 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     if (!searchQuery.trim()) {
@@ -276,63 +272,53 @@ export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNode
   }
 
   return (
-    <Card className="relative h-full min-h-[600px] overflow-hidden flex flex-col rounded-none border-0 sm:border sm:rounded-[10px]">
-      
-      {/* Toolbar */}
-      <div className="absolute top-0 left-0 right-0 p-3 flex items-center justify-between gap-3 bg-surface/80 backdrop-blur-md border-b border-border-soft z-10 flex-wrap">
+    <div className="relative h-full min-h-[600px] overflow-hidden flex flex-col rounded border border-border bg-surface font-sans">
+      {/* Forensic Toolbar */}
+      <div className="p-3 flex items-center justify-between gap-3 bg-bg-subtle border-b border-border z-10 flex-wrap text-xs">
         <div className="flex items-center gap-2">
           <form onSubmit={handleSearch} className="relative">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint" />
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary" />
             <input
               type="text"
-              placeholder="Search nodes..."
+              placeholder="Filter graph nodes…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="bg-black/20 border border-border-soft rounded-full pl-8 pr-3 py-1.5 text-[12px] focus:outline-none focus:border-accent-blue/50 w-48 text-text"
+              className="bg-bg border border-border rounded pl-8 pr-3 py-1 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-text-tertiary w-44 font-mono transition-colors"
             />
           </form>
           
-          <div className="h-4 w-px bg-border-soft mx-1" />
+          <div className="h-4 w-[1px] bg-border mx-1" />
           
           <FilterToggle active={showSystems} onClick={() => setShowSystems(!showSystems)}>Systems</FilterToggle>
-          <FilterToggle active={showDataTypes} onClick={() => setShowDataTypes(!showDataTypes)}>Data</FilterToggle>
-          <FilterToggle active={showVendors} onClick={() => setShowVendors(!showVendors)}>Vendors</FilterToggle>
-          <FilterToggle active={showClauses} onClick={() => setShowClauses(!showClauses)}>Regulations</FilterToggle>
+          <FilterToggle active={showDataTypes} onClick={() => setShowDataTypes(!showDataTypes)}>Data Types</FilterToggle>
+          <FilterToggle active={showVendors} onClick={() => setShowVendors(!showVendors)}>Processors</FilterToggle>
+          <FilterToggle active={showClauses} onClick={() => setShowClauses(!showClauses)}>DPDP Clauses</FilterToggle>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <CanvasButton label="Zoom out" onClick={() => zoomBy(1 / 1.4)}><Minus size={14} /></CanvasButton>
-          <CanvasButton label="Zoom in" onClick={() => zoomBy(1.4)}><Plus size={14} /></CanvasButton>
+        <div className="flex items-center gap-1">
+          <CanvasButton label="Zoom out" onClick={() => zoomBy(1 / 1.4)}><Minus size={13} /></CanvasButton>
+          <CanvasButton label="Zoom in" onClick={() => zoomBy(1.4)}><Plus size={13} /></CanvasButton>
           <CanvasButton label="Fit to view" onClick={() => fitToView()}><Maximize2 size={13} /></CanvasButton>
         </div>
       </div>
 
-      <div ref={containerRef} className="flex-1 w-full bg-[#0a0a0c]" onClick={() => onNodeSelect?.(null)}>
+      {/* Main Canvas SVG Area */}
+      <div ref={containerRef} className="flex-1 w-full bg-bg relative" onClick={() => onNodeSelect?.(null)}>
         <svg ref={svgRef} className="w-full h-full block cursor-grab">
-          <defs>
-            <filter id="glow-gap" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="4" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
-            <filter id="glow-compliant" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="3" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
-          </defs>
-
           <g ref={rootGroupRef}>
-            {/* Columns */}
+            {/* Column Headers */}
             {columnsData.map((col, i) => (
               <text
                 key={`col-${i}`}
                 x={col.x - NODE_R}
                 y={TOP_PAD - 20}
-                fill="#6e6e86"
-                fontSize={11}
+                fill="var(--text-tertiary)"
+                fontSize={10}
+                fontFamily="monospace"
                 fontWeight={600}
-                letterSpacing="0.06em"
+                letterSpacing="0.08em"
               >
-                {`${COLUMN_LABELS[col.type] ?? col.type} · ${col.list.length}`.toUpperCase()}
+                {`${COLUMN_LABELS[col.type] ?? col.type} // ${col.list.length}`}
               </text>
             ))}
 
@@ -341,22 +327,16 @@ export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNode
               {linksData.map((e, i) => {
                 const isLit = litNodes ? litNodes.has(e.source) && litNodes.has(e.target) : true
                 const strokeWidth = isLit ? 1.5 : 1
-                const opacity = isLit ? 0.6 : 0.1
+                const opacity = isLit ? 0.65 : 0.08
                 
-                // Styling based on relationship
                 let strokeDasharray = 'none'
                 let strokeColor = e.color
-                let extraClasses = ''
                 
                 if (e.relationship === 'SENT_TO') {
                   strokeDasharray = '4 4'
                 } else if (e.relationship === 'GOVERNED_BY') {
-                  strokeDasharray = '2 4'
-                  strokeColor = STATUS_COLOR.compliant // green
-                }
-                
-                if (isLit && e.relationship !== 'GOVERNED_BY') {
-                  extraClasses = 'edge-flow-animate'
+                  strokeDasharray = '2 3'
+                  strokeColor = STATUS_COLOR.compliant
                 }
 
                 return (
@@ -368,7 +348,7 @@ export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNode
                     strokeWidth={strokeWidth}
                     strokeOpacity={opacity}
                     strokeDasharray={strokeDasharray}
-                    className={`transition-all duration-300 ${extraClasses}`}
+                    className="transition-opacity duration-200"
                   />
                 )
               })}
@@ -382,7 +362,6 @@ export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNode
                 const opacity = isLit ? 1 : 0.15
                 
                 const isGap = n.status === 'gap'
-                const isCompliant = n.status === 'compliant'
                 
                 let Icon = Code2
                 if (n.node_type === 'DataType') Icon = Database
@@ -396,7 +375,7 @@ export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNode
                   <g
                     key={n.id}
                     transform={`translate(${n.x}, ${n.y})`}
-                    className="cursor-pointer transition-opacity duration-300"
+                    className="cursor-pointer transition-opacity duration-200"
                     style={{ opacity }}
                     onClick={(e) => {
                       e.stopPropagation()
@@ -414,34 +393,44 @@ export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNode
                     }}
                     onMouseLeave={() => setTooltip(null)}
                   >
-                    {/* Invisible hit area */}
-                    <rect x={-NODE_R - 6} y={-ROW_HEIGHT / 2} width={NODE_R * 2 + LABEL_GAP + n.labelWidth + 14} height={ROW_HEIGHT} fill="transparent" />
+                    {/* Invisible Hit Area */}
+                    <rect 
+                      x={-NODE_R - 6} 
+                      y={-ROW_HEIGHT / 2} 
+                      width={NODE_R * 2 + LABEL_GAP + n.labelWidth + 14} 
+                      height={ROW_HEIGHT} 
+                      fill="transparent" 
+                    />
                     
-                    {/* Glow ring */}
-                    {(isFocused || isGap || isCompliant) && (
+                    {/* Selection Focus Ring */}
+                    {isFocused && (
                       <circle 
-                        r={NODE_R + (isFocused ? 6 : 4)} 
+                        r={NODE_R + 5} 
                         fill="none" 
-                        stroke={isGap ? STATUS_COLOR.gap : (isCompliant ? STATUS_COLOR.compliant : nodeColor)} 
+                        stroke={nodeColor} 
                         strokeWidth={1.5}
-                        strokeOpacity={isFocused ? 0.8 : 0.4}
-                        className={isGap ? 'animate-pulse' : ''}
-                        filter={isGap ? 'url(#glow-gap)' : (isCompliant ? 'url(#glow-compliant)' : 'none')}
+                        strokeOpacity={0.8}
                       />
                     )}
                     
-                    <circle r={NODE_R} fill="#1a1a24" stroke={nodeColor} strokeWidth={2} />
+                    {/* Primary Node Glyph Circle */}
+                    <circle 
+                      r={NODE_R} 
+                      fill="var(--surface)" 
+                      stroke={nodeColor} 
+                      strokeWidth={1.5} 
+                    />
                     
-                    {/* Render Lucide Icon centered inside circle using foreignObject or SVG translation */}
-                    {/* For small icons it's cleaner to render SVG directly */}
+                    {/* Centered Node Icon */}
                     <g transform={`translate(-7, -7)`}>
-                      <Icon size={14} color={nodeColor} strokeWidth={isGap ? 2.5 : 2} />
+                      <Icon size={14} color={nodeColor} strokeWidth={isGap ? 2.2 : 1.75} />
                     </g>
                     
+                    {/* Node Text Label */}
                     <text
                       x={NODE_R + LABEL_GAP}
                       y={4}
-                      fill={isFocused ? '#ffffff' : '#c9c9de'}
+                      fill={isFocused ? 'var(--text-primary)' : 'var(--text-secondary)'}
                       fontSize={12}
                       fontFamily="Inter, sans-serif"
                       fontWeight={isFocused ? 600 : 400}
@@ -457,18 +446,7 @@ export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNode
       </div>
 
       {tooltip && <GraphTooltip node={tooltip.node} x={tooltip.x} y={tooltip.y} />}
-
-      <style>{`
-        .edge-flow-animate {
-          stroke-dasharray: 4 6;
-          animation: flow-anim 1s linear infinite;
-        }
-        @keyframes flow-anim {
-          from { stroke-dashoffset: 10; }
-          to { stroke-dashoffset: 0; }
-        }
-      `}</style>
-    </Card>
+    </div>
   )
 }
 
@@ -477,10 +455,10 @@ function FilterToggle({ active, onClick, children }: { active: boolean; onClick:
     <button
       type="button"
       onClick={onClick}
-      className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+      className={`text-[11px] font-mono px-2 py-0.5 rounded border transition-colors ${
         active
-          ? 'bg-accent-blue/[0.14] border-accent-blue/40 text-[#a9c1ff]'
-          : 'bg-black/30 border-border-soft text-text-dim hover:text-text'
+          ? 'bg-surface text-text-primary border-border font-medium'
+          : 'bg-bg text-text-tertiary border-border hover:text-text-primary'
       }`}
     >
       {children}
@@ -495,7 +473,7 @@ function CanvasButton({ label, onClick, children }: { label: string; onClick: ()
       onClick={onClick}
       title={label}
       aria-label={label}
-      className="w-7 h-7 grid place-items-center rounded bg-black/40 border border-border-soft text-text-dim hover:text-text hover:border-border transition-colors"
+      className="w-6 h-6 grid place-items-center rounded bg-bg border border-border text-text-tertiary hover:text-text-primary hover:border-text-tertiary transition-colors"
     >
       {children}
     </button>

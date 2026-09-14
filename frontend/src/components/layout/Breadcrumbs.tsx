@@ -2,7 +2,8 @@ import { Link, useLocation } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 
 const ROUTE_NAMES: Record<string, string> = {
-  '/': 'Dashboard',
+  '/dashboard': 'Dashboard',
+  '/': 'Home',
   '/gaps': 'Compliance Gaps',
   '/graph': 'Compliance Graph',
   '/repositories': 'Repositories',
@@ -17,14 +18,18 @@ const ROUTE_NAMES: Record<string, string> = {
 export function Breadcrumbs() {
   const location = useLocation()
   
-  if (location.pathname === '/') {
-    return null
+  if (location.pathname === '/' || location.pathname === '/dashboard') {
+    return (
+      <div className="flex items-center gap-2 text-xs font-medium text-text-tertiary">
+        <span className="text-text-primary font-serif font-medium text-sm">Dashboard</span>
+      </div>
+    )
   }
   
   const pathnames = location.pathname.split('/').filter((x) => x)
   
   const items = [
-    { name: 'Dashboard', path: '/' }
+    { name: 'Dashboard', path: '/dashboard' }
   ]
   
   let currentPath = ''
@@ -48,30 +53,30 @@ export function Breadcrumbs() {
   }
 
   return (
-    <nav aria-label="Breadcrumb" className="mb-6">
+    <nav aria-label="Breadcrumb" className="flex items-center">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
       />
-      <ol className="flex items-center text-[13.5px] font-medium text-text-dim">
+      <ol className="flex items-center text-xs font-medium text-text-secondary">
         {items.map((item, index) => {
           const isLast = index === items.length - 1
           
           return (
             <li key={item.path} className="flex items-center">
               {isLast ? (
-                <span className="text-text" aria-current="page">
+                <span className="text-text-primary font-medium" aria-current="page">
                   {item.name}
                 </span>
               ) : (
                 <>
                   <Link
                     to={item.path}
-                    className="hover:text-text transition-colors"
+                    className="hover:text-text-primary transition-colors"
                   >
                     {item.name}
                   </Link>
-                  <ChevronRight size={14} className="mx-1.5 opacity-40" />
+                  <ChevronRight size={12} className="mx-1.5 text-text-tertiary" />
                 </>
               )}
             </li>
