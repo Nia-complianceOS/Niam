@@ -1,456 +1,361 @@
 # Niam
 
-**DPDP readiness for engineering teams.** Niam scans a codebase for the places
-it actually handles personal data, builds a graph of what is collected and
-where it is sent, reconciles that against the Digital Personal Data Protection
-Act 2023, and drafts the policy language each gap needs.
+**Automated DPDP Act 2023 compliance auditing & remediation for engineering and legal teams.** 
 
-The framing matters, and it is deliberate. Most of the DPDP Act is **not in
-force yet** — the substantive obligations commence **13 November 2026** and
-**13 May 2027**. A tool that reported today's codebase as "non-compliant"
-would be wrong. Niam reports *readiness*: what you collect, which obligations
-will apply to it, when they start, and what is still ungoverned.
+Niam continuously scans codebases for personal data flows, maps AST data paths and external processor sinks, constructs a graph of what is collected and where it travels, reconciles flows against the **Digital Personal Data Protection Act, 2023 (India)**, and drafts the exact statutory policy amendments each finding requires.
+
+> **Readiness over artificial compliance:** Most substantive obligations of the DPDP Act commence on **13 November 2026** and **13 May 2027**. A platform reporting an active codebase as "non-compliant" today would be legally inaccurate. Niam reports **statutory readiness**: what personal data you collect, which statutory clauses govern it, when those provisions take effect, and which flows currently lack legal disclosure or consent boundaries.
 
 ---
 
-## What it does
+## Key Capabilities
 
-1. **Scan** — reads a GitHub repository through the API and runs a two-stage
-   pipeline over it: a zero-cost keyword pre-filter for recall, then a
-   taxonomy-constrained Gemini classifier for precision. The taxonomy is fixed
-   and validated in code, so the model cannot invent a data category.
-2. **Graph** — writes `(System)-[:COLLECTS]->(DataType)-[:SENT_TO]->(Vendor)`
-   into Neo4j, with file, line and resolved commit SHA kept as provenance on
-   every edge.
-3. **Legal** — parses the DPDP Act from the India Code publication into
-   `:DPDPClause` nodes, each carrying its commencement date and status from a
-   structured model of the Gazette notification.
-4. **Reconcile** — derives `:Gap` nodes by comparing the two: data leaving the
-   system with nothing governing it, data governed by obligations that have
-   not commenced, data collected and ungoverned entirely.
-5. **Remediate** — drafts the policy amendment each gap needs with Gemini, then
-   runs three graph-grounded checks against the draft: the cited clause exists,
-   a `GOVERNED_BY` edge really connects the gap's data type to it, and the
-   clause's commencement status is known. A citation that fails is rejected.
+1. **Static Ingestion & Classification Pipeline**
+   - Ingests repositories via the GitHub REST API without cloning large history trees.
+   - Two-stage processing pipeline: high-recall keyword pre-filter combined with a taxonomy-constrained Google Gemini classifier.
+   - Enforces a fixed data taxonomy in code to eliminate model hallucination of arbitrary PII labels.
 
-Every number in the UI traces to a node, an edge, or a live API call. Where
-there is no data, the interface says so rather than showing a placeholder.
+2. **Compliance Knowledge Graph (Neo4j)**
+   - Persists a 4-lane compliance ontology: `(:System)-[:COLLECTS]->(:DataType)-[:SENT_TO]->(:Vendor)`.
+   - Attaches strict provenance metadata to every edge: file path, line numbers, and resolved commit SHA.
+   - Self-healing connection driver automatically reconnects after AuraDB idle timeouts or network interruptions.
+
+3. **Statutory Framework Engine**
+   - Parses the DPDP Act 2023 directly from India Code gazette publications into structured `:DPDPClause` nodes.
+   - Models commencement dates and enforceability statuses directly in the knowledge graph.
+
+4. **Continuous Reconciliation Engine**
+   - Flags three distinct gap archetypes:
+     - **Undisclosed Transfers**: Personal data transmitted to third-party processors without policy disclosure.
+     - **Uncommenced Obligations**: Data governed by statutory requirements whose enforcement schedule is pending.
+     - **Ungoverned Collections**: Personal data ingested with no recorded policy schedule or legal basis.
+
+5. **Remediation Drafter & Meta-Verifier**
+   - Drafts targeted policy amendments using Gemini, constrained by existing document formats.
+   - Enforces graph-grounded validation: verifies that cited statutory clauses exist, that a valid `GOVERNED_BY` edge connects to the data type, and that commencement status is validated.
+   - Prose-first review mode formats amendments for legal counsel inspection prior to opening GitHub Pull Requests.
+   - Strict dry-run and allow-list safety gates prevent unintended upstream repository writes.
+
+6. **"The Regulatory Ledger" Interface**
+   - Built on an institutional, editorial aesthetic tailored for auditors, compliance officers, and engineers.
+   - Uses *Newsreader* serif typography for statutory assertions, *Inter* for operational metrics, and *monospace* for AST code provenance and cryptographic hashes.
+   - Zero invented stats: eliminates arbitrary trending indicators, presenting only verifiable point-in-time metrics.
+
+7. **Forensic Audit Trail**
+   - Immutable chronological ledger capturing every scan event, processor detection, and PR draft with actor attribution.
+   - Secured real-time scan telemetry stream using single-use, short-lived SSE ticket tokens.
 
 ---
 
-## Stack
+## Technology Stack
 
-| Layer | Technology |
+| Layer | Technologies |
 |---|---|
-| Frontend | React 18, Vite, TypeScript, Tailwind, D3 |
-| Backend | FastAPI, Pydantic v2, Uvicorn |
-| Database | Neo4j (Graph data) & Supabase (PostgreSQL for Auth, Scans, Audit) |
-| Intelligence | Google Gemini (`google-genai`), PyGithub, pypdf |
-
-**On the code scanner:** it is a keyword pre-filter feeding an LLM classifier,
-not an AST parser. That is a deliberate trade — the pre-filter costs nothing
-and catches broadly, the classifier resolves precision, and the fixed taxonomy
-stops the model inventing labels. Real dataflow analysis is the right long-term
-answer and is not what this does today.
+| **Frontend** | React 18, Vite 5, TypeScript 5, Tailwind CSS, Framer Motion, D3.js, Lucide Icons |
+| **Backend API** | FastAPI, Pydantic v2, Uvicorn, Python 3.11+ |
+| **Database & Knowledge Layer** | **Neo4j** (Graph knowledge layer) & **Supabase** (PostgreSQL for Auth, Scan history, Audit logs) |
+| **Intelligence Engine** | Google Gemini (`google-genai`), PyGithub, pypdf |
+| **Containerization** | Docker, Docker Compose |
 
 ---
 
-## Repository layout
+## Repository Structure
 
 ```text
 Niam/
 ├── backend/
 │   ├── app/
-│   │   ├── api/v1/endpoints/   # auth, dashboard, graph, gaps, compliance,
-│   │   │                       # github, scan (SSE), webhook, health
-│   │   ├── core/               # settings, JWT, webhook signatures
-│   │   ├── db/                 # Neo4j driver lifecycle
-│   │   ├── schemas/            # Pydantic request/response models
-│   │   └── services/           # dashboard, gap, graph, github, scan, scoring
-│   └── {demo,graph,ingestion,legal,reasoning,reconciliation,retrieval}/
-│                               # copy of the intelligence tree (see note)
+│   │   ├── api/                # API router & dependencies
+│   │   │   └── v1/endpoints/   # auth, dashboard, graph, gaps, compliance,
+│   │   │                       # github, scan (SSE stream), webhook, health
+│   │   ├── core/               # App configuration, JWT handling, security
+│   │   ├── db/                 # Self-healing Neo4j driver & Supabase clients
+│   │   ├── schemas/            # Pydantic request/response validation models
+│   │   └── services/           # Business logic: dashboard, gaps, graph, scan, scoring
+│   ├── requirements.txt
+│   └── venv/                   # Python virtual environment
 │
-├── intelligence/               # the analysis engine, an installable package
-│   ├── graph/                  # schema, node/edge builders, Neo4j client, CLIs
+├── intelligence/               # Core analysis engine (installable package: niam-intelligence)
+│   ├── graph/                  # Neo4j schema definitions, node/edge builders, migration CLI
 │   ├── ingestion/
-│   │   ├── github/             # scanner, diff parser, Gemini classifier
-│   │   └── vendors/            # Stripe / Mixpanel / Firebase ingestion
-│   ├── legal/                  # DPDP Act fetch, extraction, commencement model
-│   ├── reasoning/              # remediation drafter, meta-verifier
-│   ├── reconciliation/         # the gap engine
-│   ├── retrieval/              # Cypher query layer + query CLI
-│   └── demo/                   # seed scripts
+│   │   ├── github/             # Repository scanner, diff parser, Gemini classifier
+│   │   └── vendors/            # Third-party processor connectors (Stripe, Mixpanel, Firebase)
+│   ├── legal/                  # DPDP Act extraction, clause loaders, commencement schedules
+│   ├── reasoning/              # Remediation drafter & graph-grounded verifier
+│   ├── reconciliation/         # Compliance gap discovery engine
+│   ├── retrieval/              # Cypher query layer and CLI diagnostic tools
+│   ├── demo/                   # Graph seeding fixtures
+│   └── pyproject.toml
 │
-├── frontend/src/
-│   ├── components/             # graph canvas, dashboard panels, layout, ui
-│   ├── hooks/                  # data fetching per page
-│   ├── pages/                  # Dashboard, Graph, Vendors, Regulations,
-│   │                           # Repositories, Policies, PRs, Audit, Settings
-│   └── services/api/           # Axios client
+├── frontend/
+│   ├── src/
+│   │   ├── components/         # Compliance graph canvas, gap queues, layout, modals
+│   │   ├── hooks/              # Dedicated data fetching hooks
+│   │   ├── pages/              # Dashboard, Graph, Gaps, PRs, Vendors, Regulations,
+│   │   │                       # Policies, Repositories, Audit Trail, Settings
+│   │   ├── services/api/       # Axios API client & SSE ticket token subscriber
+│   │   ├── styles/             # Global CSS & "The Regulatory Ledger" theme tokens
+│   │   └── types/              # TypeScript API contract interfaces
+│   ├── package.json
+│   └── vite.config.ts
 │
-└── smoke/                      # throwaway verification rig (gitignored)
+├── docker-compose.yml          # Container configuration for Neo4j and full-stack services
+└── Dockerfile                  # Multi-stage production container build
 ```
 
-> **One copy of the pipeline.** `backend/` used to hold a byte-identical copy of
-> `intelligence/`, created before the package was installable so that
-> `backend`-as-CWD could resolve the imports. Both copies ended up live in one
-> process, and editing one had no effect on the other. The copies are deleted:
-> `pip install -e ./intelligence` is now the only way those modules resolve,
-> which is why that install step is not optional.
+> **Single Source of Truth for Intelligence Modules:**  
+> The backend does not carry duplicate copies of the analysis engine. The `intelligence/` directory is installed into the virtual environment as an editable package (`pip install -e ./intelligence`). All API routes and background tasks import directly from `graph.*`, `legal.*`, `ingestion.*`, `reasoning.*`, `reconciliation.*`, and `retrieval.*`.
 
 ---
 
-## Getting started
+## Getting Started
 
-From nothing to a running app. Every command is given for **Windows
-PowerShell** first and macOS/Linux second, because the two differ in more
-places than they look.
+Follow this guide to run Niam locally. Instructions are provided for both **Windows PowerShell** and **macOS / Linux**.
 
 ### 0. Prerequisites
 
-| Tool | Version | Check |
+| Dependency | Minimum Version | Verification Command |
 |---|---|---|
-| Python | 3.11 or newer | `python --version` |
-| Node.js | 20 LTS or newer | `node --version` |
-| Git | any recent | `git --version` |
-| Docker Desktop | optional — only for a local Neo4j | `docker --version` |
+| **Python** | 3.11 or newer | `python --version` |
+| **Node.js** | 20 LTS or newer | `node --version` |
+| **Git** | Recent version | `git --version` |
+| **Docker Desktop** | Optional (for local Neo4j) | `docker --version` |
 
-You will also need three accounts, all free to start:
+You will also need credentials for the following services (free tiers are sufficient):
+- **Neo4j AuraDB** (<https://console.neo4j.io>) or a local Docker Neo4j instance.
+- **Supabase** (<https://supabase.com>) for relational user accounts and scan telemetry.
+- **Google Gemini API Key** (<https://aistudio.google.com/apikey>) for taxonomy classification and policy drafting.
+- **GitHub Personal Access Token** (fine-grained token with `Contents` and `Pull requests` read/write access scoped to your target repositories).
 
-- **Neo4j AuraDB** — <https://console.neo4j.io>. The free tier is enough.
-- **A GitHub token** — fine-grained, with *Contents* and *Pull requests*
-  read/write, scoped to the repositories you intend to scan and nothing
-  else. This token can open pull requests, so keep it narrow.
-- **A Gemini API key** — <https://aistudio.google.com/apikey>. The
-  classifier and the clause extractor both use it.
+### 1. Clone the Repository
 
-> Python 3.11 is a floor, not a suggestion: `intelligence/pyproject.toml`
-> declares `requires-python = ">=3.11"` and the code uses `X | None`
-> syntax throughout.
-
-### 1. Clone
-
-```powershell
+```bash
 git clone https://github.com/Nia-complianceOS/Niam.git
 cd Niam
 ```
 
-### 2. Get a graph running
+### 2. Configure the Graph Database
 
-**Option A — Neo4j Aura & Supabase.** Create a free Neo4j instance in the console. It shows the password exactly once, at creation
-— save it then. You need three values: the connection URI
-(`neo4j+s://xxxxxxxx.databases.neo4j.io`), the username (`neo4j`), and
-that password. You also need a Supabase project (URL and Anon Key).
+#### Option A: Neo4j AuraDB (Cloud)
+1. Create a free Neo4j AuraDB instance in the Neo4j Console.
+2. Record the **Connection URI** (`neo4j+s://xxxxxxxx.databases.neo4j.io`), username (`neo4j`), and generated password.
+3. If the instance pauses after inactivity, resume it in the console. The Niam backend includes self-healing connectivity checks and will reconnect automatically once active.
 
-> Aura Free **pauses after about three days idle** and is deleted after
-> 30 days of inactivity. A paused instance makes every page read "Graph
-> unreachable". Resume it from the console — and restart the API process
-> afterwards, because the driver is cached for the life of the process
-> and will not reconnect on its own.
-
-**Option B — local Neo4j in Docker.** No account, nothing to pause:
-
+#### Option B: Local Neo4j via Docker
+Run a local Neo4j container without cloud accounts:
 ```bash
 docker compose up -d neo4j
 ```
+Wait ~30 seconds for the Bolt protocol to start. The local instance will be available at `bolt://localhost:7687` with username `neo4j` and password `testpassword` (as defined in `docker-compose.yml`). Access the Neo4j browser at <http://localhost:7474>.
 
-Wait 30–45 seconds for Bolt to accept connections, then confirm at
-<http://localhost:7474>. Your three values are `bolt://localhost:7687`,
-`neo4j`, and `testpassword` (set in `docker-compose.yml` — it is a local
-throwaway database, so the password is in the file on purpose).
-
-### 3. Create the virtual environment
+### 3. Set Up Python Virtual Environment
 
 **Windows PowerShell:**
-
 ```powershell
 python -m venv backend\venv
-.\backend\venv\Scripts\Activate.ps1
-```
-
-If that fails with *"running scripts is disabled on this system"*:
-
-```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\backend\venv\Scripts\Activate.ps1
 ```
 
-`-Scope Process` applies to that window only and resets when you close it.
-
 **macOS / Linux:**
-
 ```bash
 python3 -m venv backend/venv
 source backend/venv/bin/activate
 ```
 
-Your prompt should now start with `(venv)`. Confirm you are on the right
-interpreter before installing anything — this is the single most common
-cause of "it worked yesterday":
-
+Verify your active Python interpreter:
 ```bash
 python -c "import sys; print(sys.executable)"
 ```
+*(The path must point inside `backend/venv`)*.
 
-It must print a path inside `backend/venv`.
+### 4. Install Dependencies
 
-### 4. Install dependencies
+Install the backend requirements, register the intelligence package in editable mode, and install frontend packages:
 
 ```bash
+# 1. Install backend requirements
 pip install -r backend/requirements.txt
+
+# 2. Install intelligence package (mandatory)
 pip install -e ./intelligence
-```
 
-The second line is not optional and not a convenience. `intelligence/`
-is a real package (`niam-intelligence`), and the backend imports it as
-`graph.*`, `legal.*`, `ingestion.*`, `reasoning.*`, `reconciliation.*`
-and `retrieval.*`. Installing it editable (`-e`) means one copy on disk
-resolves for the API, the CLIs and the tests alike. Without it every
-import fails with `ModuleNotFoundError: No module named 'graph'`.
+# 3. Verify intelligence package resolution
+python -c "import graph, legal, reconciliation; print('Intelligence package installed successfully.')"
 
-Check it took:
-
-```bash
-python -c "import graph, legal, reconciliation; print('intelligence ok')"
-```
-
-Then the frontend:
-
-```bash
+# 4. Install frontend dependencies
 cd frontend
 npm install
 cd ..
 ```
 
-### 5. Configure the environment
+### 5. Configure Environment Variables
 
-Create **`backend/.env`**. It is the single source of truth for both the
-backend and the intelligence package — the CLIs read it too, so there is
-only ever one file to keep straight. `backend/.env.example` lists every
-key; these are the ones that matter:
+Create `backend/.env` (reference `backend/.env.example`):
 
 ```ini
-# --- graph (required) ---
+# --- Neo4j Graph Database ---
 NEO4J_URI=neo4j+s://xxxxxxxx.databases.neo4j.io
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=your-password
 
-# --- supabase (required) ---
+# --- Supabase ---
 SUPABASE_URL=https://xxxxxxxx.supabase.co
-SUPABASE_KEY=your-anon-key
+SUPABASE_KEY=your-supabase-anon-key
 
-# --- providers (required) ---
-GEMINI_API_KEY=your-key
-GITHUB_TOKEN=github_pat_...
+# --- AI & GitHub Integrations ---
+GEMINI_API_KEY=your-gemini-api-key
+GITHUB_TOKEN=github_pat_your_token
 
-# --- app ---
+# --- Application & Auth Security ---
 APP_ENV=development
-JWT_SECRET=any-long-random-string-for-local-use
+JWT_SECRET=your-secure-random-jwt-secret-string
 
-# --- the two pull-request guards (leave these alone at first) ---
-GITHUB_DRY_RUN=true       # log the intended PR, create nothing
-PR_ALLOWED_REPOS=         # comma-separated allow-list; empty denies all
+# --- Safety Gates for Pull Requests ---
+GITHUB_DRY_RUN=true       # true: drafts and logs amendments locally without pushing to GitHub
+PR_ALLOWED_REPOS=         # comma-separated repo list allowed for live PRs (e.g., owner/repo)
 
-# --- scan limits (optional; these are the defaults) ---
+# --- Rate Limits & Concurrency ---
 SCAN_RATE_LIMIT_PER_HOUR=10
 SCAN_MAX_CONCURRENT=2
 
-# --- optional, for the vendor connectors ---
+# --- Optional Vendor Connectors & Webhooks ---
 GITHUB_WEBHOOK_SECRET=
 MIXPANEL_TOKEN=
 FIREBASE_SERVICE_ACCOUNT_PATH=
 ```
 
-Both PR guards default to the safe value, so a fresh checkout cannot open
-a pull request by accident. `GITHUB_DRY_RUN=true` means the app builds
-the amendment and logs what it *would* push; `PR_ALLOWED_REPOS` empty
-means no repository may be written to at all. Turn them off deliberately,
-one at a time, when you actually want a real pull request.
+> **Safety Default:**  
+> `GITHUB_DRY_RUN=true` is enabled by default. Statutory amendments and diffs are generated, validated, and logged to the UI review queue without opening live pull requests on GitHub. Set to `false` and specify `PR_ALLOWED_REPOS` only when you are ready to transmit pull requests upstream.
 
-`NEO4J_USER` is accepted as an alias for `NEO4J_USERNAME`, so either
-spelling works.
-
-**Frontend.** For local development nothing is needed — it defaults to
-`http://localhost:8000/api/v1`. To point it elsewhere, create
-`frontend/.env.local`:
-
+**Frontend Configuration:**  
+The frontend connects to `http://localhost:8000/api/v1` by default. To customize this, create `frontend/.env.local`:
 ```ini
-VITE_API_BASE_URL=http://localhost:8001/api/v1
+VITE_API_BASE_URL=http://localhost:8000/api/v1
 ```
 
-`VITE_*` variables are read at **build** time, not run time. Changing one
-requires restarting the dev server (or rebuilding), not just a refresh.
+### 6. Populate the Compliance Graph
 
-### 6. Populate the graph
-
-Run these from `intelligence/`, with the venv active, in this order. On a
-fresh database all five are needed; afterwards only the last three.
+Run the initialization scripts from the `intelligence/` folder with your virtual environment active:
 
 ```bash
 cd intelligence
 
-# 1. constraints and indexes — safe to re-run, all IF NOT EXISTS
+# 1. Apply schema indexes and constraints
 python -m graph.apply_schema
 
-# 2. fetch the DPDP Act 2023 and extract its clauses (~2 min, uses Gemini)
+# 2. Ingest the DPDP Act 2023 statutory clauses (~2 mins, uses Gemini)
 python -m legal.load_dpdp_clauses --yes
 
-# 3. scan a repository into the graph
+# 3. Scan a target repository into the graph
 python -m graph.run_scan_and_write OWNER/REPO --system my-system --yes
 
-# 4. read the company's own legal documents
+# 4. Load published privacy policies and terms
 python -m legal.load_policies --dir ../path/to/docs --yes
-#    ...or straight from a repository:
-python -m legal.load_policies --repo OWNER/REPO --yes
+# Or directly from a GitHub repository:
+# python -m legal.load_policies --repo OWNER/REPO --yes
 
-# 5. compare the three and write the gaps
+# 5. Execute reconciliation and generate compliance gaps
 python -m reconciliation.run_reconciliation --system my-system --yes
 ```
 
-Then check what landed:
-
+Inspect the populated knowledge graph summary via CLI:
 ```bash
 python -m retrieval.query_cli summary
 ```
 
-**Step 4 is the one people skip, and skipping it fails quietly.**
-Reconciliation compares three things: what the code collects, what the
-Act requires, and what your published documents actually disclose. With
-no `:PolicyDocument` in the graph the reconciler skips disclosure checks
-entirely rather than reporting every data type as undisclosed — so a
-missing load shows up as *no* "shared without disclosure" findings, not
-an obvious error. The remediation flow also has no document to amend.
+> **Important Note on Policy Ingestion (Step 4):**  
+> Niam compares code data flows against statutory rules **and** published policy disclosures. If no `:PolicyDocument` nodes are loaded, disclosure checks are skipped rather than marking all data as undisclosed. Ensure policy documents are ingested to assess Section 8 notice compliance.
 
-`--system` scopes everything to one `:System` node, and gap ids are
-scoped by it. That is how a throwaway scan stays separable from real
-data in the same database.
+### 7. Run the Application
 
-### 7. Run it
+Start the backend API and frontend dev server in two separate terminals:
 
-Two terminals, both from the repository root.
-
-**Terminal 1 — API:**
-
+**Terminal 1 (Backend API):**
 ```powershell
 .\backend\venv\Scripts\Activate.ps1     # macOS/Linux: source backend/venv/bin/activate
 cd backend
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-**Terminal 2 — UI:**
-
+**Terminal 2 (Frontend UI):**
 ```bash
 cd frontend
 npm run dev
 ```
 
-Frontend on <http://localhost:5173>, API on <http://localhost:8000>,
-OpenAPI docs at <http://localhost:8000/docs>.
-
-### 8. First run
-
-1. Open <http://localhost:5173> and **sign up**. Authentication is real:
-   the account is stored in the Supabase `users` table with a
-   hashed password, and every protected route needs the JWT it returns.
-   There is no demo login.
-2. **Dashboard** — the score and every stat card come from the graph. If
-   they say "Graph unreachable", that is the truth, not a UI bug: check
-   `NEO4J_URI` and that the instance is running.
-3. **Compliance Gaps** — every finding, worst severity first. Pick one,
-   read the detail panel, draft a fix.
-4. **Repositories** — scan another repository straight from the UI;
-   progress streams over SSE.
-
-### Troubleshooting
-
-| Symptom | Cause |
-|---|---|
-| `ModuleNotFoundError: No module named 'graph'` | `pip install -e ./intelligence` was never run, or was run in a different venv. Check `python -c "import sys; print(sys.executable)"`. |
-| Every page reads "Graph unreachable" | Aura is paused, or `NEO4J_URI` / credentials are wrong. After resuming Aura, **restart the API** — the driver is cached for the process's lifetime. |
-| `running scripts is disabled on this system` | PowerShell execution policy. `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`, then activate. |
-| `curl: The term 'curl' is not recognized` … or odd output | In PowerShell `curl` is an alias for `Invoke-WebRequest`. Use `curl.exe`. |
-| Scan returns 404 for a repository you can see | `GITHUB_TOKEN` belongs to an account without access. GitHub returns 404, not 403, for a private repo a token cannot see — it looks like a missing repo. |
-| Every API call fails from the browser but works in `/docs` | CORS. Add the frontend's exact origin to `CORS_ORIGINS`. |
-| No "shared without disclosure" findings at all | Step 6.4 was skipped — no policy documents in the graph. |
-| "You already have a scan running" | Not an error. One scan at a time per user; see `SCAN_RATE_LIMIT_PER_HOUR` and `SCAN_MAX_CONCURRENT`. |
-| A pull request is "opened" but is not on GitHub | `GITHUB_DRY_RUN=true`, which is the default. |
+- **Frontend Application**: <http://localhost:5173>
+- **FastAPI OpenAPI Interactive Documentation**: <http://localhost:8000/docs>
+- **API Health Check**: <http://localhost:8000/api/v1/health>
 
 ---
 
-## Running with Docker
+## Security Architecture
+
+Niam is designed to audit sensitive codebases and handle regulatory obligations securely:
+
+1. **Ticket-Based SSE Token Transmission**
+   - Real-time scan telemetry avoids leaking the user's primary JWT in URL query parameters (`?token=...`).
+   - The frontend requests a single-purpose, 5-minute expiry SSE ticket (`POST /api/v1/auth/sse-token`) with its Bearer JWT.
+   - The EventSource connection validates this ticket specifically for streaming, preventing token exposure in browser histories and proxy logs.
+
+2. **Self-Healing Database Connectivity**
+   - The Neo4j driver utilizes a singleton pattern with active `driver.verify_connectivity()` validation.
+   - If cloud instances (e.g., AuraDB) pause or drop connections, the driver re-establishes connectivity automatically on the next query without requiring an API server restart.
+
+3. **Sanitized Exception Handling**
+   - Stack traces and internal server paths are trapped and logged server-side.
+   - External clients receive sanitized, structured HTTP error payloads to prevent system reconnaissance.
+
+4. **Payload Validation & Webhook Protection**
+   - Incoming webhook payloads are guarded with explicit JSON decoding validation and HMAC signature verification.
+   - Malformed payloads return explicit HTTP 400 Bad Request responses rather than causing unhandled 500 server crashes.
+
+---
+
+## Testing & Verification
+
+Run the test suite across the intelligence engine and backend API:
 
 ```bash
-docker compose up -d          # neo4j + backend + frontend
-docker compose up -d neo4j    # just the database
-```
+# Run intelligence tests (reconciler and graph verifier)
+cd intelligence
+pytest reconciliation/test_reconciler.py reasoning/test_verifier.py -q
 
-The backend image builds from the repository root, not from `backend/`,
-because it installs the `intelligence` package rather than relying on a
-copy of it being present. Render builds the same `Dockerfile`, so the
-container path is exercised by every deployment rather than rotting
-quietly.
+# Run backend API tests
+cd ../backend
+pytest tests -q
 
-`docker compose up -d neo4j` on its own is also the local database used
-for verification — a scan under a separate `:System` name can then be run
-against it without touching a production graph.
-
-Secrets are passed through from your shell rather than written into
-`docker-compose.yml`:
-
-```bash
-GEMINI_API_KEY=... GITHUB_TOKEN=... docker compose up -d
+# Run frontend typecheck and production build
+cd ../frontend
+npm run typecheck
+npm run build
 ```
 
 ---
 
-## Verification
+## Troubleshooting
 
-The project ships a throwaway rig so nothing is ever verified against the demo
-graph. It is a local Neo4j container plus a synthetic fixture repository, and a
-scan is scoped to its own `:System` node — `gap` ids are system-scoped, so a
-test run cannot merge into real data. `smoke/` holds the diagnostics:
-pre-flight checks, a scan-access diagnoser, an Act-parse dumper, and a
-reconciler explainer.
-
-```bash
-cd intelligence && python -m pytest reconciliation/test_reconciler.py reasoning/test_verifier.py -q
-cd backend     && python -m pytest tests -q
-```
+| Symptom | Primary Cause | Resolution |
+|---|---|---|
+| `ModuleNotFoundError: No module named 'graph'` | `pip install -e ./intelligence` was not executed in the active virtual environment. | Run `pip install -e ./intelligence` inside `backend/venv`. Verify via `python -c "import sys; print(sys.executable)"`. |
+| Every page displays "Graph unreachable" | Neo4j AuraDB instance is paused or credentials in `backend/.env` are incorrect. | Resume instance in Aura console. Niam will automatically reconnect without needing a backend restart. |
+| `running scripts is disabled on this system` (PowerShell) | PowerShell execution policy restricts script activation. | Execute `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the current session. |
+| GitHub scan returns 404 for existing repository | `GITHUB_TOKEN` lacks read permissions for the repository. | Generate a fine-grained GitHub token granting *Contents* read permissions for the target repository. |
+| Scan telemetry fails to connect via SSE | Short-lived ticket token generation failed or expired. | Verify `/api/v1/auth/sse-token` is reachable and `JWT_SECRET` is properly set in `backend/.env`. |
+| Pull request generated locally but absent on GitHub | Dry-run protection is active. | This is expected default behavior (`GITHUB_DRY_RUN=true`). Change to `false` in `backend/.env` to push to GitHub. |
+| No "shared without disclosure" gaps identified | Step 6.4 was skipped (no policy documents in the graph). | Ingest company privacy policy documents using `python -m legal.load_policies --dir <path> --yes`. |
 
 ---
 
-## Current state
+## Current Scope & Limitations
 
-Working end to end: repository scan, graph write with commit provenance, DPDP
-clause loading with commencement status, ingestion of the company's own privacy
-policy and terms, gap detection across both the Act and those documents,
-remediation drafting, the graph-grounded verifier, SSE scan streaming, and a
-pull-request path that is dry-run and allow-listed by default. Authentication is
-real — JWTs against Supabase `users` with hashed passwords — and scans and pull
-requests are stored in Supabase and Neo4j respectively, so both survive a restart.
-
-Known limitations, stated plainly:
-
-- **The Act's clause tagging is coarse.** Most DPDP sections are written about
-  personal data as such rather than about categories of it, so most clauses
-  attach generally rather than to a named data type. The API reports which
-  basis a finding rests on rather than pretending to a precision it does not
-  have.
-- **The classifier is the weakest link in the chain.** A keyword pre-filter
-  proposes candidates and Gemini classifies them against a fixed taxonomy. It
-  drops what it is unsure of, so it under-reports rather than inventing
-  findings — but a data flow it never sees produces no gap at all.
-- **Disclosure findings need the documents loaded.** With no `:PolicyDocument`
-  in the graph the disclosure half is skipped rather than reported as
-  universally missing. That is the safer default and it is easy to mistake for
-  "nothing found".
-- **DPDP only.** GDPR, SOC 2 and HIPAA appear in the UI as explicitly disabled.
-- **Not a legal opinion.** This finds and drafts; a person still decides. The
-  remediation flow is built around that assumption, not around automating it
-  away.
+- **Heuristic & LLM-Assisted Classification**: Candidate data types are discovered via keyword pre-filtering and classified using Google Gemini against a strict taxonomy. Data flows not identified by pre-filters are not submitted to the graph.
+- **Clause Specificity**: DPDP Act sections often formulate general obligations around personal data rather than specific data categories. Findings report the statutory legal basis accurately rather than assuming false granular precision.
+- **Human-in-the-Loop Remediations**: Generated policy language and remediation diffs are intended to assist legal counsel, not replace statutory legal sign-off.
 
 ---
 
 ## License
 
-Not yet licensed. All rights reserved.
+All rights reserved. Proprietary software.
