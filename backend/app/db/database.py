@@ -11,7 +11,18 @@ from app.db.neo4j import (
     close_driver,
     get_driver,
     run_query,
-    verify_connectivity,
+    verify_connectivity as verify_neo4j_connectivity,
+)
+from app.db.supabase import (
+    get_supabase,
+    verify_connectivity as verify_supabase_connectivity,
 )
 
-__all__ = ["run_query", "get_driver", "verify_connectivity", "close_driver"]
+__all__ = [
+    "run_query",
+    "get_driver",
+    "verify_neo4j_connectivity",
+    "close_driver",
+    "get_supabase",
+    "verify_supabase_connectivity",
+]

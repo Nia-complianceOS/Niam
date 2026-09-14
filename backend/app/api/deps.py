@@ -45,10 +45,12 @@ def require_auth(request: Request, credentials=Depends(security)) -> str:
     two hours (core/auth.py).
     """
     token = None
+    is_query_param = False
     if credentials:
         token = credentials.credentials
     elif "token" in request.query_params:
         token = request.query_params["token"]
+        is_query_param = True
 
     if not token:
         raise HTTPException(
@@ -57,4 +59,4 @@ def require_auth(request: Request, credentials=Depends(security)) -> str:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return auth.verify_token(token)
+    return auth.verify_token(token, expected_type="sse" if is_query_param else None)

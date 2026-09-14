@@ -1,7 +1,6 @@
-import uuid
 from pydantic import BaseModel
 from typing import Optional
-from app.db.database import run_query
+from app.db.supabase import get_supabase
 
 
 class User(BaseModel):
@@ -13,51 +12,45 @@ class User(BaseModel):
     name: Optional[str] = None
 
 
-_RETURN_USER = (
-    "RETURN u.id AS id, u.email AS email, "
-    "u.hashed_password AS hashed_password, u.name AS name"
-)
-
-
 def get_user_by_email(email: str) -> Optional[User]:
-    query = f"MATCH (u:User {{email: $email}}) {_RETURN_USER}"
-    records = run_query(query, {"email": email})
-    if records:
-        return User(**records[0])
-    return None
+    try:
+        supabase = get_supabase()
+        response = supabase.table("users").select("*").eq("email", email).maybe_single().execute()
+        if response and isinstance(response.data, dict):
+            return User(**response.data)
+        return None
+    except Exception as e:
+        raise RuntimeError(f"Database error in get_user_by_email: {e}")
 
 
 def get_user_by_id(user_id: str) -> Optional[User]:
     """Used by GET /auth/me to turn the JWT subject back into a user, so a
     stored token is validated against the database rather than trusted
     because it happens to sit in localStorage."""
-    query = f"MATCH (u:User {{id: $user_id}}) {_RETURN_USER}"
-    records = run_query(query, {"user_id": user_id})
-    if records:
-        return User(**records[0])
-    return None
+    try:
+        supabase = get_supabase()
+        response = supabase.table("users").select("*").eq("id", user_id).maybe_single().execute()
+        if response and isinstance(response.data, dict):
+            return User(**response.data)
+        return None
+    except Exception as e:
+        raise RuntimeError(f"Database error in get_user_by_id: {e}")
 
 
 def create_user(
     email: str, hashed_password: str, name: Optional[str] = None
 ) -> User:
-    query = f"""
-    CREATE (u:User {{
-        id: $id,
-        email: $email,
-        hashed_password: $hashed_password,
-        name: $name
-    }})
-    {_RETURN_USER}
-    """
-    user_id = uuid.uuid4().hex
-    records = run_query(
-        query,
-        {
-            "id": user_id,
+    try:
+        supabase = get_supabase()
+        response = supabase.table("users").insert({
             "email": email,
             "hashed_password": hashed_password,
-            "name": name,
-        },
-    )
-    return User(**records[0])
+            "name": name
+        }).execute()
+        if isinstance(response.data, list) and len(response.data) > 0:
+            row = response.data[0]
+            if isinstance(row, dict):
+                return User(**row)
+        raise RuntimeError("No data returned from insert")
+    except Exception as e:
+        raise RuntimeError(f"Database error in create_user: {e}")

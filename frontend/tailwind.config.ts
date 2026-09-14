@@ -6,24 +6,25 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: '#08080d',
-        'bg-elevated': '#0d0e16',
-        card: 'rgba(255,255,255,0.035)',
+        bg: 'var(--bg)',
+        'bg-elevated': 'var(--bg-elevated)',
+        card: 'var(--card)',
+        surface: 'var(--surface)',
         border: {
-          DEFAULT: 'rgba(255,255,255,0.09)',
-          soft: 'rgba(255,255,255,0.05)',
+          DEFAULT: 'var(--border)',
+          soft: 'var(--border-soft)',
         },
         text: {
-          DEFAULT: '#f2f2f7',
-          dim: '#9494ab',
-          faint: '#5e5e72',
+          DEFAULT: 'var(--text)',
+          dim: 'var(--text-dim)',
+          faint: 'var(--text-faint)',
         },
         accent: {
-          blue: '#5b8cff',
-          purple: '#a56bff',
-          green: '#33d17a',
-          amber: '#f5a623',
-          red: '#f0555a',
+          blue: 'var(--accent-blue)',
+          purple: 'var(--accent-purple)',
+          green: 'var(--accent-green)',
+          amber: 'var(--accent-amber)',
+          red: 'var(--accent-red)',
         },
       },
       fontFamily: {

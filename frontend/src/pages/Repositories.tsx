@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
+import { useSearchParams, Link } from 'react-router-dom'
+import { AlertTriangle, CheckCircle2, Loader2, Lock, Globe, GitBranch, Shield, ArrowRight } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -13,6 +14,7 @@ import { useGitHubConnection } from '@/hooks/useGitHubConnection'
 import { useRepos } from '@/hooks/useRepos'
 import { useScannedRepositories } from '@/hooks/useScannedRepositories'
 import { useScan } from '@/hooks/useScan'
+import { useSEO } from '@/hooks/useSEO'
 import { describeConnectFailure } from '@/lib/githubMessages'
 import type { Repository } from '@/types/api'
 
@@ -46,6 +48,11 @@ interface Banner {
  * stripped afterwards so a refresh does not replay a stale result.
  */
 export default function Repositories() {
+  useSEO({
+    title: 'Repositories',
+    description: 'Connect and scan GitHub repositories for DPDP compliance',
+  })
+
   const {
     phase,
     connection,
@@ -239,7 +246,8 @@ function RepoList({
 }) {
   if (loading) {
     return (
-      <div className="text-[13px] text-text-dim font-mono py-6">
+      <div className="text-[13px] text-text-dim font-mono py-6 flex items-center justify-center gap-3 bg-white/[0.02] rounded-xl border border-white/5">
+        <Loader2 size={16} className="animate-spin text-accent-blue" />
         Loading your repositories…
       </div>
     )
@@ -274,7 +282,7 @@ function RepoList({
   }
 
   return (
-    <div className="grid gap-3">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {repositories.map((repo) => (
         <RepoItem key={repo.id} repo={repo} />
       ))}
@@ -285,79 +293,153 @@ function RepoList({
 function RepoItem({ repo }: { repo: Repository }) {
   const { status, logs, error, triggerScan } = useScan()
   const busy = status === 'starting' || status === 'running'
+  const isScanned = !!repo.last_scanned_at
+  const score = typeof repo.score === 'number' ? repo.score : 0
+  const scoreCircumference = 2 * Math.PI * 14
+  const scoreOffset = scoreCircumference - (score / 100) * scoreCircumference
 
   return (
-    <Card className="p-4 flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="min-w-0">
-          <div className="font-semibold truncate">{repo.full_name}</div>
-          <div className="text-[12.5px] text-text-dim">
-            Branch {repo.branch}
-            {repo.last_scanned_at
-              ? ` · Last scanned ${formatWhen(repo.last_scanned_at)}`
-              : ' · Not scanned yet'}
+    <Card className={`flex flex-col p-5 transition-all duration-300 ${busy ? 'border-accent-blue/30 shadow-[0_0_20px_rgba(91,140,255,0.15)] ring-1 ring-accent-blue/20 bg-accent-blue/[0.02]' : 'hover:border-border hover:shadow-lg'}`}>
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex flex-col gap-1.5 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-[15px] text-white truncate" title={repo.full_name}>
+              {repo.full_name}
+            </span>
+            <span className="px-1.5 py-[2px] rounded border border-white/10 text-[10px] font-semibold text-text-dim uppercase tracking-wider flex-shrink-0 flex items-center gap-1 bg-white/5">
+              {repo.private ? <Lock size={10} /> : <Globe size={10} />}
+              {repo.private ? 'Private' : 'Public'}
+            </span>
           </div>
-        </div>
-        <div className="flex items-center gap-3 flex-shrink-0">
-          {repo.status_detail && (
-            <Badge
-              tone={
-                repo.status === 'compliant'
-                  ? 'good'
-                  : repo.status === 'gap'
-                    ? 'gap'
-                    : 'muted'
-              }
-            >
-              {repo.status_detail}
-            </Badge>
-          )}
-          {typeof repo.score === 'number' && (
-            <div className="text-sm font-semibold">{repo.score}%</div>
-          )}
-          <Button
-            variant="ghost"
-            onClick={() => triggerScan(repo.full_name, repo.branch)}
-            disabled={busy}
-          >
-            {busy ? 'Scanning…' : 'Scan repository'}
-          </Button>
+          <div className="flex items-center gap-2 text-[12px] text-text-faint">
+            <span className="flex items-center gap-1 truncate text-accent-blue/80">
+              <GitBranch size={12} /> {repo.branch}
+            </span>
+            <span className="text-white/20">·</span>
+            <span className="truncate">
+              {repo.pushed_at ? `Updated ${formatWhen(repo.pushed_at)}` : (repo.last_scanned_at ? `Scanned ${formatWhen(repo.last_scanned_at)}` : 'Not scanned yet')}
+            </span>
+          </div>
         </div>
       </div>
 
-      {status !== 'idle' && (
-        <div className="rounded-[10px] bg-black/30 border border-border-soft p-3 text-sm max-h-[320px] overflow-y-auto">
-          <div className="font-mono text-text-dim space-y-1">
-            {logs.map((log, i) => (
-              <div key={i}>
-                <span className="text-accent-blue">[{log.event}]</span>{' '}
-                {log.message || log.error || 'event received'}
+      <div className="mt-auto pt-4 flex items-center justify-between gap-4">
+        {isScanned ? (
+          <div className="flex items-center gap-3 flex-1 w-full">
+            <div className="relative w-8 h-8 flex items-center justify-center shrink-0" title={`Score: ${score}%`}>
+              <svg className="w-full h-full transform -rotate-90">
+                <circle cx="16" cy="16" r="14" fill="transparent" stroke="currentColor" strokeWidth="3" className="text-white/10" />
+                <circle 
+                  cx="16" cy="16" r="14" fill="transparent" stroke="currentColor" strokeWidth="3"
+                  strokeDasharray={scoreCircumference}
+                  strokeDashoffset={scoreOffset}
+                  strokeLinecap="round"
+                  className={score >= 70 ? 'text-accent-green' : score >= 40 ? 'text-accent-amber' : 'text-accent-red'}
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Shield size={10} className="text-white" />
               </div>
-            ))}
-            {busy && <div className="animate-pulse text-text-faint">_</div>}
+            </div>
+            
+            <div className="flex-1 min-w-0 flex items-center gap-2 overflow-hidden">
+              {repo.status_detail && (
+                <Badge tone={repo.status === 'compliant' ? 'good' : repo.status === 'gap' ? 'gap' : 'muted'} className="truncate">
+                  {repo.status_detail}
+                </Badge>
+              )}
+            </div>
+            
+            <Button
+              variant="ghost"
+              onClick={() => triggerScan(repo.full_name, repo.branch)}
+              disabled={busy}
+              className="flex-shrink-0 text-[12px] h-8 px-3"
+            >
+              Re-scan
+            </Button>
           </div>
+        ) : (
+          <Button
+            onClick={() => triggerScan(repo.full_name, repo.branch)}
+            disabled={busy}
+            className="w-full bg-gradient-to-r from-accent-blue to-[#8e6ef6] hover:opacity-90 border-none h-9 text-[13px] shadow-[0_0_15px_rgba(91,140,255,0.2)]"
+          >
+            {busy ? <><Loader2 size={14} className="animate-spin mr-1.5" /> Scanning...</> : 'Scan repository'}
+          </Button>
+        )}
+      </div>
 
-          {status === 'completed' && (
-            <div className="mt-3 text-accent-green font-semibold text-sm">
-              Scan completed. The graph now reflects this repository.
-            </div>
-          )}
-          {status === 'failed' && (
-            <div className="mt-3 text-accent-red font-semibold text-sm">
-              Scan failed: {error}
-            </div>
-          )}
-          {status === 'rejected' && (
-            <div className="mt-3 text-accent-amber font-semibold text-sm">{error}</div>
-          )}
-          {status === 'connection_lost' && (
-            <div className="mt-3 text-accent-amber font-semibold text-sm">
-              Lost the scan stream. The scan may still be running.
-            </div>
-          )}
-        </div>
+      {status !== 'idle' && (
+        <ScanProgress status={status} logs={logs} error={error} />
       )}
     </Card>
+  )
+}
+
+function ScanProgress({ status, logs, error }: { status: string, logs: any[], error: string | null }) {
+  return (
+    <div className="mt-5 pt-4 border-t border-white/10 overflow-hidden">
+      <div className="space-y-3.5 relative">
+        <div className="absolute left-[7px] top-2 bottom-2 w-px bg-white/5 z-0" />
+        
+        <AnimatePresence initial={false}>
+          {logs.map((log, i) => {
+            const isLast = i === logs.length - 1
+            const isRunning = status === 'starting' || status === 'running'
+            const showSpinner = isLast && isRunning
+            const msg = log.message || log.error || log.event
+
+            return (
+              <motion.div
+                key={`${i}-${log.event}`}
+                initial={{ opacity: 0, x: -10, height: 0 }}
+                animate={{ opacity: 1, x: 0, height: 'auto' }}
+                className="flex items-start gap-3 text-[13px] text-text-dim relative z-10"
+              >
+                <div className="mt-[2px] w-4 h-4 bg-surface rounded-full flex items-center justify-center flex-shrink-0 border border-white/10">
+                  {showSpinner ? (
+                    <Loader2 size={10} className="animate-spin text-accent-blue" />
+                  ) : (
+                    <CheckCircle2 size={12} className="text-accent-green" />
+                  )}
+                </div>
+                <span className="font-medium text-white/80">{msg}</span>
+              </motion.div>
+            )
+          })}
+        </AnimatePresence>
+
+        {status === 'completed' && (
+          <motion.div
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-5 pt-4 border-t border-white/5 relative z-10 bg-accent-green/5 -mx-5 px-5 -mb-5 pb-5 rounded-b-xl"
+          >
+            <div className="flex items-center gap-2 text-accent-green text-[13px] font-semibold">
+              <div className="w-5 h-5 rounded-full bg-accent-green/20 flex items-center justify-center">
+                <CheckCircle2 size={12} />
+              </div>
+              Scan complete
+            </div>
+            <Link to="/gaps" className="text-[12.5px] font-semibold text-accent-blue hover:text-white hover:bg-accent-blue transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-accent-blue/30 bg-accent-blue/10">
+              Review gaps <ArrowRight size={14} />
+            </Link>
+          </motion.div>
+        )}
+
+        {status === 'failed' && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="mt-4 pt-3 border-t border-white/5 text-accent-red text-[13px] font-semibold relative z-10"
+          >
+            Scan failed: {error}
+          </motion.div>
+        )}
+      </div>
+    </div>
   )
 }
 

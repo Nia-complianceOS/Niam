@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from app.db.neo4j import run_query
+from app.db.supabase import get_supabase
 
 logger = logging.getLogger("niam.workspace")
 
@@ -61,12 +62,9 @@ OPTIONAL MATCH (d)-[:SENT_TO]->(v:Vendor {owner_id: $owner_id})
 WITH s,
      count(DISTINCT d) AS data_types,
      count(DISTINCT v) AS vendors
-OPTIONAL MATCH (sc:Scan {user_id: $owner_id, system_name: s.name})
-WITH s, data_types, vendors, max(sc.started_at) AS last_scan
 RETURN s.name AS system_name,
        coalesce(s.repo, s.name) AS repo,
-       data_types, vendors, last_scan
-ORDER BY coalesce(last_scan, '') DESC, repo
+       data_types, vendors
 """
 
 # Gap ids are `gap-{owner}-{system}-...` (reconciler.gap_id_prefix). The
@@ -83,6 +81,28 @@ def list_scanned_repositories(owner_id: str) -> list[dict]:
         rows = run_query(_LIST, {"owner_id": owner_id})
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+        
+    try:
+        supabase = get_supabase()
+        response = supabase.table("scans").select("system_name, started_at").eq("user_id", owner_id).execute()
+        scan_data = response.data or []
+    except Exception:
+        scan_data = []
+
+    last_scans = {}
+    for scan in scan_data:
+        sn = scan.get("system_name")
+        started_at = scan.get("started_at")
+        if sn and started_at:
+            if sn not in last_scans or started_at > last_scans[sn]:
+                last_scans[sn] = started_at
+
+    for row in rows:
+        row["last_scan"] = last_scans.get(row["system_name"])
+        
+    # Sort: coalesce(last_scan, '') DESC, repo ASC
+    rows.sort(key=lambda x: x.get("repo") or "")
+    rows.sort(key=lambda x: x.get("last_scan") or "", reverse=True)
 
     out = []
     for row in rows:
@@ -129,13 +149,6 @@ RETURN count(*) AS deleted
 _DELETE_SYSTEM = """
 MATCH (s:System {owner_id: $owner_id, name: $system_name})
 DETACH DELETE s
-RETURN count(*) AS deleted
-"""
-
-_DELETE_SCANS = """
-MATCH (sc:Scan {user_id: $owner_id, system_name: $system_name})
-WITH sc LIMIT 5000
-DETACH DELETE sc
 RETURN count(*) AS deleted
 """
 
@@ -217,11 +230,18 @@ def delete_repository(owner_id: str, system_name: str) -> dict:
             "drafts": _run_until_empty(_DELETE_DRAFTS, scoped),
             "pull_requests": _run_until_empty(_DELETE_PRS, scoped),
             "gaps": _run_until_empty(_DELETE_GAPS, scoped),
-            "scans": _run_until_empty(_DELETE_SCANS, named),
+            "scans": 0,
             "policy_documents": _run_until_empty(
                 _DELETE_POLICIES, {"owner_id": owner_id, "repo": repo}
             ),
         }
+        try:
+            supabase = get_supabase()
+            response = supabase.table("scans").delete().eq("user_id", owner_id).eq("system_name", system_name).execute()
+            removed["scans"] = len(response.data or [])
+        except Exception as exc:
+            logger.error("Could not delete scans from Supabase: %s", exc)
+
         run_query(_DELETE_SYSTEM, named)
         removed["system"] = 1
         # After the system is gone, whatever it alone kept alive is loose.
@@ -254,10 +274,6 @@ _RESET = [
         MATCH (g:Gap {owner_id: $owner_id})
         WITH g LIMIT 5000 DETACH DELETE g RETURN count(*) AS deleted
     """),
-    ("scans", """
-        MATCH (sc:Scan {user_id: $owner_id})
-        WITH sc LIMIT 5000 DETACH DELETE sc RETURN count(*) AS deleted
-    """),
     ("policy_documents", """
         MATCH (p:PolicyDocument {owner_id: $owner_id})
         WITH p LIMIT 5000 DETACH DELETE p RETURN count(*) AS deleted
@@ -288,7 +304,16 @@ def reset_account_data(owner_id: str) -> dict:
     try:
         for label, query in _RESET:
             removed[label] = _run_until_empty(query, {"owner_id": owner_id})
-    except RuntimeError as exc:
+            
+        supabase = get_supabase()
+        
+        scans_resp = supabase.table("scans").delete().eq("user_id", owner_id).execute()
+        removed["scans"] = len(scans_resp.data or [])
+        
+        audit_resp = supabase.table("audit_logs").delete().eq("user_id", owner_id).execute()
+        removed["audit_logs"] = len(audit_resp.data or [])
+        
+    except (RuntimeError, Exception) as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
     logger.info("Reset account data for %s: %s", owner_id, removed)

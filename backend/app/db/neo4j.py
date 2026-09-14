@@ -12,21 +12,34 @@ Import `get_driver()` for direct session control, or `run_query()`
 for the common case of "run this Cypher, get back a list of dicts".
 """
 
-from functools import lru_cache
-
 from neo4j import Driver, GraphDatabase
 from neo4j.exceptions import Neo4jError, ServiceUnavailable
 
 from app.core.config import get_settings
 
 
-@lru_cache
+_driver: Driver | None = None
+
 def get_driver() -> Driver:
+    global _driver
     settings = get_settings()
-    return GraphDatabase.driver(
+    
+    if _driver is not None:
+        try:
+            _driver.verify_connectivity()
+            return _driver
+        except Exception:
+            try:
+                _driver.close()
+            except Exception:
+                pass
+            _driver = None
+
+    _driver = GraphDatabase.driver(
         settings.neo4j_uri,
         auth=(settings.neo4j_user, settings.neo4j_password),
     )
+    return _driver
 
 
 def run_query(query: str, params: dict | None = None) -> list[dict]:
@@ -72,5 +85,10 @@ def verify_connectivity() -> bool:
 
 def close_driver() -> None:
     """Called on app shutdown."""
-    if get_driver.cache_info().currsize:
-        get_driver().close()
+    global _driver
+    if _driver is not None:
+        try:
+            _driver.close()
+        except Exception:
+            pass
+        _driver = None

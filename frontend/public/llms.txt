@@ -1,0 +1,12 @@
+# Niam — DPDP Compliance Platform
+> Niam scans codebases for personal data handling, maps data flows
+> against India's DPDP Act 2023, and drafts compliance amendments.
+
+## Pages
+- /: Dashboard with compliance score and gap overview
+- /gaps: Compliance gaps detected in scanned repositories
+- /graph: Visual compliance graph showing data flows
+- /repositories: Connected GitHub repositories
+- /vendors: Third-party vendors detected in code
+- /regulations: DPDP Act compliance status
+- /policies: Privacy policy and legal document analysis

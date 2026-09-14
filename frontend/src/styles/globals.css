@@ -5,6 +5,44 @@
 @tailwind utilities;
 
 @layer base {
+  :root, .light {
+    --bg: #ffffff;
+    --bg-elevated: #f8f9fa;
+    --card: rgba(0, 0, 0, 0.035);
+    --surface: rgba(0, 0, 0, 0.05);
+    --border: rgba(0, 0, 0, 0.1);
+    --border-soft: rgba(0, 0, 0, 0.05);
+    
+    --text: #1a1a2e;
+    --text-dim: #6b7280;
+    --text-faint: #9ca3af;
+    
+    --accent-blue: #3b82f6;
+    --accent-purple: #8b5cf6;
+    --accent-green: #22c55e;
+    --accent-amber: #f59e0b;
+    --accent-red: #ef4444;
+  }
+
+  .dark {
+    --bg: #08080d;
+    --bg-elevated: #0d0e16;
+    --card: rgba(255, 255, 255, 0.035);
+    --surface: rgba(255, 255, 255, 0.05);
+    --border: rgba(255, 255, 255, 0.09);
+    --border-soft: rgba(255, 255, 255, 0.05);
+    
+    --text: #f2f2f7;
+    --text-dim: #9494ab;
+    --text-faint: #5e5e72;
+    
+    --accent-blue: #5b8cff;
+    --accent-purple: #a56bff;
+    --accent-green: #33d17a;
+    --accent-amber: #f5a623;
+    --accent-red: #f0555a;
+  }
+
   * {
     @apply border-border;
   }
@@ -23,4 +61,28 @@
   a {
     @apply no-underline text-inherit;
   }
+
+  /* Global focus rings for accessibility */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-accent-blue ring-offset-1 ring-offset-bg;
+  }
+}
+
+/* Skip link for a11y */
+.skip-link {
+  @apply sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-4 focus:bg-bg focus:text-accent-blue focus:font-semibold focus:border focus:border-border;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@keyframes float {
+  0% { transform: translate(0, 0); }
+  50% { transform: translate(30px, -20px); }
+  100% { transform: translate(0, 0); }
+}
+
+.animate-float {
+  animation: float 20s ease-in-out infinite;
 }

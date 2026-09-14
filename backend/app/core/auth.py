@@ -28,7 +28,17 @@ def create_access_token(
     return encoded_jwt
 
 
-def verify_token(token: str) -> str:
+def create_sse_token(subject: str) -> str:
+    settings = get_settings()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=5)
+    to_encode = {"exp": expire, "sub": str(subject), "type": "sse"}
+    encoded_jwt = jwt.encode(
+        to_encode, settings.jwt_secret, algorithm=ALGORITHM
+    )
+    return encoded_jwt
+
+
+def verify_token(token: str, expected_type: str | None = None) -> str:
     """Returns the sub (user_id) if valid, raises HTTPException(401) otherwise."""
     settings = get_settings()
     try:
@@ -41,6 +51,19 @@ def verify_token(token: str) -> str:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication credentials",
             )
+            
+        token_type = payload.get("type")
+        if expected_type == "sse" and token_type != "sse":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="SSE ticket required",
+            )
+        if expected_type is None and token_type == "sse":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="SSE ticket not allowed for general authentication",
+            )
+            
         return user_id
     except jwt.ExpiredSignatureError:
         raise HTTPException(

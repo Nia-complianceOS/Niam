@@ -1,19 +1,53 @@
 import { ComplianceGraphCanvas } from '@/components/graph/ComplianceGraphCanvas'
 import { GraphLegend } from '@/components/graph/GraphLegend'
-import { LoadingState, ErrorState, GetStartedState, PageHeader } from '@/components/shared/PageStates'
+import { ErrorState, GetStartedState, PageHeader } from '@/components/shared/PageStates'
+import { GraphSkeleton } from '@/components/skeletons/GraphSkeleton'
+import { GraphDetailPanel } from '@/components/graph/GraphDetailPanel'
 import { useGraph } from '@/hooks/useGraph'
+import { useSEO } from '@/hooks/useSEO'
+import { useState } from 'react'
+import { AnimatePresence } from 'framer-motion'
+import type { GraphNode } from '@/types/api'
 
 export default function Graph() {
+  useSEO({
+    title: 'Compliance Graph',
+    description: 'Visual data flow graph showing systems, data types, and vendors'
+  })
+  
   const { data: graph, loading, error } = useGraph()
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
 
-  if (loading) return <LoadingState label="Loading compliance graph…" />
+  if (error) {
+    return (
+      <div className="max-w-[1280px]">
+        <div className="mb-6 flex items-end justify-between flex-wrap gap-4">
+          <PageHeader
+            eyebrow="Data Flow Map"
+            title="Compliance Graph"
+            subtitle="Every system your data touches, and every regulation that covers it — traced end to end."
+          />
+        </div>
+        <ErrorState message={error} />
+      </div>
+    )
+  }
 
-  // 503 (Neo4j unreachable / query failed) vs. any other unexpected fetch
-  // failure both land here — client.ts's interceptor rewrites error.message
-  // to the backend's actual HTTPException detail, so this shows something
-  // like "Graph data unavailable: Neo4j is unreachable — check NEO4J_URI…"
-  // rather than a generic "Request failed with status code 503".
-  if (error) return <ErrorState message={error} />
+  if (loading) {
+    return (
+      <div className="max-w-[1280px]">
+        <div className="mb-6 flex items-end justify-between flex-wrap gap-4">
+          <PageHeader
+            eyebrow="Data Flow Map"
+            title="Compliance Graph"
+            subtitle="Every system your data touches, and every regulation that covers it — traced end to end."
+          />
+          <GraphLegend />
+        </div>
+        <GraphSkeleton />
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-[1280px]">
@@ -38,7 +72,28 @@ export default function Graph() {
         />
       ) : (
         <>
-          <ComplianceGraphCanvas nodes={graph.nodes} edges={graph.edges} />
+          <div className="flex gap-4 items-start w-full relative h-[600px]">
+            <div className="flex-1 min-w-0 transition-all duration-300 h-full border border-border-soft/50 rounded-[10px]">
+              <ComplianceGraphCanvas 
+                nodes={graph.nodes} 
+                edges={graph.edges} 
+                onNodeSelect={setSelectedNode}
+                selectedNodeId={selectedNode?.id}
+              />
+            </div>
+            
+            <AnimatePresence>
+              {selectedNode && (
+                <GraphDetailPanel 
+                  node={selectedNode} 
+                  edges={graph.edges} 
+                  nodes={graph.nodes} 
+                  onClose={() => setSelectedNode(null)} 
+                />
+              )}
+            </AnimatePresence>
+          </div>
+          
           <div className="text-text-faint text-[11px] font-mono mt-3">
             {graph.truncated
               ? `${graph.nodes.length} of ${graph.total_nodes} nodes (limit ${graph.node_limit})`

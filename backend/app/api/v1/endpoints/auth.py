@@ -9,19 +9,28 @@ publicly linked project, so the bypass is gone and these are the only way
 in.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.api.deps import require_auth
 from app.services import user_service
 from app.core import auth
+from app.core.limiter import limiter
 
 router = APIRouter()
 
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=8, max_length=128)
     name: str | None = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        weak_passwords = {"password", "12345678", "123456789", "qwertyui"}
+        if v.lower() in weak_passwords:
+            raise ValueError("Password is too weak")
+        return v
 
 
 class UserLogin(BaseModel):
@@ -46,12 +55,17 @@ class MeResponse(BaseModel):
     name: str | None = None
 
 
+class SseTokenResponse(BaseModel):
+    sse_token: str
+
+
 @router.post(
     "/signup",
     response_model=TokenResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def signup(data: UserCreate):
+@limiter.limit("5/minute")
+def signup(request: Request, data: UserCreate):
     existing_user = user_service.get_user_by_email(data.email)
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -71,7 +85,8 @@ def signup(data: UserCreate):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(data: UserLogin):
+@limiter.limit("5/minute")
+def login(request: Request, data: UserLogin):
     user = user_service.get_user_by_email(data.email)
     if not user or not auth.verify_password(
         data.password, user.hashed_password
@@ -107,3 +122,10 @@ def me(user_id: str = Depends(require_auth)):
             detail="Account no longer exists",
         )
     return MeResponse(user_id=user.id, email=user.email, name=user.name)
+
+
+@router.post("/sse-token", response_model=SseTokenResponse)
+def get_sse_token(user_id: str = Depends(require_auth)):
+    """Issues a short-lived token specifically for SSE connections."""
+    token = auth.create_sse_token(user_id)
+    return SseTokenResponse(sse_token=token)

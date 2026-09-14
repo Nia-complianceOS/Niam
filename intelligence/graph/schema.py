@@ -176,29 +176,10 @@ CONSTRAINTS = [
     # Shared reference data -- one copy of the Act for everyone.
     f"CREATE CONSTRAINT clause_id IF NOT EXISTS "
     f"FOR (c:{LABEL_DPDP_CLAUSE}) REQUIRE c.clause_id IS UNIQUE",
-    # Written by the backend rather than this package, but the schema for
-    # one database belongs in one place.
-    "CREATE CONSTRAINT user_id IF NOT EXISTS "
-    "FOR (u:User) REQUIRE u.id IS UNIQUE",
-    "CREATE CONSTRAINT user_email IF NOT EXISTS "
-    "FOR (u:User) REQUIRE u.email IS UNIQUE",
     "CREATE CONSTRAINT pull_request_id IF NOT EXISTS "
     "FOR (pr:PullRequest) REQUIRE pr.id IS UNIQUE",
     "CREATE CONSTRAINT scan_id IF NOT EXISTS "
     "FOR (s:Scan) REQUIRE s.id IS UNIQUE",
-    # A user's own GitHub credential (backend/app/services/
-    # github_identity.py). One per account, so the scoped uid
-    # "<owner_id>:github" is a natural key -- and unique on the uid, never
-    # on the login, since two Niam accounts may legitimately connect the
-    # same GitHub user.
-    "CREATE CONSTRAINT github_connection_uid IF NOT EXISTS "
-    "FOR (c:GithubConnection) REQUIRE c.uid IS UNIQUE",
-    # The OAuth `state`. GET /github/oauth/callback is unauthenticated by
-    # necessity (the browser arrives from github.com), so the state is
-    # what identifies the user -- uniqueness here is what makes it a key
-    # rather than a hint.
-    "CREATE CONSTRAINT github_oauth_state IF NOT EXISTS "
-    "FOR (s:GithubOAuthState) REQUIRE s.state IS UNIQUE",
 ]
 
 # Every owner-scoped read filters on owner_id, so every owned label needs
@@ -210,25 +191,19 @@ INDEXES = [
     f"FOR (n:{label}) ON (n.owner_id)"
     for label in OWNED_LABELS
 ] + [
-    # The scan rate limiter counts a user's recent scans on every
-    # POST /scan.
     "CREATE INDEX scan_user_started IF NOT EXISTS "
     "FOR (s:Scan) ON (s.user_id, s.started_at)",
     "CREATE INDEX pull_request_owner IF NOT EXISTS "
     "FOR (pr:PullRequest) ON (pr.owner_id)",
-    # Every GitHub call in the backend looks the caller's connection up by
-    # owner_id, so this one is on the hot path for repo listings, scans
-    # and PR creation alike.
-    "CREATE INDEX github_connection_owner IF NOT EXISTS "
-    "FOR (c:GithubConnection) ON (c.owner_id)",
-    # Expired states are purged on every /oauth/start.
-    "CREATE INDEX github_oauth_state_expiry IF NOT EXISTS "
-    "FOR (s:GithubOAuthState) ON (s.expires_at)",
 ]
 
 
 def apply_schema(client) -> None:
     """Run once against a fresh Neo4j instance (or safely re-run anytime —
     all statements are IF NOT EXISTS)."""
+    # Clean up old pre-tenancy constraints that forced bare names to be unique.
+    for legacy_constraint in ["system_name", "data_type_name", "vendor_name"]:
+        client.run_write(f"DROP CONSTRAINT {legacy_constraint} IF EXISTS")
+
     for stmt in CONSTRAINTS + INDEXES:
         client.run_write(stmt)

@@ -42,6 +42,10 @@ export function ScannedRepositories({
   const [result, setResult] = useState<RemovalResponse | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
 
+  const totalRepos = repositories.length
+  const totalDataTypes = repositories.reduce((sum, r) => sum + r.data_types, 0)
+  const totalFindings = repositories.reduce((sum, r) => sum + r.gaps, 0)
+
   const remove = async (repo: ScannedRepository) => {
     setRemoving(repo.system_name)
     setResult(null)
@@ -109,10 +113,20 @@ export function ScannedRepositories({
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-2.5">
-          {repositories.map((repo) => (
-            <ScannedRepositoryRow
-              key={repo.system_name}
+        <>
+          <div className="flex items-center gap-2 mb-4 px-3.5 py-2.5 bg-black/20 rounded-[10px] border border-border-soft text-[12.5px] font-medium text-text-dim">
+            <span>{totalRepos} {totalRepos === 1 ? 'repository' : 'repositories'} scanned</span>
+            <span className="text-text-faint">·</span>
+            <span>{totalDataTypes} {totalDataTypes === 1 ? 'data type' : 'data types'}</span>
+            <span className="text-text-faint">·</span>
+            <span className={totalFindings > 0 ? 'text-accent-amber/90' : ''}>
+              {totalFindings} {totalFindings === 1 ? 'finding' : 'findings'}
+            </span>
+          </div>
+          <div className="flex flex-col gap-2.5">
+            {repositories.map((repo) => (
+              <ScannedRepositoryRow
+                key={repo.system_name}
               repo={repo}
               busy={removing === repo.system_name}
               // One removal at a time. A second confirmation opened while
@@ -122,7 +136,8 @@ export function ScannedRepositories({
               onConfirm={() => void remove(repo)}
             />
           ))}
-        </div>
+          </div>
+        </>
       )}
     </Card>
   )

@@ -38,13 +38,17 @@ both arithmetically reachable and both false.
 """
 
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.schemas.audit import AuditEvent, AuditResponse
+from app.services import audit_service
 # One definition of "a clause that obliges a Data Fiduciary", shared with
 # the reconciler and graph_service. ss.36/37 are the only sections in
 # force today and they bind the regulator, not the fiduciary -- counting
 # them badged every vendor "Covered" while the gap engine disagreed.
-from legal.commencement import (
+from legal.commencement import (  # type: ignore
     FIDUCIARY_OBLIGATION_SECTIONS,
     TRANCHE_2_DATE,
     TRANCHE_3_DATE,
@@ -390,7 +394,7 @@ def generate_fix(owner_id: str, gap_id: str) -> list[RemediationDraft]:
             # on the other. niam-intelligence is now installed
             # (pip install -e ./intelligence), so there is one copy and no
             # path manipulation.
-            from reasoning.drafter import RemediationDrafter
+            from reasoning.drafter import RemediationDrafter  # type: ignore
 
             drafter = RemediationDrafter()
             # (owner_id, gap_id), not (gap_id). The drafter reads the
@@ -401,8 +405,9 @@ def generate_fix(owner_id: str, gap_id: str) -> list[RemediationDraft]:
             drafter.draft_and_write_for_gap(owner_id, gap_id)
             drafter.close()
         except Exception as exc:
+            logger.error("Drafter failed", exc_info=True)
             raise HTTPException(
-                status_code=500, detail=f"Drafter failed: {exc}"
+                status_code=500, detail="Could not generate fix due to an internal error."
             )
 
         # Re-fetch the gap to get the newly generated drafts
@@ -642,96 +647,59 @@ def list_policies(owner_id: str) -> PoliciesResponse:
     and still the right one, because "no documents found" is a finding a
     user can act on and an invented row is not.
     """
-    if not get_settings().use_mocks:
-        owner = {"owner_id": owner_id}
-        try:
-            rows = run_query(_QUERY_POLICY_DOCUMENTS, owner)
-            collected_rows = run_query(_QUERY_COLLECTED_COUNT, owner)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+    owner = {"owner_id": owner_id}
+    try:
+        rows = run_query(_QUERY_POLICY_DOCUMENTS, owner)
+        collected_rows = run_query(_QUERY_COLLECTED_COUNT, owner)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
-        collected = (
-            collected_rows[0]["collected"] if collected_rows else 0
+    collected = (
+        collected_rows[0]["collected"] if collected_rows else 0
+    )
+
+    policies = []
+    for row in rows:
+        disclosed = row["disclosed_count"]
+        # No collected data types means nothing to disclose yet, which
+        # is not the same as full coverage -- report 0 rather than
+        # dividing by zero into a flattering number.
+        percent = (
+            round(100 * disclosed / collected) if collected else 0
         )
 
-        policies = []
-        for row in rows:
-            disclosed = row["disclosed_count"]
-            # No collected data types means nothing to disclose yet, which
-            # is not the same as full coverage -- report 0 rather than
-            # dividing by zero into a flattering number.
-            percent = (
-                round(100 * disclosed / collected) if collected else 0
-            )
+        if row.get("extraction_ok") is False:
+            status = ComplianceStatus.WARNING
+            label = "Not analysed"
+        elif collected and disclosed >= collected:
+            status = ComplianceStatus.COMPLIANT
+            label = f"{percent}% disclosed"
+        elif disclosed:
+            status = ComplianceStatus.WARNING
+            label = f"{percent}% disclosed"
+        else:
+            status = ComplianceStatus.GAP
+            label = "Discloses nothing we collect"
 
-            if row.get("extraction_ok") is False:
-                status = ComplianceStatus.WARNING
-                label = "Not analysed"
-            elif collected and disclosed >= collected:
-                status = ComplianceStatus.COMPLIANT
-                label = f"{percent}% disclosed"
-            elif disclosed:
-                status = ComplianceStatus.WARNING
-                label = f"{percent}% disclosed"
-            else:
-                status = ComplianceStatus.GAP
-                label = "Discloses nothing we collect"
+        names = row["named_recipient_count"]
+        description = row.get("summary") or ""
+        detail = (
+            f"{disclosed} of {collected} collected data type(s) "
+            f"disclosed · {names} recipient(s) named"
+        )
+        description = f"{description} {detail}".strip()
 
-            names = row["named_recipient_count"]
-            description = row.get("summary") or ""
-            detail = (
-                f"{disclosed} of {collected} collected data type(s) "
-                f"disclosed · {names} recipient(s) named"
+        policies.append(
+            Policy(
+                id=row["id"],
+                name=row["name"],
+                status=status,
+                status_label=label,
+                description=description,
+                coverage_percent=percent,
             )
-            description = f"{description} {detail}".strip()
-
-            policies.append(
-                Policy(
-                    id=row["id"],
-                    name=row["name"],
-                    status=status,
-                    status_label=label,
-                    description=description,
-                    coverage_percent=percent,
-                )
-            )
-        return PoliciesResponse(policies=policies)
-    return PoliciesResponse(
-        policies=[
-            Policy(
-                id="p-privacy",
-                name="Privacy Policy",
-                status=ComplianceStatus.COMPLIANT,
-                status_label="96% Coverage",
-                description="Discloses all data collection, vendors, and retention windows across the product.",
-                coverage_percent=96,
-            ),
-            Policy(
-                id="p-cookie",
-                name="Cookie Policy",
-                status=ComplianceStatus.GAP,
-                status_label="Missing Analytics",
-                description="Analytics cookies from Mixpanel are not yet disclosed in the consent categories.",
-                coverage_percent=71,
-            ),
-            Policy(
-                id="p-terms",
-                name="Terms of Service",
-                status=ComplianceStatus.WARNING,
-                status_label="Updated Today",
-                description="Reflects the new AI assistant feature and updated liability clauses.",
-                coverage_percent=100,
-            ),
-            Policy(
-                id="p-retention",
-                name="Retention Policy",
-                status=ComplianceStatus.GAP,
-                status_label="Needs Review",
-                description="Support chat transcripts exceed the documented 30 day retention window.",
-                coverage_percent=64,
-            ),
-        ]
-    )
+        )
+    return PoliciesResponse(policies=policies)
 
 
 _QUERY_AUDIT = """
@@ -748,109 +716,77 @@ LIMIT 100
 
 
 def list_audit_events(owner_id: str) -> AuditResponse:
-    """Real audit trail, derived from :Gap nodes.
+    """Real audit trail, derived from :Gap nodes and Supabase audit_logs."""
+    try:
+        rows = run_query(_QUERY_AUDIT, {"owner_id": owner_id})
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
-    Every event here is backed by a property the reconciler actually
-    wrote. The previous version returned invented entries -- a named
-    person on a "Legal Team" merging pull request #241 -- which is the
-    kind of detail that makes an audit trail look authoritative while
-    being entirely fictional.
-
-    An account with no gaps has an empty trail. Nothing has happened to
-    it yet, and that is exactly what an audit trail should say.
-    """
-    if not get_settings().use_mocks:
-        try:
-            rows = run_query(_QUERY_AUDIT, {"owner_id": owner_id})
-        except RuntimeError as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
-
-        events: list[AuditEvent] = []
-        for row in rows:
-            if row.get("detected_at"):
-                vendor = f" · {row['vendor']}" if row.get("vendor") else ""
-                events.append(
-                    AuditEvent(
-                        id=f"{row['id']}-detected",
-                        occurred_at=row["detected_at"],
-                        event_type="gap_detected",
-                        title="Compliance gap detected",
-                        description=(
-                            f"{row.get('title') or row['id']}"
-                            f" ({row.get('severity') or 'unknown'} severity"
-                            f", {row.get('kind') or 'unclassified'})"
-                        ),
-                        actor=f"Reconciler{vendor}",
-                    )
+    events: list[AuditEvent] = []
+    for row in rows:
+        if row.get("detected_at"):
+            vendor = f" · {row['vendor']}" if row.get("vendor") else ""
+            events.append(
+                AuditEvent(
+                    id=f"{row['id']}-detected",
+                    occurred_at=row["detected_at"],
+                    event_type="gap_detected",
+                    title="Compliance gap detected",
+                    description=(
+                        f"{row.get('title') or row['id']}"
+                        f" ({row.get('severity') or 'unknown'} severity"
+                        f", {row.get('kind') or 'unclassified'})"
+                    ),
+                    actor=f"Reconciler{vendor}",
                 )
-            if row.get("resolved_at"):
-                # The other end of the lifecycle. A reconcile that no
-                # longer finds a gap marks it resolved, so the trail shows
-                # detection AND closure -- which is the record a DPDP audit
-                # actually asks for, and the reason gaps are retired rather
-                # than deleted.
-                events.append(
-                    AuditEvent(
-                        id=f"{row['id']}-resolved",
-                        occurred_at=row["resolved_at"],
-                        event_type="gap_resolved",
-                        title="Compliance gap resolved",
-                        description=(
-                            f"{row.get('title') or row['id']} no longer "
-                            "detected"
-                        ),
-                        actor="Reconciler",
-                    )
+            )
+        if row.get("resolved_at"):
+            # The other end of the lifecycle. A reconcile that no
+            # longer finds a gap marks it resolved, so the trail shows
+            # detection AND closure -- which is the record a DPDP audit
+            # actually asks for, and the reason gaps are retired rather
+            # than deleted.
+            events.append(
+                AuditEvent(
+                    id=f"{row['id']}-resolved",
+                    occurred_at=row["resolved_at"],
+                    event_type="gap_resolved",
+                    title="Compliance gap resolved",
+                    description=(
+                        f"{row.get('title') or row['id']} no longer "
+                        "detected"
+                    ),
+                    actor="Reconciler",
                 )
-            if row.get("pr_id"):
-                events.append(
-                    AuditEvent(
-                        id=f"{row['id']}-pr",
-                        occurred_at=row.get("updated_at")
-                        or row["detected_at"],
-                        event_type="pr_opened",
-                        title="Pull request opened",
-                        description=f"{row['pr_id']} for {row['id']}",
-                        actor="niam-bot",
-                    )
+            )
+        if row.get("pr_id"):
+            events.append(
+                AuditEvent(
+                    id=f"{row['id']}-pr",
+                    occurred_at=row.get("updated_at")
+                    or row["detected_at"],
+                    event_type="pr_opened",
+                    title="Pull request opened",
+                    description=f"{row['pr_id']} for {row['id']}",
+                    actor="niam-bot",
                 )
-        events.sort(key=lambda e: e.occurred_at, reverse=True)
-        return AuditResponse(events=events)
+            )
 
-    now = _NOW()
-    return AuditResponse(
-        events=[
+    # Fetch events from Supabase audit logs
+    supabase_events = audit_service.list_events(owner_id)
+    for event in supabase_events:
+        # Generate an id if it doesn't exist (assuming Supabase rows have a uuid or similar primary key usually,
+        # but AuditEvent expects an id string, so we'll just cast the Supabase ID to string or provide a fallback)
+        events.append(
             AuditEvent(
-                id="a1",
-                occurred_at=now - timedelta(hours=2),
-                event_type="commit_detected",
-                title="Commit detected",
-                description="a3f92c1 — feat: add Mixpanel analytics",
-                actor="GitHub · nova-labs/checkout-service",
-            ),
-            AuditEvent(
-                id="a2",
-                occurred_at=now - timedelta(hours=2) + timedelta(minutes=1),
-                event_type="policy_updated",
-                title="Policy updated",
-                description="Privacy Policy drafted with Mixpanel disclosure",
-                actor="Niam AI",
-            ),
-            AuditEvent(
-                id="a3",
-                occurred_at=now - timedelta(hours=2) + timedelta(minutes=1),
-                event_type="vendor_added",
-                title="Vendor added",
-                description="Mixpanel added to vendor register",
-                actor="Niam AI",
-            ),
-            AuditEvent(
-                id="a4",
-                occurred_at=now - timedelta(days=1),
-                event_type="pr_merged",
-                title="Pull request merged",
-                description="#241 — Compliance Update: Google OAuth disclosure",
-                actor="Priya S. (Legal Team)",
-            ),
-        ]
-    )
+                id=str(event.get("id") or ""),
+                occurred_at=event.get("occurred_at") or _NOW().isoformat(),
+                event_type=event.get("event_type") or "unknown",
+                title=event.get("title") or "",
+                description=event.get("description") or "",
+                actor=event.get("actor") or "",
+            )
+        )
+
+    events.sort(key=lambda e: e.occurred_at, reverse=True)
+    return AuditResponse(events=events)

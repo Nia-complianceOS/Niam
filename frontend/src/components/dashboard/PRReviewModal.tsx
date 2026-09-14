@@ -29,7 +29,7 @@ export function PRReviewModal({ pr, onClose }: Props) {
       onClick={onClose}
     >
       <Card
-        className="w-[760px] max-w-[95vw] max-h-[86vh] overflow-y-auto p-7 relative"
+        className="w-[760px] max-w-[95vw] max-h-[86vh] overflow-y-auto p-7 relative bg-surface/80 backdrop-blur-md border border-white/10 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <button

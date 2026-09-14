@@ -97,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearStoredSession()
     writeToken(data.access_token)
     setUser(toUser(data))
-    navigate('/')
+    navigate('/dashboard')
   }
 
   const login = async (email: string, password: string) => {

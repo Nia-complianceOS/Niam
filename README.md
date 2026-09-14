@@ -44,7 +44,7 @@ there is no data, the interface says so rather than showing a placeholder.
 |---|---|
 | Frontend | React 18, Vite, TypeScript, Tailwind, D3 |
 | Backend | FastAPI, Pydantic v2, Uvicorn |
-| Graph | Neo4j (AuraDB) |
+| Database | Neo4j (Graph data) & Supabase (PostgreSQL for Auth, Scans, Audit) |
 | Intelligence | Google Gemini (`google-genai`), PyGithub, pypdf |
 
 **On the code scanner:** it is a keyword pre-filter feeding an LLM classifier,
@@ -137,11 +137,10 @@ cd Niam
 
 ### 2. Get a graph running
 
-**Option A — Neo4j Aura (what the deployed app uses).** Create a free
-instance in the console. It shows the password exactly once, at creation
+**Option A — Neo4j Aura & Supabase.** Create a free Neo4j instance in the console. It shows the password exactly once, at creation
 — save it then. You need three values: the connection URI
 (`neo4j+s://xxxxxxxx.databases.neo4j.io`), the username (`neo4j`), and
-that password.
+that password. You also need a Supabase project (URL and Anon Key).
 
 > Aura Free **pauses after about three days idle** and is deleted after
 > 30 days of inactivity. A paused instance makes every page read "Graph
@@ -235,6 +234,10 @@ key; these are the ones that matter:
 NEO4J_URI=neo4j+s://xxxxxxxx.databases.neo4j.io
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=your-password
+
+# --- supabase (required) ---
+SUPABASE_URL=https://xxxxxxxx.supabase.co
+SUPABASE_KEY=your-anon-key
 
 # --- providers (required) ---
 GEMINI_API_KEY=your-key
@@ -347,7 +350,7 @@ OpenAPI docs at <http://localhost:8000/docs>.
 ### 8. First run
 
 1. Open <http://localhost:5173> and **sign up**. Authentication is real:
-   the account is a `:User` node in the same Neo4j instance, with a
+   the account is stored in the Supabase `users` table with a
    hashed password, and every protected route needs the JWT it returns.
    There is no demo login.
 2. **Dashboard** — the score and every stat card come from the graph. If
@@ -423,8 +426,8 @@ clause loading with commencement status, ingestion of the company's own privacy
 policy and terms, gap detection across both the Act and those documents,
 remediation drafting, the graph-grounded verifier, SSE scan streaming, and a
 pull-request path that is dry-run and allow-listed by default. Authentication is
-real — JWTs against `:User` nodes with hashed passwords — and scans and pull
-requests are stored in the graph, so both survive a restart.
+real — JWTs against Supabase `users` with hashed passwords — and scans and pull
+requests are stored in Supabase and Neo4j respectively, so both survive a restart.
 
 Known limitations, stated plainly:
 

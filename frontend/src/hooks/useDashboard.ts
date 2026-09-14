@@ -20,6 +20,7 @@ interface UseDashboardResult {
    * The page shows the on-ramp instead of a dashboard of zeros.
    */
   isEmptyAccount: boolean
+  score: number | null
   scoreExplanation: string | null
   selectedCommitSha: string | null
   selectedGap: Gap | undefined
@@ -157,6 +158,7 @@ export function useDashboard(): UseDashboardResult {
     summary,
     gaps,
     isEmptyAccount,
+    score,
     scoreExplanation,
     selectedCommitSha,
     selectedGap,

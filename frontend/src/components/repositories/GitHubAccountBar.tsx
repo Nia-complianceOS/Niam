@@ -40,7 +40,10 @@ export function GitHubAccountBar({
         {connection.avatar_url ? (
           <img
             src={connection.avatar_url}
-            alt=""
+            alt={`${connection.login ?? 'User'}'s GitHub avatar`}
+            width={36}
+            height={36}
+            loading="lazy"
             className="w-9 h-9 rounded-full border border-border-soft flex-shrink-0"
           />
         ) : (

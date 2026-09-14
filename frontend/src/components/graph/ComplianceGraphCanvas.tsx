@@ -1,45 +1,49 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as d3 from 'd3'
-import { Maximize2, Minus, Plus, X } from 'lucide-react'
+import { Maximize2, Minus, Plus, Code2, Database, Building2, AlertTriangle, Search, Scale } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { GraphTooltip } from '@/components/graph/GraphTooltip'
 import { dataTypeLabel } from '@/lib/gapLanguage'
 import type { ComplianceStatus, GraphEdge, GraphNode } from '@/types/api'
 
 const STATUS_COLOR: Record<ComplianceStatus, string> = {
-  compliant: '#5b8cff',
+  compliant: '#10b981', // green for compliant
   warning: '#f5a623',
-  gap: '#f0555a',
-  unknown: '#5e5e72',
+  gap: '#ef4444', // red
+  unknown: '#6b7280',
 }
 
-function colorFor(status: string): string {
-  return STATUS_COLOR[status as ComplianceStatus] ?? STATUS_COLOR.unknown
+const TYPE_COLOR: Record<string, string> = {
+  System: '#3b82f6', // blue
+  DataType: '#a855f7', // purple
+  Vendor: '#f59e0b', // amber
+  DPDPClause: '#10b981', // green
 }
 
-/**
- * Columns, left to right, in the order data actually moves:
- * the system collects data types, which are sent to vendors, and are
- * governed by clauses.
- */
+function colorFor(status: ComplianceStatus): string {
+  return STATUS_COLOR[status] ?? STATUS_COLOR.unknown
+}
+
 const COLUMNS = ['System', 'DataType', 'Vendor', 'DPDPClause'] as const
 const COLUMN_LABELS: Record<string, string> = {
-  System: 'System',
-  DataType: 'Data collected',
-  Vendor: 'Sent to',
-  DPDPClause: 'Governed by',
+  System: 'Systems',
+  DataType: 'Data Collected',
+  Vendor: 'Vendors',
+  DPDPClause: 'Regulations',
 }
 
-const ROW_HEIGHT = 34
-const TOP_PAD = 44
-const NODE_R = 6
-const LABEL_GAP = 8   // dot -> start of its label
-const GUTTER = 96     // end of a column's longest label -> next column's dot
+const ROW_HEIGHT = 42
+const TOP_PAD = 60
+const NODE_R = 14
+const LABEL_GAP = 12
+const GUTTER = 120
 const FONT = '12px Inter, sans-serif'
 
 interface Props {
   nodes: GraphNode[]
   edges: GraphEdge[]
+  onNodeSelect?: (node: GraphNode | null) => void
+  selectedNodeId?: string | null
 }
 
 interface Positioned extends GraphNode {
@@ -53,15 +57,6 @@ function displayLabel(n: GraphNode): string {
   return n.node_type === 'DataType' ? dataTypeLabel(n.label) : n.label
 }
 
-/**
- * Measure label widths before laying anything out, so column positions
- * follow the text rather than a guessed constant. The previous version
- * used a fixed 260px column and started every edge 60px to the right of
- * its source -- a number related to nothing, which is why the lines
- * began in the middle of one label and stopped in empty space short of
- * the next dot. An edge now leaves the right edge of the source's text
- * and lands on the target's circle.
- */
 function makeMeasurer(): (text: string) => number {
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
@@ -77,130 +72,68 @@ function makeMeasurer(): (text: string) => number {
   }
 }
 
-/**
- * The compliance graph, laid out rather than simulated.
- *
- * A force simulation placed forty labelled nodes wherever physics put
- * them: overlapping text, no grouping, and no way to tell a vendor from a
- * clause without reading every label. This is a deterministic column
- * layout instead -- which column a node is in tells you what it is, and
- * every edge runs left to right along the path data actually takes.
- *
- * Edges carry the worse of their two endpoints' colours and flow, so a
- * red line from a data type to a vendor reads as a problem at a glance
- * rather than after inspecting both ends. Clicking a node isolates it:
- * everything upstream and downstream of it stays lit and the rest of the
- * picture goes dark, which is the only way to answer "where does THIS
- * actually go" on a graph with forty nodes in it.
- */
-export function ComplianceGraphCanvas({ nodes, edges }: Props) {
+export function ComplianceGraphCanvas({ nodes, edges, onNodeSelect, selectedNodeId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [tooltip, setTooltip] = useState<{
-    node: GraphNode
-    x: number
-    y: number
-  } | null>(null)
-  const [showClauses, setShowClauses] = useState(false)
-  const [problemsOnly, setProblemsOnly] = useState(false)
-  const [selected, setSelected] = useState<GraphNode | null>(null)
-
-  // d3 owns the DOM inside the effect; the selection callbacks need to
-  // read the current selection without re-running the whole layout.
-  const selectedRef = useRef<string | null>(null)
-  const applyRef = useRef<(focus: string | null) => void>(() => {})
-
-  const svgRef = useRef<d3.Selection<SVGSVGElement, unknown, null, undefined> | null>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
+  const rootGroupRef = useRef<SVGGElement>(null)
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null)
-  const sizeRef = useRef({ width: 1180, height: 560 })
-  const extentRef = useRef({ w: 1180, h: 560 })
 
+  const [tooltip, setTooltip] = useState<{ node: GraphNode; x: number; y: number } | null>(null)
+  
+  // Filters
+  const [showSystems, setShowSystems] = useState(true)
+  const [showDataTypes, setShowDataTypes] = useState(true)
+  const [showVendors, setShowVendors] = useState(true)
+  const [showClauses, setShowClauses] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const [containerSize, setContainerSize] = useState({ width: 1180, height: 560 })
+
+  // --- Filter nodes and edges ---
   const { visibleNodes, visibleEdges } = useMemo(() => {
-    let ns = nodes
-    if (!showClauses) ns = ns.filter((n) => n.node_type !== 'DPDPClause')
-    if (problemsOnly)
-      ns = ns.filter(
-        (n) => n.status === 'gap' || n.status === 'warning' || n.node_type === 'System'
-      )
+    let ns = nodes.filter((n) => {
+      if (!showSystems && n.node_type === 'System') return false
+      if (!showDataTypes && n.node_type === 'DataType') return false
+      if (!showVendors && n.node_type === 'Vendor') return false
+      if (!showClauses && n.node_type === 'DPDPClause') return false
+      return true
+    })
+
     const ids = new Set(ns.map((n) => n.id))
     return {
       visibleNodes: ns,
       visibleEdges: edges.filter((e) => ids.has(e.source) && ids.has(e.target)),
     }
-  }, [nodes, edges, showClauses, problemsOnly])
+  }, [nodes, edges, showSystems, showDataTypes, showVendors, showClauses])
 
-  const fitToView = useCallback((duration = 400) => {
-    const svg = svgRef.current
-    const zoom = zoomRef.current
-    if (!svg || !zoom) return
-    const { width, height } = sizeRef.current
-    const { w, h } = extentRef.current
-    const scale = Math.min(1.2, Math.min(width / (w + 40), height / (h + 40)))
-    const tx = (width - w * scale) / 2
-    const ty = (height - h * scale) / 2
-    svg
-      .transition()
-      .duration(duration)
-      .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale))
-  }, [])
-
-  const zoomBy = useCallback((factor: number) => {
-    const svg = svgRef.current
-    const zoom = zoomRef.current
-    if (!svg || !zoom) return
-    svg.transition().duration(200).call(zoom.scaleBy, factor)
-  }, [])
-
-  const clearSelection = useCallback(() => {
-    selectedRef.current = null
-    setSelected(null)
-    applyRef.current(null)
-  }, [])
-
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container || visibleNodes.length === 0) return
-
-    const width = container.clientWidth || 1180
-    const height = 560
-    sizeRef.current = { width, height }
-    d3.select(container).selectAll('*').remove()
-
+  // --- Compute Layout (Deterministic columns) ---
+  const { positioned, extent, columnsData, linksData, reachableMap } = useMemo(() => {
     const measure = makeMeasurer()
-
-    // --- deterministic layout ---------------------------------------
-    // Within a column: worst status first, then alphabetical. So the
-    // problems are always at the top of each column and the ordering does
-    // not move between renders.
     const rank: Record<string, number> = { gap: 0, warning: 1, unknown: 2, compliant: 3 }
+    
     const byCol = COLUMNS.map((type) =>
       visibleNodes
         .filter((n) => n.node_type === type)
-        .sort(
-          (a, b) =>
-            (rank[a.status] ?? 9) - (rank[b.status] ?? 9) ||
-            a.label.localeCompare(b.label)
-        )
+        .sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9) || a.label.localeCompare(b.label))
     )
 
-    const usedCols = byCol
-      .map((list, i) => ({ list, i }))
-      .filter(({ list }) => list.length > 0)
+    const usedCols = byCol.map((list, i) => ({ list, type: COLUMNS[i] })).filter(({ list }) => list.length > 0)
 
-    // Column x positions follow the widest label in the column before it.
     const colX: number[] = []
-    let cursor = 24
+    let cursor = 32
     usedCols.forEach(({ list }, i) => {
       colX[i] = cursor
       const widest = Math.max(...list.map((n) => measure(displayLabel(n))))
       cursor += NODE_R + LABEL_GAP + widest + GUTTER
     })
 
-    const tallest = Math.max(...usedCols.map((c) => c.list.length))
-    const positioned: Positioned[] = []
+    const tallest = Math.max(0, ...usedCols.map((c) => c.list.length))
+    const positionedList: Positioned[] = []
+    
     usedCols.forEach(({ list }, displayCol) => {
       const offset = ((tallest - list.length) * ROW_HEIGHT) / 2
       list.forEach((n, row) => {
-        positioned.push({
+        positionedList.push({
           ...n,
           col: displayCol,
           x: colX[displayCol],
@@ -210,154 +143,42 @@ export function ComplianceGraphCanvas({ nodes, edges }: Props) {
       })
     })
 
-    const pos = new Map(positioned.map((n) => [n.id, n]))
+    const pos = new Map(positionedList.map((n) => [n.id, n]))
     const lastCol = usedCols.length - 1
-    const extentW =
-      colX[lastCol] +
-      NODE_R +
-      LABEL_GAP +
-      Math.max(...usedCols[lastCol].list.map((n) => measure(displayLabel(n)))) +
-      24
-    const extentH = TOP_PAD + tallest * ROW_HEIGHT + 32
-    extentRef.current = { w: extentW, h: extentH }
+    const extentW = lastCol >= 0
+      ? colX[lastCol] + NODE_R + LABEL_GAP + Math.max(...usedCols[lastCol].list.map((n) => measure(displayLabel(n)))) + 40
+      : containerSize.width
+    const extentH = TOP_PAD + tallest * ROW_HEIGHT + 60
 
-    const svg = d3
-      .select(container)
-      .append('svg')
-      .attr('viewBox', `0 0 ${width} ${height}`)
-      .attr('width', '100%')
-      .attr('height', '100%')
-      .style('display', 'block')
-      .style('cursor', 'grab')
-    svgRef.current = svg as unknown as d3.Selection<SVGSVGElement, unknown, null, undefined>
-
-    // The flow animation, as CSS so the browser drives it rather than a
-    // JS ticker: dashes travel source -> target along each path. Muted
-    // edges stop moving, so motion itself carries the highlight.
-    svg.append('style').text(`
-      .flow { stroke-dasharray: 5 9; animation: niam-flow 1.6s linear infinite; }
-      .flow.muted { animation: none; }
-      @keyframes niam-flow { to { stroke-dashoffset: -14; } }
-      @media (prefers-reduced-motion: reduce) { .flow { animation: none; } }
-    `)
-
-    const root = svg.append('g')
-
-    // Clicking the background clears an isolation.
-    svg.on('click', (event: MouseEvent) => {
-      if (event.target === svg.node()) {
-        selectedRef.current = null
-        setSelected(null)
-        apply(null)
+    // Compute edges
+    const linkGen = d3.linkHorizontal<unknown, [number, number]>().x((d) => d[0]).y((d) => d[1])
+    const linksData = visibleEdges.map((e) => {
+      const a = pos.get(e.source)
+      const b = pos.get(e.target)
+      if (!a || !b) return null
+      
+      const from: [number, number] = [a.x + NODE_R + LABEL_GAP + a.labelWidth + 6, a.y]
+      const to: [number, number] = [b.x - NODE_R - 4, b.y]
+      
+      const worse = (rank[a.status ?? 'unknown'] ?? 9) <= (rank[b.status ?? 'unknown'] ?? 9) ? a.status : b.status
+      return {
+        ...e,
+        sourceNode: a,
+        targetNode: b,
+        path: linkGen({ source: from, target: to }),
+        color: colorFor(worse ?? 'unknown')
       }
-    })
+    }).filter(Boolean) as (GraphEdge & { path: string, color: string, sourceNode: Positioned, targetNode: Positioned })[]
 
-    // --- column headings ---------------------------------------------
-    usedCols.forEach(({ list }, displayCol) => {
-      root
-        .append('text')
-        .attr('x', colX[displayCol] - NODE_R)
-        .attr('y', 20)
-        .attr('fill', '#6e6e86')
-        .attr('font-size', 11)
-        .attr('font-weight', 600)
-        .attr('letter-spacing', '0.06em')
-        .text(
-          `${COLUMN_LABELS[list[0].node_type] ?? list[0].node_type} · ${list.length}`.toUpperCase()
-        )
-    })
-
-    // --- edges ---------------------------------------------------------
-    // Leave the right edge of the source's label, arrive at the left edge
-    // of the target's circle. Both endpoints are computed from measured
-    // text, so a line always starts and ends on something visible.
-    const link = d3.linkHorizontal<unknown, [number, number]>()
-      .x((d) => d[0])
-      .y((d) => d[1])
-
-    const edgeSel = root
-      .append('g')
-      .selectAll('path')
-      .data(visibleEdges)
-      .join('path')
-      .attr('class', 'flow')
-      .attr('fill', 'none')
-      .attr('stroke', (e) => {
-        const a = pos.get(e.source)
-        const b = pos.get(e.target)
-        const worse =
-          (rank[a?.status ?? 'unknown'] ?? 9) <= (rank[b?.status ?? 'unknown'] ?? 9)
-            ? a?.status
-            : b?.status
-        return colorFor(worse ?? 'unknown')
-      })
-      .attr('stroke-opacity', 0.3)
-      .attr('stroke-width', 1.2)
-      .attr('d', (e) => {
-        const a = pos.get(e.source)
-        const b = pos.get(e.target)
-        if (!a || !b) return null
-        const from: [number, number] = [a.x + NODE_R + LABEL_GAP + a.labelWidth + 6, a.y]
-        const to: [number, number] = [b.x - NODE_R - 3, b.y]
-        return link({ source: from, target: to })
-      })
-
-    // --- nodes ---------------------------------------------------------
-    const nodeSel = root
-      .append('g')
-      .selectAll<SVGGElement, Positioned>('g')
-      .data(positioned)
-      .join('g')
-      .attr('transform', (d) => `translate(${d.x}, ${d.y})`)
-      .style('cursor', 'pointer')
-
-    // A wider invisible target: a 6px circle is a hard thing to hit, and
-    // the label is the part people actually aim at.
-    nodeSel
-      .append('rect')
-      .attr('x', -NODE_R - 6)
-      .attr('y', -ROW_HEIGHT / 2)
-      .attr('width', (d) => NODE_R + LABEL_GAP + d.labelWidth + 14)
-      .attr('height', ROW_HEIGHT)
-      .attr('rx', 6)
-      .attr('fill', 'transparent')
-
-    const halo = nodeSel
-      .append('circle')
-      .attr('r', NODE_R + 5)
-      .attr('fill', 'none')
-      .attr('stroke', (d) => colorFor(d.status))
-      .attr('stroke-width', 1.4)
-      .attr('stroke-opacity', 0)
-
-    nodeSel
-      .append('circle')
-      .attr('r', NODE_R)
-      .attr('fill', (d) => colorFor(d.status))
-      .attr('fill-opacity', 0.9)
-
-    nodeSel
-      .append('text')
-      .attr('x', NODE_R + LABEL_GAP)
-      .attr('y', 4)
-      .attr('fill', '#c9c9de')
-      .attr('font-size', 12)
-      .attr('font-family', 'Inter, sans-serif')
-      .text(displayLabel)
-
-    // --- who is connected to whom --------------------------------------
-    // Directed, because the columns are: System -> DataType -> Vendor,
-    // and DataType -> DPDPClause. Isolating a vendor should light the
-    // data types feeding it and the system behind those, not every other
-    // vendor that happens to share the same system.
-    const out = new Map<string, string[]>()
-    const inc = new Map<string, string[]>()
+    // Reachability graph for highlighting
+    const outM = new Map<string, string[]>()
+    const incM = new Map<string, string[]>()
     visibleEdges.forEach((e) => {
-      ;(out.get(e.source) ?? out.set(e.source, []).get(e.source)!).push(e.target)
-      ;(inc.get(e.target) ?? inc.set(e.target, []).get(e.target)!).push(e.source)
+      ;(outM.get(e.source) ?? outM.set(e.source, []).get(e.source)!).push(e.target)
+      ;(incM.get(e.target) ?? incM.set(e.target, []).get(e.target)!).push(e.source)
     })
 
-    function reachable(startId: string): Set<string> {
+    const reachable = (startId: string) => {
       const seen = new Set<string>([startId])
       const walk = (id: string, map: Map<string, string[]>) => {
         for (const next of map.get(id) ?? []) {
@@ -366,152 +187,297 @@ export function ComplianceGraphCanvas({ nodes, edges }: Props) {
           walk(next, map)
         }
       }
-      walk(startId, out)
-      walk(startId, inc)
+      walk(startId, outM)
+      walk(startId, incM)
       return seen
     }
+    
+    const reachableMap = new Map<string, Set<string>>()
+    positionedList.forEach(n => reachableMap.set(n.id, reachable(n.id)))
 
-    /**
-     * One place that decides what is lit. `focus` null means everything.
-     * Hover and click both route through here so they cannot disagree.
-     */
-    function apply(focus: string | null) {
-      if (!focus) {
-        nodeSel.style('opacity', 1)
-        halo.attr('stroke-opacity', 0)
-        edgeSel.attr('stroke-opacity', 0.3).classed('muted', false).attr('stroke-width', 1.2)
-        return
+    return { positioned: positionedList, extent: { w: extentW, h: extentH }, columnsData: usedCols.map((c, i) => ({ ...c, x: colX[i] })), linksData, reachableMap }
+  }, [visibleNodes, visibleEdges, containerSize])
+
+  // --- Zoom logic ---
+  const fitToView = useCallback((duration = 400) => {
+    const svg = svgRef.current
+    const zoom = zoomRef.current
+    if (!svg || !zoom) return
+    const { width, height } = containerSize
+    const { w, h } = extent
+    
+    // Calculate scale to fit width and height with some padding
+    const scale = Math.min(1.2, Math.min(width / Math.max(1, w + 40), height / Math.max(1, h + 40)))
+    const tx = (width - w * scale) / 2
+    const ty = (height - h * scale) / 2
+    
+    d3.select(svg)
+      .transition()
+      .duration(duration)
+      .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale))
+  }, [containerSize, extent])
+
+  useEffect(() => {
+    if (!containerRef.current) return
+    const observer = new ResizeObserver(entries => {
+      if (entries[0]) {
+        setContainerSize({ width: entries[0].contentRect.width, height: entries[0].contentRect.height })
       }
-      const lit = reachable(focus)
-      nodeSel.style('opacity', (o) => (lit.has(o.id) ? 1 : 0.08))
-      halo.attr('stroke-opacity', (o) => (o.id === focus ? 0.85 : 0))
-      edgeSel
-        .attr('stroke-opacity', (e) =>
-          lit.has(e.source) && lit.has(e.target) ? 0.85 : 0.03
-        )
-        .attr('stroke-width', (e) =>
-          lit.has(e.source) && lit.has(e.target) ? 1.8 : 1
-        )
-        .classed('muted', (e) => !(lit.has(e.source) && lit.has(e.target)))
-    }
-    applyRef.current = apply
+    })
+    observer.observe(containerRef.current)
+    return () => observer.disconnect()
+  }, [])
 
-    nodeSel
-      .on('mouseenter', (event: MouseEvent, d) => {
-        const rect = container.getBoundingClientRect()
-        setTooltip({
-          node: d,
-          x: event.clientX - rect.left,
-          y: event.clientY - rect.top,
-        })
-        if (!selectedRef.current) apply(d.id)
-      })
-      .on('mousemove', (event: MouseEvent, d) => {
-        const rect = container.getBoundingClientRect()
-        setTooltip({
-          node: d,
-          x: event.clientX - rect.left,
-          y: event.clientY - rect.top,
-        })
-      })
-      .on('mouseleave', () => {
-        setTooltip(null)
-        if (!selectedRef.current) apply(null)
-      })
-      .on('click', (event: MouseEvent, d) => {
-        event.stopPropagation()
-        const next = selectedRef.current === d.id ? null : d.id
-        selectedRef.current = next
-        setSelected(next ? d : null)
-        apply(next)
-      })
-
-    const zoom = d3
-      .zoom<SVGSVGElement, unknown>()
+  useEffect(() => {
+    if (!svgRef.current || !rootGroupRef.current) return
+    
+    const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.2, 3])
-      .on('start', () => svg.style('cursor', 'grabbing'))
-      .on('zoom', (event) => root.attr('transform', event.transform.toString()))
-      .on('end', () => svg.style('cursor', 'grab'))
-
-    const typedSvg = svg as unknown as d3.Selection<SVGSVGElement, unknown, null, undefined>
-    typedSvg.call(zoom)
-    typedSvg.on('dblclick.zoom', null)
-    typedSvg.on('dblclick', () => fitToView())
+      .on('start', () => d3.select(svgRef.current!).style('cursor', 'grabbing'))
+      .on('zoom', (event) => {
+        if (rootGroupRef.current) {
+          rootGroupRef.current.setAttribute('transform', event.transform.toString())
+        }
+      })
+      .on('end', () => d3.select(svgRef.current!).style('cursor', 'grab'))
+      
+    d3.select(svgRef.current).call(zoom).on('dblclick.zoom', null).on('dblclick', () => fitToView())
     zoomRef.current = zoom
-
+    
     fitToView(0)
+  }, [fitToView])
+  
+  // Re-fit if extent changes drastically
+  useEffect(() => {
+    fitToView(400)
+  }, [extent.w, extent.h, fitToView])
 
-    // A filter change can remove the isolated node from the picture.
-    if (selectedRef.current && !pos.has(selectedRef.current)) {
-      selectedRef.current = null
-      setSelected(null)
-    } else if (selectedRef.current) {
-      apply(selectedRef.current)
+  const zoomBy = (factor: number) => {
+    if (!svgRef.current || !zoomRef.current) return
+    d3.select(svgRef.current).transition().duration(200).call(zoomRef.current.scaleBy, factor)
+  }
+
+  // --- Searching & Selection logic ---
+  const activeFocus = selectedNodeId
+  const litNodes = activeFocus ? reachableMap.get(activeFocus) : null
+
+  // Handle Search 
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!searchQuery.trim()) {
+      if (onNodeSelect) onNodeSelect(null)
+      return
     }
-  }, [visibleNodes, visibleEdges, fitToView])
-
-  const clauseCount = nodes.filter((n) => n.node_type === 'DPDPClause').length
+    const query = searchQuery.toLowerCase()
+    const found = positioned.find(n => displayLabel(n).toLowerCase().includes(query) || n.node_type.toLowerCase().includes(query))
+    if (found && onNodeSelect) {
+      onNodeSelect(found)
+    }
+  }
 
   return (
-    <Card className="relative h-[560px] overflow-hidden">
-      <div ref={containerRef} className="w-full h-full" />
+    <Card className="relative h-full min-h-[600px] overflow-hidden flex flex-col rounded-none border-0 sm:border sm:rounded-[10px]">
+      
+      {/* Toolbar */}
+      <div className="absolute top-0 left-0 right-0 p-3 flex items-center justify-between gap-3 bg-surface/80 backdrop-blur-md border-b border-border-soft z-10 flex-wrap">
+        <div className="flex items-center gap-2">
+          <form onSubmit={handleSearch} className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint" />
+            <input
+              type="text"
+              placeholder="Search nodes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="bg-black/20 border border-border-soft rounded-full pl-8 pr-3 py-1.5 text-[12px] focus:outline-none focus:border-accent-blue/50 w-48 text-text"
+            />
+          </form>
+          
+          <div className="h-4 w-px bg-border-soft mx-1" />
+          
+          <FilterToggle active={showSystems} onClick={() => setShowSystems(!showSystems)}>Systems</FilterToggle>
+          <FilterToggle active={showDataTypes} onClick={() => setShowDataTypes(!showDataTypes)}>Data</FilterToggle>
+          <FilterToggle active={showVendors} onClick={() => setShowVendors(!showVendors)}>Vendors</FilterToggle>
+          <FilterToggle active={showClauses} onClick={() => setShowClauses(!showClauses)}>Regulations</FilterToggle>
+        </div>
 
-      <div className="absolute top-3 left-4 flex items-center gap-2 flex-wrap">
-        <Toggle active={problemsOnly} onClick={() => setProblemsOnly((v) => !v)}>
-          Problems only
-        </Toggle>
-        {clauseCount > 0 && (
-          <Toggle active={showClauses} onClick={() => setShowClauses((v) => !v)}>
-            Show {clauseCount} clauses
-          </Toggle>
-        )}
-        {selected && (
-          <button
-            onClick={clearSelection}
-            className="flex items-center gap-1.5 text-[11.5px] px-2.5 py-1 rounded-full border bg-accent-blue/[0.14] border-accent-blue/40 text-[#a9c1ff]"
-          >
-            Isolating {displayLabel(selected)}
-            <X size={11} />
-          </button>
-        )}
+        <div className="flex items-center gap-1.5">
+          <CanvasButton label="Zoom out" onClick={() => zoomBy(1 / 1.4)}><Minus size={14} /></CanvasButton>
+          <CanvasButton label="Zoom in" onClick={() => zoomBy(1.4)}><Plus size={14} /></CanvasButton>
+          <CanvasButton label="Fit to view" onClick={() => fitToView()}><Maximize2 size={13} /></CanvasButton>
+        </div>
       </div>
 
-      <div className="absolute top-3 right-3 flex items-center gap-1.5">
-        <CanvasButton label="Zoom out" onClick={() => zoomBy(1 / 1.4)}>
-          <Minus size={14} />
-        </CanvasButton>
-        <CanvasButton label="Zoom in" onClick={() => zoomBy(1.4)}>
-          <Plus size={14} />
-        </CanvasButton>
-        <CanvasButton label="Fit to view" onClick={() => fitToView()}>
-          <Maximize2 size={13} />
-        </CanvasButton>
-      </div>
+      <div ref={containerRef} className="flex-1 w-full bg-[#0a0a0c]" onClick={() => onNodeSelect?.(null)}>
+        <svg ref={svgRef} className="w-full h-full block cursor-grab">
+          <defs>
+            <filter id="glow-gap" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="4" result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+            <filter id="glow-compliant" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="3" result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+          </defs>
 
-      <div className="absolute bottom-3 left-4 text-[11px] text-text-faint pointer-events-none">
-        {selected
-          ? 'Showing everything this connects to · click it again, or the background, to show all'
-          : 'Click a node to isolate its path · hover to trace · scroll to zoom · drag to pan'}
+          <g ref={rootGroupRef}>
+            {/* Columns */}
+            {columnsData.map((col, i) => (
+              <text
+                key={`col-${i}`}
+                x={col.x - NODE_R}
+                y={TOP_PAD - 20}
+                fill="#6e6e86"
+                fontSize={11}
+                fontWeight={600}
+                letterSpacing="0.06em"
+              >
+                {`${COLUMN_LABELS[col.type] ?? col.type} · ${col.list.length}`.toUpperCase()}
+              </text>
+            ))}
+
+            {/* Edges */}
+            <g>
+              {linksData.map((e, i) => {
+                const isLit = litNodes ? litNodes.has(e.source) && litNodes.has(e.target) : true
+                const strokeWidth = isLit ? 1.5 : 1
+                const opacity = isLit ? 0.6 : 0.1
+                
+                // Styling based on relationship
+                let strokeDasharray = 'none'
+                let strokeColor = e.color
+                let extraClasses = ''
+                
+                if (e.relationship === 'SENT_TO') {
+                  strokeDasharray = '4 4'
+                } else if (e.relationship === 'GOVERNED_BY') {
+                  strokeDasharray = '2 4'
+                  strokeColor = STATUS_COLOR.compliant // green
+                }
+                
+                if (isLit && e.relationship !== 'GOVERNED_BY') {
+                  extraClasses = 'edge-flow-animate'
+                }
+
+                return (
+                  <path
+                    key={`${e.source}-${e.target}-${i}`}
+                    d={e.path}
+                    fill="none"
+                    stroke={strokeColor}
+                    strokeWidth={strokeWidth}
+                    strokeOpacity={opacity}
+                    strokeDasharray={strokeDasharray}
+                    className={`transition-all duration-300 ${extraClasses}`}
+                  />
+                )
+              })}
+            </g>
+
+            {/* Nodes */}
+            <g>
+              {positioned.map((n) => {
+                const isLit = litNodes ? litNodes.has(n.id) : true
+                const isFocused = activeFocus === n.id
+                const opacity = isLit ? 1 : 0.15
+                
+                const isGap = n.status === 'gap'
+                const isCompliant = n.status === 'compliant'
+                
+                let Icon = Code2
+                if (n.node_type === 'DataType') Icon = Database
+                if (n.node_type === 'Vendor') Icon = Building2
+                if (n.node_type === 'DPDPClause') Icon = Scale
+                if (isGap) Icon = AlertTriangle
+
+                const nodeColor = isGap ? STATUS_COLOR.gap : (TYPE_COLOR[n.node_type] || STATUS_COLOR.unknown)
+                
+                return (
+                  <g
+                    key={n.id}
+                    transform={`translate(${n.x}, ${n.y})`}
+                    className="cursor-pointer transition-opacity duration-300"
+                    style={{ opacity }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onNodeSelect?.(isFocused ? null : n)
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!containerRef.current) return
+                      const rect = containerRef.current.getBoundingClientRect()
+                      setTooltip({ node: n, x: e.clientX - rect.left, y: e.clientY - rect.top })
+                    }}
+                    onMouseMove={(e) => {
+                      if (!containerRef.current) return
+                      const rect = containerRef.current.getBoundingClientRect()
+                      setTooltip({ node: n, x: e.clientX - rect.left, y: e.clientY - rect.top })
+                    }}
+                    onMouseLeave={() => setTooltip(null)}
+                  >
+                    {/* Invisible hit area */}
+                    <rect x={-NODE_R - 6} y={-ROW_HEIGHT / 2} width={NODE_R * 2 + LABEL_GAP + n.labelWidth + 14} height={ROW_HEIGHT} fill="transparent" />
+                    
+                    {/* Glow ring */}
+                    {(isFocused || isGap || isCompliant) && (
+                      <circle 
+                        r={NODE_R + (isFocused ? 6 : 4)} 
+                        fill="none" 
+                        stroke={isGap ? STATUS_COLOR.gap : (isCompliant ? STATUS_COLOR.compliant : nodeColor)} 
+                        strokeWidth={1.5}
+                        strokeOpacity={isFocused ? 0.8 : 0.4}
+                        className={isGap ? 'animate-pulse' : ''}
+                        filter={isGap ? 'url(#glow-gap)' : (isCompliant ? 'url(#glow-compliant)' : 'none')}
+                      />
+                    )}
+                    
+                    <circle r={NODE_R} fill="#1a1a24" stroke={nodeColor} strokeWidth={2} />
+                    
+                    {/* Render Lucide Icon centered inside circle using foreignObject or SVG translation */}
+                    {/* For small icons it's cleaner to render SVG directly */}
+                    <g transform={`translate(-7, -7)`}>
+                      <Icon size={14} color={nodeColor} strokeWidth={isGap ? 2.5 : 2} />
+                    </g>
+                    
+                    <text
+                      x={NODE_R + LABEL_GAP}
+                      y={4}
+                      fill={isFocused ? '#ffffff' : '#c9c9de'}
+                      fontSize={12}
+                      fontFamily="Inter, sans-serif"
+                      fontWeight={isFocused ? 600 : 400}
+                    >
+                      {displayLabel(n)}
+                    </text>
+                  </g>
+                )
+              })}
+            </g>
+          </g>
+        </svg>
       </div>
 
       {tooltip && <GraphTooltip node={tooltip.node} x={tooltip.x} y={tooltip.y} />}
+
+      <style>{`
+        .edge-flow-animate {
+          stroke-dasharray: 4 6;
+          animation: flow-anim 1s linear infinite;
+        }
+        @keyframes flow-anim {
+          from { stroke-dashoffset: 10; }
+          to { stroke-dashoffset: 0; }
+        }
+      `}</style>
     </Card>
   )
 }
 
-function Toggle({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
-}) {
+function FilterToggle({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`text-[11.5px] px-2.5 py-1 rounded-full border transition-colors ${
+      className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
         active
           ? 'bg-accent-blue/[0.14] border-accent-blue/40 text-[#a9c1ff]'
           : 'bg-black/30 border-border-soft text-text-dim hover:text-text'
@@ -522,22 +488,14 @@ function Toggle({
   )
 }
 
-function CanvasButton({
-  label,
-  onClick,
-  children,
-}: {
-  label: string
-  onClick: () => void
-  children: React.ReactNode
-}) {
+function CanvasButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={label}
       aria-label={label}
-      className="w-7 h-7 grid place-items-center rounded-lg bg-black/40 border border-border-soft text-text-dim hover:text-text hover:border-border transition-colors"
+      className="w-7 h-7 grid place-items-center rounded bg-black/40 border border-border-soft text-text-dim hover:text-text hover:border-border transition-colors"
     >
       {children}
     </button>

@@ -55,7 +55,7 @@ from app.schemas.prs import PullRequest, PRsResponse
 from app.schemas.repos import Repository, ReposResponse
 from app.core.config import get_settings
 from app.db.database import run_query
-from app.services import github_identity
+from app.services import github_identity, audit_service
 
 logger = logging.getLogger("niam.github")
 
@@ -660,6 +660,14 @@ def open_compliance_pr(owner_id: str, gap: Gap) -> PullRequest:
             updated_at=now.isoformat(),
         )
         _persist_pr(owner_id, pr, dry_run=False, number=pull.number)
+        audit_service.log_event(
+            owner_id,
+            "pr_opened",
+            "Pull request opened",
+            f"Opened PR {pr.id} for gap {gap.id}",
+            actor=actor,
+            metadata={"pr_id": pr.id, "gap_id": gap.id, "repo": repo_full_name},
+        )
         return pr
 
     except GithubException as exc:

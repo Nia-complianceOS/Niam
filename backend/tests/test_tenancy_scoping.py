@@ -25,11 +25,16 @@ import re
 import pytest
 
 from app.services import (
+    audit_service,
     dashboard_service,
     gap_service,
+    github_identity,
+    github_service,
     graph_service,
     scan_service,
     scan_store,
+    user_service,
+    workspace_service,
 )
 
 # Labels that carry owner_id, per the contract. :DPDPClause is absent
@@ -59,10 +64,16 @@ UNSCOPED_BY_DESIGN = {
 }
 
 MODULES = {
+    "audit_service": audit_service,
     "dashboard_service": dashboard_service,
     "gap_service": gap_service,
+    "github_identity": github_identity,
+    "github_service": github_service,
     "graph_service": graph_service,
+    "scan_service": scan_service,
     "scan_store": scan_store,
+    "user_service": user_service,
+    "workspace_service": workspace_service,
 }
 
 # `MATCH (x:Label` / `MATCH (:Label` / `-[:REL]->(v:Label` -- anywhere an
@@ -96,11 +107,16 @@ def _all_query_constants():
 # fails on its own documentation teaches people to delete the guard.
 
 SERVICE_FILES = [
+    "app/services/audit_service.py",
     "app/services/dashboard_service.py",
     "app/services/gap_service.py",
+    "app/services/github_identity.py",
+    "app/services/github_service.py",
     "app/services/graph_service.py",
     "app/services/scan_store.py",
     "app/services/scan_service.py",
+    "app/services/user_service.py",
+    "app/services/workspace_service.py",
 ]
 
 
@@ -150,6 +166,41 @@ def test_inline_cypher_filters_by_owner():
         f"filtering on $owner_id at: {', '.join(offenders)}"
     )
 
+def test_supabase_queries_filter_by_owner():
+    """Every Supabase query in a service must filter by user_id or owner_id."""
+    offenders = []
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for rel in SERVICE_FILES:
+        source = (root / rel).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                if node.name in ("global_running", "create_user", "consume_state", "create_state", "get_user_by_email", "get_user_by_id"):
+                    continue  # Unscoped by design, handles its own pk, or gets state/user
+                for child in ast.walk(node):
+                    if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and child.func.attr == "execute":
+                        is_supabase = False
+                        has_user_id = False
+                        curr = child
+                        while isinstance(curr, ast.Call):
+                            if isinstance(curr.func, ast.Attribute):
+                                if curr.func.attr == "table":
+                                    is_supabase = True
+                                elif curr.func.attr == "eq" and curr.args:
+                                    if isinstance(curr.args[0], ast.Constant) and curr.args[0].value in ("user_id", "owner_id", "id"):
+                                        has_user_id = True
+                                elif curr.func.attr in ("insert", "update", "upsert") and curr.args:
+                                    if isinstance(curr.args[0], ast.Dict):
+                                        for key in curr.args[0].keys:
+                                            if isinstance(key, ast.Constant) and key.value in ("user_id", "owner_id", "id"):
+                                                has_user_id = True
+                                curr = curr.func.value
+                            else:
+                                break
+                        if is_supabase and not has_user_id:
+                            offenders.append(f"{rel}:{child.lineno}")
+    assert not offenders, f"Supabase queries missing user_id filter: {', '.join(offenders)}"
+
 
 def test_there_are_queries_to_check():
     """Guards the guard. If the constants are ever renamed out of the
@@ -194,6 +245,15 @@ PUBLIC_FUNCTIONS = [
     (scan_store, "append_log"),
     (scan_store, "get"),
     (scan_store, "user_activity"),
+    (audit_service, "log_event"),
+    (audit_service, "list_events"),
+    (github_identity, "save_connection"),
+    (github_identity, "delete_connection"),
+    (github_identity, "get_connection"),
+    (github_service, "open_compliance_pr"),
+    (workspace_service, "list_scanned_repositories"),
+    (workspace_service, "delete_repository"),
+    (workspace_service, "reset_account_data"),
 ]
 
 
@@ -205,15 +265,15 @@ PUBLIC_FUNCTIONS = [
 def test_owner_id_is_the_first_parameter(module, func_name):
     params = list(inspect.signature(getattr(module, func_name)).parameters)
     assert params, f"{func_name} takes no arguments"
-    assert params[0] == "owner_id", (
-        f"{func_name}'s first parameter is '{params[0]}', not 'owner_id'. "
+    assert params[0] in ("owner_id", "user_id"), (
+        f"{func_name}'s first parameter is '{params[0]}', not 'owner_id' or 'user_id'. "
         "Keeping it first is what makes a forgotten owner a TypeError at "
         "the call site rather than a cross-account read at runtime."
     )
     # And it must not have a default -- a default owner is a guess.
     default = inspect.signature(
         getattr(module, func_name)
-    ).parameters["owner_id"].default
+    ).parameters[params[0]].default
     assert default is inspect.Parameter.empty, (
         f"{func_name} defaults owner_id to {default!r}; there is no "
         "sensible account to guess."

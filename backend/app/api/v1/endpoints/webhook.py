@@ -40,6 +40,7 @@ verify_github_signature() against GITHUB_WEBHOOK_SECRET. Left permissive
 APP_ENV=development, so local testing doesn't 403 every request.
 """
 
+import json
 import logging
 
 from uuid import uuid4
@@ -47,26 +48,12 @@ from fastapi import APIRouter, Header, Request, HTTPException, BackgroundTasks
 
 from app.core.config import get_settings
 from app.core.security import verify_github_signature
-from app.db.database import run_query
+from app.db.supabase import get_supabase
 from app.services import scan_service, scan_store
 
 logger = logging.getLogger("niam.webhook")
 
 router = APIRouter()
-
-# The one query in the backend that reads :Scan across accounts on
-# purpose, and it is safe because of what it returns: a list of owner ids
-# for a repository the CALLER (GitHub, holding this repo's webhook
-# secret) already named. It exposes no repo name, ref, log line or
-# finding belonging to anyone -- and its output is used only to scope the
-# scans that follow, each of which is then written into exactly one
-# owner's subgraph.
-_OWNERS_WHO_SCANNED = """
-MATCH (s:Scan {repo: $repo})
-WHERE s.user_id IS NOT NULL AND s.user_id <> ''
-RETURN DISTINCT s.user_id AS owner_id
-"""
-
 
 @router.post("/github")
 async def github_webhook(
@@ -97,7 +84,11 @@ async def github_webhook(
         # when github_webhook_secret is unset, so this is strictly a local dev-only path.
         pass
 
-    payload = await request.json()
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+        
     if payload.get("ref") != "refs/heads/main":
         return {"status": "received"}
 
@@ -105,16 +96,18 @@ async def github_webhook(
     repo_full_name = payload.get("repository", {}).get("full_name", "unknown")
 
     try:
-        rows = run_query(_OWNERS_WHO_SCANNED, {"repo": repo_full_name})
-    except RuntimeError as exc:
+        supabase = get_supabase()
+        response = supabase.table("scans").select("user_id").eq("repo", repo_full_name).execute()
+        rows = response.data or []
+    except Exception as exc:
         # 200 anyway. GitHub would redeliver on a 5xx, and a queue of
-        # retries against an unreachable graph helps nobody.
+        # retries against an unreachable database helps nobody.
         logger.error(
             "Could not resolve owners for %s: %s", repo_full_name, exc
         )
         return {"status": "received", "scans": 0}
 
-    owners = [row["owner_id"] for row in rows if row.get("owner_id")]
+    owners = list(set([row["user_id"] for row in rows if row.get("user_id")]))
     if not owners:
         # Not an error, and deliberately not a scan. Nobody on this
         # instance has ever asked for findings on this repository, so

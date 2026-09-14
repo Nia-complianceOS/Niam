@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     # -------------------------
     app_name: str = "Niam Backend"
     app_env: str = "development"
-    debug: bool = True
+    debug: bool = False
     api_v1_prefix: str = "/api/v1"
 
     # Allow React frontend during development
@@ -223,6 +223,12 @@ class Settings(BaseSettings):
     # Generic vendor key (Stripe or whichever single vendor is wired first)
     # -------------------------
     vendor_api_key: str = Field(default="", alias="VENDOR_API_KEY")
+
+    # -------------------------
+    # Supabase
+    # -------------------------
+    supabase_url: str = Field(default="", alias="SUPABASE_URL")
+    supabase_secret_key: str = Field(default="", alias="SUPABASE_SECRET_KEY")
 
 
 @lru_cache

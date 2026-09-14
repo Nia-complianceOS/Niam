@@ -90,11 +90,11 @@ export const useScan = () => {
             closeStreamRef.current = null
           }
         )
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Signing out cancels the request. Nothing to report to a person
         // who is no longer here.
         if (isAbortError(err)) return
-        const code = err?.response?.status
+        const code = (err as any)?.response?.status
         // 409 here is NOT the GitHub "not connected" 409 -- POST /scan
         // answers 409 when a scan is already running for this account.
         // Both are states rather than faults, and both are said plainly.

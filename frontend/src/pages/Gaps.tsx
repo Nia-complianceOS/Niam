@@ -1,36 +1,31 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Card } from '@/components/ui/Card'
 import { GapList } from '@/components/gaps/GapList'
 import { GapDetail } from '@/components/gaps/GapDetail'
 import { PRReviewModal } from '@/components/dashboard/PRReviewModal'
 import {
-  LoadingState,
   ErrorState,
   EmptyState,
   GetStartedState,
   PageHeader,
 } from '@/components/shared/PageStates'
+import { TableSkeleton } from '@/components/skeletons/TableSkeleton'
 import { useGaps } from '@/hooks/useGaps'
-import { SEVERITY_RANK } from '@/lib/gapLanguage'
+import { useGapFilters } from '@/hooks/useGapFilters'
+import { useSEO } from '@/hooks/useSEO'
 
-/**
- * The findings queue.
- *
- * Everything the reconciler detected, most urgent first, searchable, and
- * selectable one at a time. Before this page existed the only route to a
- * remediation was the dashboard's single-gap panel, which could reach
- * exactly one finding out of forty.
- */
 export default function Gaps() {
+  useSEO({
+    title: 'Compliance Gaps',
+    description: 'Detected compliance gaps in your scanned repositories',
+  })
+
   const {
     gaps,
-    visible,
     selected,
     selectedId,
     select,
-    query,
-    setQuery,
     loading,
     error,
     isEmptyAccount,
@@ -44,6 +39,28 @@ export default function Gaps() {
     runOpenPR,
   } = useGaps()
 
+  const {
+    status,
+    setStatus,
+    severity,
+    setSeverity,
+    query,
+    setQuery,
+    visibleGaps,
+  } = useGapFilters(gaps)
+
+  // Mobile layout state
+  const [isMobileDetailView, setIsMobileDetailView] = useState(false)
+
+  const handleSelect = (id: string) => {
+    select(id)
+    setIsMobileDetailView(true)
+  }
+
+  const handleBack = () => {
+    setIsMobileDetailView(false)
+  }
+
   // Deep link from the dashboard's "needs attention" list, so clicking a
   // finding there opens that exact finding here.
   const [params] = useSearchParams()
@@ -51,31 +68,56 @@ export default function Gaps() {
   useEffect(() => {
     if (requested && !selectedId && gaps.some((g) => g.id === requested)) {
       select(requested)
+      // Automatically show detail view on mobile if deep-linked
+      if (window.innerWidth < 1024) {
+        setIsMobileDetailView(true)
+      }
     }
   }, [requested, selectedId, gaps, select])
 
-  if (loading) return <LoadingState label="Loading findings…" />
-  if (error) return <ErrorState message={error} />
+  // Sync mobile view state with selection
+  useEffect(() => {
+    if (selectedId && window.innerWidth < 1024) {
+      setIsMobileDetailView(true)
+    }
+  }, [selectedId])
 
-  const counts = gaps.reduce<Record<string, number>>((acc, g) => {
-    const key = g.severity ?? 'unrated'
-    acc[key] = (acc[key] ?? 0) + 1
-    return acc
-  }, {})
-  const outstanding = gaps.filter((g) => g.status !== 'resolved').length
+  if (error) {
+    return (
+      <div className="max-w-[1400px] h-full flex flex-col">
+        <PageHeader
+          eyebrow="Findings"
+          title="Compliance Gaps"
+          subtitle="Everything detected between your code, the DPDP Act, and your published policies — most urgent first."
+        />
+        <ErrorState message={error} />
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="max-w-[1400px] h-full flex flex-col">
+        <PageHeader
+          eyebrow="Findings"
+          title="Compliance Gaps"
+          subtitle="Everything detected between your code, the DPDP Act, and your published policies — most urgent first."
+        />
+        <TableSkeleton rows={5} />
+      </div>
+    )
+  }
 
   return (
-    <div className="max-w-[1280px]">
-      <PageHeader
-        eyebrow="Findings"
-        title="Compliance Gaps"
-        subtitle="Everything detected between your code, the DPDP Act, and your published policies — most urgent first."
-      />
+    <div className="max-w-[1400px] h-full flex flex-col min-h-0">
+      <div className="flex-shrink-0">
+        <PageHeader
+          eyebrow="Findings"
+          title="Compliance Gaps"
+          subtitle="Everything detected between your code, the DPDP Act, and your published policies — most urgent first."
+        />
+      </div>
 
-      {/* Two different empty pages. An account that has never scanned
-          anything needs the next action; an account that HAS scanned and
-          has nothing outstanding needs to be told that, and telling it
-          "connect GitHub" would be nonsense. */}
       {isEmptyAccount ? (
         <GetStartedState
           title="No findings yet"
@@ -88,44 +130,27 @@ export default function Gaps() {
           message="Your most recent scan found nothing outstanding. New findings appear here after each scan."
         />
       ) : (
-        <>
-          <div className="flex flex-wrap gap-2.5 mb-4">
-            {(['high', 'medium', 'low'] as const)
-              .filter((s) => counts[s])
-              .sort((a, b) => SEVERITY_RANK[b] - SEVERITY_RANK[a])
-              .map((s) => (
-                <Card key={s} className="px-4 py-2.5">
-                  <div className="text-[11px] uppercase tracking-wide text-text-faint">
-                    {s} severity
-                  </div>
-                  <div className="font-display text-[20px] font-semibold">
-                    {counts[s]}
-                  </div>
-                </Card>
-              ))}
-            <Card className="px-4 py-2.5">
-              <div className="text-[11px] uppercase tracking-wide text-text-faint">
-                Outstanding
-              </div>
-              <div className="font-display text-[20px] font-semibold">
-                {outstanding}
-              </div>
+        <div className="flex-1 min-h-0 flex overflow-hidden">
+          {/* List Panel (Left) */}
+          <div className={`w-full lg:w-[45%] h-full pr-0 lg:pr-4 flex-shrink-0 flex flex-col ${isMobileDetailView ? 'hidden lg:flex' : 'flex'}`}>
+            <Card className="p-4 flex-1 min-h-0 flex flex-col bg-surface/50 backdrop-blur-sm border-border-soft/60">
+              <GapList
+                gaps={visibleGaps}
+                totalCount={gaps.length}
+                selectedId={selectedId}
+                onSelect={handleSelect}
+                query={query}
+                onQueryChange={setQuery}
+                status={status}
+                onStatusChange={setStatus}
+                severity={severity}
+                onSeverityChange={setSeverity}
+              />
             </Card>
           </div>
 
-          <div className="grid grid-cols-[1.1fr_1fr] gap-4 items-start">
-            <Card className="p-4">
-              <GapList
-                gaps={visible}
-                totalCount={gaps.length}
-                selectedId={selectedId}
-                onSelect={select}
-                query={query}
-                onQueryChange={setQuery}
-                visibleRows={10}
-              />
-            </Card>
-
+          {/* Detail Panel (Right) */}
+          <div className={`w-full lg:w-[55%] h-full pl-0 lg:pl-0 flex-shrink-0 flex flex-col ${!isMobileDetailView ? 'hidden lg:flex' : 'flex'}`}>
             <GapDetail
               gap={selected}
               fixLoading={fixLoading}
@@ -133,9 +158,11 @@ export default function Gaps() {
               actionError={actionError}
               onGenerateFix={runGenerateFix}
               onOpenPR={runOpenPR}
+              onBack={handleBack}
+              isMobile={isMobileDetailView}
             />
           </div>
-        </>
+        </div>
       )}
 
       {openedPR && <PRReviewModal pr={openedPR} onClose={dismissPR} />}

@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 
 from app.core.config import get_settings
-from app.db.database import verify_connectivity
+from app.db.database import verify_neo4j_connectivity, verify_supabase_connectivity
 
 router = APIRouter()
 
@@ -14,5 +14,6 @@ def health_check():
     return {
         "status": "ok",
         "environment": settings.app_env,
-        "neo4j_connected": verify_connectivity(),
+        "neo4j_connected": verify_neo4j_connectivity(),
+        "supabase_connected": verify_supabase_connectivity(),
     }

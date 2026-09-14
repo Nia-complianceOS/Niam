@@ -43,6 +43,27 @@ EMPTY_SUMMARY = {
 }
 
 
+class MockData:
+    data = []
+    count = 0
+
+class MockBuilder:
+    def select(self, *args, **kwargs): return self
+    def eq(self, *args, **kwargs): return self
+    def order(self, *args, **kwargs): return self
+    def limit(self, *args, **kwargs): return self
+    def execute(self): return MockData()
+
+class MockTable:
+    def select(self, *args, **kwargs): return MockBuilder()
+
+class MockClient:
+    def table(self, name): return MockTable()
+
+def _empty_supabase():
+    return MockClient()
+
+
 def _empty_graph(query, params=None):
     """Neo4j's answers for an empty account, keyed off the query text.
 
@@ -86,6 +107,8 @@ def _empty_graph(query, params=None):
 def empty_graph(monkeypatch):
     for module in (dashboard_service, gap_service, graph_service):
         monkeypatch.setattr(module, "run_query", _empty_graph)
+    if hasattr(gap_service, "get_supabase"):
+        monkeypatch.setattr(gap_service, "get_supabase", _empty_supabase)
 
 
 def test_dashboard_score_is_not_a_number(empty_graph):

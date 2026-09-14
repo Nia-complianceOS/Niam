@@ -19,7 +19,7 @@ from ingestion.github.scanner import GitHubScanner
 from graph.graph_writer import GraphWriter
 from reconciliation.reconciler import Reconciler
 
-from app.services import github_service, scan_store
+from app.services import github_service, scan_store, audit_service
 
 logger = logging.getLogger("niam.scan")
 
@@ -167,6 +167,13 @@ def run_scan(
 
     try:
         scan_store.set_status(owner_id, scan_id, "running")
+        audit_service.log_event(
+            owner_id,
+            "scan_started",
+            "Repository scan started",
+            f"Scan {scan_id} started on {repo_full_name}@{ref}",
+            actor="User",
+        )
         system_kwargs = {"system_name": system_name} if system_name else {}
         # The owner is not part of system_kwargs: it is not optional the
         # way system_name is, so it is passed explicitly at each call
@@ -231,6 +238,13 @@ def run_scan(
             reconciler.close()
 
         scan_store.set_status(owner_id, scan_id, "completed")
+        audit_service.log_event(
+            owner_id,
+            "scan_completed",
+            "Repository scan completed",
+            f"Scan {scan_id} completed successfully on {repo_full_name}@{ref}",
+            actor="User",
+        )
         scan_store.append_log(
             owner_id,
             scan_id,
@@ -240,6 +254,13 @@ def run_scan(
         logger.error(f"Scan {scan_id} failed: {exc}", exc_info=True)
         try:
             scan_store.set_status(owner_id, scan_id, "failed", error=str(exc))
+            audit_service.log_event(
+                owner_id,
+                "scan_failed",
+                "Repository scan failed",
+                f"Scan {scan_id} failed on {repo_full_name}@{ref}: {exc}",
+                actor="System",
+            )
             scan_store.append_log(
                 owner_id, scan_id, {"event": "failed", "error": str(exc)}
             )

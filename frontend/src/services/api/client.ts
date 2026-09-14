@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { readToken } from '@/lib/session'
+import { readToken, clearStoredSession } from '@/lib/session'
 import type {
   AuditResponse,
   DashboardSummaryResponse,
@@ -116,9 +116,18 @@ client.interceptors.response.use(
     // A cancelled request is not a failure and must not be rewritten into
     // one -- the hooks drop these on the floor.
     if (isAbortError(error)) return Promise.reject(error)
+
+    if (error?.response?.status === 401) {
+      clearStoredSession()
+      window.location.href = '/login'
+      return Promise.reject(error)
+    }
+
     const detail = error?.response?.data?.detail
     if (typeof detail === 'string' && detail.length > 0) {
       error.message = detail
+    } else if (Array.isArray(detail) && detail.length > 0 && typeof detail[0].msg === 'string') {
+      error.message = detail[0].msg
     } else if (error?.request && !error?.response) {
       error.message = 'Could not reach the backend — is it running?'
     }
@@ -153,6 +162,9 @@ export const signup = (email: string, password: string, name: string) =>
 // Validates a stored token against the server rather than trusting
 // whatever user object happens to be in localStorage.
 export const getMe = () => client.get<MeResponse>('/auth/me').then((r) => r.data)
+
+export const getSseToken = () =>
+  client.post<{ sse_token: string }>('/auth/sse-token').then((r) => r.data)
 
 export const getHealth = () => client.get('/health').then((r) => r.data)
 
@@ -222,30 +234,44 @@ export const subscribeToScan = (
   onError: (error: Event) => void,
   onComplete: () => void
 ) => {
-  const token = readToken() || ''
-  const eventSource = new EventSource(
-    `${API_BASE_URL}/scan/${scanId}/events?token=${encodeURIComponent(token)}`
-  )
+  let isCancelled = false
+  let eventSource: EventSource | null = null
 
-  eventSource.onmessage = (e) => {
-    try {
-      const data = JSON.parse(e.data)
-      onMessage(data)
-      if (data.event === 'completed' || data.event === 'failed') {
-        eventSource.close()
-        onComplete()
+  getSseToken()
+    .then(({ sse_token }) => {
+      if (isCancelled) return
+
+      eventSource = new EventSource(
+        `${API_BASE_URL}/scan/${scanId}/events?token=${encodeURIComponent(sse_token)}`
+      )
+
+      eventSource.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data)
+          onMessage(data)
+          if (data.event === 'completed' || data.event === 'failed') {
+            eventSource?.close()
+            onComplete()
+          }
+        } catch (err) {
+          console.error('Failed to parse scan event', err)
+        }
       }
-    } catch (err) {
-      console.error('Failed to parse scan event', err)
-    }
-  }
 
-  eventSource.onerror = (e) => {
-    eventSource.close()
-    onError(e)
-  }
+      eventSource.onerror = (e) => {
+        eventSource?.close()
+        onError(e)
+      }
+    })
+    .catch((_err) => {
+      if (isCancelled) return
+      onError(new Event('error'))
+    })
 
-  return () => eventSource.close()
+  return () => {
+    isCancelled = true
+    if (eventSource) eventSource.close()
+  }
 }
 
 // --- workspace ---------------------------------------------------------
