@@ -30,6 +30,10 @@ PyGithub==2.9.1
 google-genai==2.8.0
 firebase-admin==7.5.0
 supabase==2.31.0
+# Rate limiting on /auth/login and /auth/signup. Imported at module load
+# in app/main.py, so a fresh clone could not start the API without it --
+# ModuleNotFoundError before the first request, not on first use.
+slowapi==0.1.10
 
 # --- DPDP Act ingestion ----------------------------------------------
 # WAS MISSING. legal/dpdp_source.py imports pypdf to read the Act PDF, so
@@ -64,7 +68,8 @@ cryptography==50.0.1
 # reconciliation/test_reconciler.py and reasoning/test_verifier.py.
 # pytest==9.1.1
 
-# REMOVED, deliberately: SQLAlchemy and psycopg2-binary. Nothing in
-# backend/ or intelligence/ imports either -- there is no SQL anywhere in
-# this project (audit section 7). They were pulling a compiled Postgres
-# driver into every fresh install for nothing.
+# REMOVED, deliberately: SQLAlchemy and psycopg2-binary. There IS a
+# Postgres database now (Supabase), but nothing here speaks the Postgres
+# wire protocol: supabase-py talks to PostgREST over HTTP. No ORM, no
+# compiled driver, no build step on a fresh install. Add them only if
+# something genuinely needs a direct connection.

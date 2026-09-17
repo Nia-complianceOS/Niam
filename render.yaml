@@ -38,7 +38,24 @@ services:
       - key: CORS_ORIGINS
         sync: false
 
-      # --- graph -----------------------------------------------------
+      # --- databases -------------------------------------------------
+      # Two of them. Neo4j holds the compliance graph -- systems, data
+      # types, vendors, clauses, gaps. Supabase (Postgres) holds identity
+      # and everything relational: users, GitHub connections, OAuth
+      # states, scan history, the audit log.
+      #
+      # Without the Supabase pair the service boots and then fails on the
+      # first request that touches a user, which is login -- so the whole
+      # app is unusable while /api/v1/health still answers.
+      - key: SUPABASE_URL
+        sync: false
+      # The service-role key. It bypasses Postgres row-level security by
+      # design, which is why it lives only here and never reaches the
+      # browser; the per-account boundary is the backend's own user_id
+      # filtering (see backend/tests/test_tenancy_scoping.py).
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+
       - key: NEO4J_URI
         sync: false
       - key: NEO4J_USERNAME
