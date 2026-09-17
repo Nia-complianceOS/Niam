@@ -27,7 +27,6 @@ import sys
 from graph.graph_writer import GraphWriter
 from legal import policy_source
 from legal.policy_extractor import PolicyExtractor
-from graph.neo4j_client import Neo4jClient
 from graph.owner import UnknownOwner, resolve_owner_id
 
 logging.basicConfig(
@@ -56,7 +55,7 @@ def main():
     # Resolving here means an owner that matches no account fails now,
     # loudly, instead of producing a correct subgraph nobody can see.
     try:
-        args.owner = resolve_owner_id(Neo4jClient(), args.owner)
+        args.owner = resolve_owner_id(args.owner)
     except UnknownOwner as exc:
         print(f"ERROR: {exc}")
         sys.exit(1)

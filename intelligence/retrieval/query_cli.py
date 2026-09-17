@@ -29,7 +29,6 @@ import sys
 
 from graph.schema import DEFAULT_SYSTEM_NAME
 from retrieval.dpdp_retrieval import DPDPRetriever
-from graph.neo4j_client import Neo4jClient
 from graph.owner import UnknownOwner, resolve_owner_id
 
 
@@ -158,7 +157,7 @@ def main():
     # Resolving here means an owner that matches no account fails now,
     # loudly, instead of producing a correct subgraph nobody can see.
     try:
-        args.owner = resolve_owner_id(Neo4jClient(), args.owner)
+        args.owner = resolve_owner_id(args.owner)
     except UnknownOwner as exc:
         print(f"ERROR: {exc}")
         sys.exit(1)

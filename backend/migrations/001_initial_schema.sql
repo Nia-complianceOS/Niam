@@ -78,7 +78,12 @@ ALTER TABLE scans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- Note: The Service Role key used by the backend automatically bypasses RLS.
--- The policies below ensure that if accessed via Supabase client, users can only read/update their own row.
+--
+-- SUPERSEDED BY 002_lock_down_postgres.sql -- do not trust the policies
+-- below. They key on auth.uid(), and this app does not use Supabase Auth,
+-- so auth.uid() is always NULL and none of them can ever grant anything.
+-- They are kept here only because this file may already have been applied.
+-- 002 drops them and revokes the underlying grants instead.
 CREATE POLICY "Users can view own data" ON users FOR SELECT USING (id = auth.uid());
 CREATE POLICY "Users can update own data" ON users FOR UPDATE USING (id = auth.uid());
 
