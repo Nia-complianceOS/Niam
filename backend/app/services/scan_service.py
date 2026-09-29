@@ -24,6 +24,23 @@ from app.services import github_service, scan_store, audit_service
 logger = logging.getLogger("niam.scan")
 
 
+def _is_cancelled(owner_id: str, scan_id: str) -> bool:
+    """True once the user has cancelled this scan (see scan_store.cancel_active).
+
+    There is no clean way to abort a GitHub/Gemini call already in
+    flight, so this is checked between the big steps instead: it stops
+    the *next* expensive step from starting, and stops a scan that
+    finishes anyway from overwriting the cancellation with completed/
+    failed. Best-effort -- a failure to read the status here just lets
+    the scan continue rather than blocking on it.
+    """
+    try:
+        row = scan_store.get(owner_id, scan_id)
+    except RuntimeError:
+        return False
+    return bool(row and row.get("status") == "cancelled")
+
+
 def _load_policy_documents(
     owner_id: str,
     scan_id: str,
@@ -236,6 +253,12 @@ def run_scan(
                 },
             )
 
+        if _is_cancelled(owner_id, scan_id):
+            scan_store.append_log(
+                owner_id, scan_id, {"event": "cancelled", "message": "Scan cancelled"}
+            )
+            return
+
         # Write and reconcile even when nothing was confirmed. Skipping
         # both left every earlier finding for this repository standing
         # after the code that caused it had been removed.
@@ -252,6 +275,12 @@ def run_scan(
             )
         finally:
             writer.close()
+
+        if _is_cancelled(owner_id, scan_id):
+            scan_store.append_log(
+                owner_id, scan_id, {"event": "cancelled", "message": "Scan cancelled"}
+            )
+            return
 
         scan_store.append_log(
             owner_id,
@@ -277,6 +306,12 @@ def run_scan(
                 },
             )
 
+        if _is_cancelled(owner_id, scan_id):
+            scan_store.append_log(
+                owner_id, scan_id, {"event": "cancelled", "message": "Scan cancelled"}
+            )
+            return
+
         # The terminal log entry goes BEFORE the status flip. The progress
         # stream stops once the status is final, so the other order could
         # end a stream without it ever sending "completed".
@@ -296,6 +331,15 @@ def run_scan(
     except Exception as exc:
         logger.error("Scan %s failed: %s", scan_id, exc, exc_info=True)
         try:
+            if _is_cancelled(owner_id, scan_id):
+                # Cancelled while this step was in flight. The user asked
+                # for "cancelled", not "failed" -- leave the status alone.
+                scan_store.append_log(
+                    owner_id,
+                    scan_id,
+                    {"event": "cancelled", "message": "Scan cancelled"},
+                )
+                return
             scan_store.append_log(
                 owner_id, scan_id, {"event": "failed", "error": str(exc)}
             )

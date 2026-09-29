@@ -184,6 +184,25 @@ def start_scan(
     return ScanStartedResponse(scan_id=scan_id)
 
 
+@router.post("/cancel", status_code=200)
+def cancel_scan(user_id: str = Depends(require_writer)):
+    """Cancel the caller's own queued/running scan, freeing their slot now.
+
+    Added after a real incident: scanning the wrong repository had no way
+    to be stopped from the product, so the only option was killing the
+    backend process -- which left the scan's row `running` and its
+    one-at-a-time slot held for 30 minutes (STALE_AFTER) rather than
+    freed immediately. This clears it on request instead.
+    """
+    try:
+        scan_id = scan_store.cancel_active(user_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    if scan_id is None:
+        raise HTTPException(status_code=404, detail="No scan is currently running")
+    return {"scan_id": scan_id, "status": "cancelled"}
+
+
 HEARTBEAT_SECONDS = 15
 
 
@@ -236,12 +255,13 @@ async def scan_events(scan_id: str, user_id: str = Depends(require_owner_id)):
                 last_sent = asyncio.get_running_loop().time()
 
             status_now = current.get("status")
-            if status_now in ("completed", "failed"):
+            if status_now in ("completed", "failed", "cancelled"):
                 # If the terminal entry never made it into the log (a
                 # logging failure is swallowed so it cannot kill a scan),
                 # synthesise one so the client is not left waiting.
                 if not any(
-                    isinstance(e, dict) and e.get("event") in ("completed", "failed")
+                    isinstance(e, dict)
+                    and e.get("event") in ("completed", "failed", "cancelled")
                     for e in log
                 ):
                     terminal = {"event": status_now}

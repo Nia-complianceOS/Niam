@@ -260,7 +260,7 @@ function RepoList({
 }
 
 function RepoItem({ repo, scanned }: { repo: Repository; scanned: ScannedRepository | null }) {
-  const { status, logs, error, reconnecting, triggerScan } = useScan()
+  const { status, logs, error, reconnecting, triggerScan, cancelActive } = useScan()
   const busy = status === 'starting' || status === 'running'
   const scan = () => triggerScan(repo.full_name, repo.branch)
 
@@ -340,7 +340,13 @@ function RepoItem({ repo, scanned }: { repo: Repository; scanned: ScannedReposit
       </div>
 
       {status !== 'idle' && (
-        <ScanProgress status={status} logs={logs} error={error} reconnecting={reconnecting} />
+        <ScanProgress
+          status={status}
+          logs={logs}
+          error={error}
+          reconnecting={reconnecting}
+          onCancel={cancelActive}
+        />
       )}
     </div>
   )
@@ -351,11 +357,13 @@ function ScanProgress({
   logs,
   error,
   reconnecting,
+  onCancel,
 }: {
   status: ScanStatus
   logs: ScanEvent[]
   error: string | null
   reconnecting: { attempt: number } | null
+  onCancel: () => void
 }) {
   const isRunning = status === 'starting' || status === 'running'
 
@@ -390,6 +398,21 @@ function ScanProgress({
           </div>
         )}
 
+        {isRunning && (
+          <button
+            onClick={onCancel}
+            className="mt-1 text-[10px] text-text-tertiary hover:text-status-gap underline underline-offset-2"
+          >
+            Cancel scan
+          </button>
+        )}
+
+        {status === 'cancelled' && (
+          <div className="mt-2 pt-2 border-t border-border text-text-secondary">
+            Scan cancelled. You can start a new scan now.
+          </div>
+        )}
+
         {status === 'completed' && (
           <div className="mt-2 pt-2 border-t border-border flex items-center justify-between text-status-compliant font-medium">
             <span>Scan Complete</span>
@@ -406,9 +429,19 @@ function ScanProgress({
         )}
 
         {status === 'rejected' && (
-          <div className="mt-2 pt-2 border-t border-border text-status-warning flex items-start gap-1.5">
-            <AlertTriangle size={11} className="mt-0.5 flex-shrink-0" />
-            <span>{error || 'The server did not start this scan.'}</span>
+          <div className="mt-2 pt-2 border-t border-border text-status-warning">
+            <div className="flex items-start gap-1.5">
+              <AlertTriangle size={11} className="mt-0.5 flex-shrink-0" />
+              <span>{error || 'The server did not start this scan.'}</span>
+            </div>
+            {(error || '').toLowerCase().includes('already have a scan running') && (
+              <button
+                onClick={onCancel}
+                className="mt-1.5 text-[10px] text-text-tertiary hover:text-status-gap underline underline-offset-2"
+              >
+                Cancel the stuck scan and try again
+              </button>
+            )}
           </div>
         )}
 

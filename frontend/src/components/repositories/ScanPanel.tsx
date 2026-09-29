@@ -18,7 +18,7 @@ export function ScanPanel({
   const [ref, setRef] = useState('main')
   const [pickerOpen, setPickerOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const { status, logs, error, reconnecting, triggerScan } = useScan()
+  const { status, logs, error, reconnecting, triggerScan, cancelActive } = useScan()
 
   const busy = status === 'starting' || status === 'running'
   const valid = REPO_RE.test(repo.trim())
@@ -151,6 +151,16 @@ export function ScanPanel({
             </>
           )}
         </button>
+
+        {(busy || status === 'rejected') && (
+          <button
+            onClick={() => cancelActive()}
+            title="Stop the currently running scan and free the slot for a new one"
+            className="px-3 py-1.5 rounded text-xs font-medium text-text-secondary border border-border bg-bg hover:bg-surface-elevated hover:text-status-gap transition-colors"
+          >
+            Cancel scan
+          </button>
+        )}
       </div>
 
       {status !== 'idle' && (
@@ -186,6 +196,12 @@ export function ScanPanel({
             <div className="mt-3 pt-2 border-t border-border flex items-center gap-2 text-status-gap font-medium text-xs">
               <AlertTriangle size={13} />
               <span>Scan failed: {error}</span>
+            </div>
+          )}
+          {status === 'cancelled' && (
+            <div className="mt-3 pt-2 border-t border-border flex items-center gap-2 text-text-secondary font-medium text-xs">
+              <AlertTriangle size={13} />
+              <span>Scan cancelled. You can start a new scan now.</span>
             </div>
           )}
           {status === 'rejected' && (

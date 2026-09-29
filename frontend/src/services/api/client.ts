@@ -370,6 +370,15 @@ export const startScan = (repoFullName: string, ref: string = 'main') =>
   client.post<{ scan_id: string }>('/scan', { repo_full_name: repoFullName, ref }).then((r) => r.data)
 
 /**
+ * Cancel the signed-in account's own queued/running scan, if any, freeing
+ * its one-at-a-time slot immediately instead of waiting out the 30-minute
+ * staleness window. 404 means there was nothing to cancel -- callers treat
+ * that as success, not an error, since the end state is the same.
+ */
+export const cancelScan = () =>
+  client.post<{ scan_id: string; status: string }>('/scan/cancel').then((r) => r.data)
+
+/**
  * How long to wait before each reconnection attempt. Five attempts, about
  * 31 seconds of waiting in total, before the stream is reported lost.
  */

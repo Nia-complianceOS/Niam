@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { isAbortError, startScan, subscribeToScan } from '@/services/api/client'
+import { cancelScan, isAbortError, startScan, subscribeToScan } from '@/services/api/client'
 import { notifyDataChanged } from '@/lib/dataEvents'
 
 export type ScanEvent = {
@@ -21,6 +21,7 @@ export type ScanStatus =
   | 'failed'
   | 'rejected'
   | 'connection_lost'
+  | 'cancelled'
 
 export const useScan = () => {
   const { userId } = useAuth()
@@ -87,6 +88,9 @@ export const useScan = () => {
               setStatus('failed')
               setError(scanEvent.error || 'Scan failed during execution')
               isFinishedRef.current = true
+            } else if (scanEvent.event === 'cancelled') {
+              setStatus('cancelled')
+              isFinishedRef.current = true
             }
           },
           () => {
@@ -125,5 +129,27 @@ export const useScan = () => {
     [stopStream]
   )
 
-  return { status, logs, error, reconnecting, triggerScan }
+  // Cancels this account's active scan (queued/running) on the server,
+  // whether or not it was started from this hook instance -- a scan
+  // stuck from a previous page load, a killed backend, or a genuine
+  // mistake (wrong repo) is cancelled the same way. A 404 ("nothing to
+  // cancel") is treated as success: either way, the slot is free now.
+  const cancelActive = useCallback(async () => {
+    stopStream()
+    isFinishedRef.current = true
+    try {
+      await cancelScan()
+    } catch (err: unknown) {
+      const code = (err as { response?: { status?: number } })?.response?.status
+      if (code !== 404) {
+        setError((err as Error)?.message || 'Failed to cancel scan')
+        return
+      }
+    }
+    setStatus('idle')
+    setError(null)
+    setReconnecting(null)
+  }, [stopStream])
+
+  return { status, logs, error, reconnecting, triggerScan, cancelActive }
 }

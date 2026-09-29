@@ -120,6 +120,51 @@ class ScanAlreadyRunning(Exception):
     partial unique index from migration 003, so it holds under races)."""
 
 
+def cancel_active(owner_id: str) -> str | None:
+    """Cancel this account's queued/running scan, if any. Returns its id, or None.
+
+    Before this there was no way to stop a scan short of killing the whole
+    server process -- which stops the work but leaves the row `running`
+    and holding the one-scan-per-account slot for a full STALE_AFTER (30
+    minutes), since only the NEXT create() call retires a stale row. A
+    user who started the wrong repo by mistake had to either wait that
+    out or restart the backend, and restarting still left the same stale
+    row behind.
+
+    This clears the slot immediately. `status = "cancelled"` falls
+    outside the ("queued", "running") the partial unique index covers, so
+    the very next scan request succeeds right away. It is also checked at
+    a few points inside run_scan() (see scan_service._is_cancelled) so a
+    scan that is still genuinely executing stops doing further GitHub/
+    Gemini calls instead of quietly finishing and overwriting this status.
+    """
+    try:
+        supabase = get_supabase()
+        resp = (
+            supabase.table("scans")
+            .select("id")
+            .eq("user_id", owner_id)
+            .in_("status", ["queued", "running"])
+            .order("started_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        if not rows:
+            return None
+        scan_id = rows[0]["id"]
+        supabase.table("scans").update(
+            {
+                "status": "cancelled",
+                "error": "Cancelled by user",
+                "updated_at": _now(),
+            }
+        ).eq("id", scan_id).eq("user_id", owner_id).execute()
+        return scan_id
+    except Exception as e:
+        raise RuntimeError(f"Database error in cancel_active: {e}")
+
+
 def set_status(
     owner_id: str, scan_id: str, status: str, error: str | None = None
 ) -> None:
