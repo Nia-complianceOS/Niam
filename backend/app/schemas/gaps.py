@@ -49,6 +49,13 @@ class Gap(BaseModel):
     pr_id: str | None = None
     pr_url: str | None = None
     pr_number: int | None = None
+    # Which scanned repository (:System name) this finding belongs to.
+    # None for gaps written before the reconciler recorded it.
+    system_name: str | None = None
+    # The two-stage review for this finding, when one exists. The display
+    # status is derived from it (see gap_service._gap_from_graph_row).
+    review_id: str | None = None
+    review_state: str | None = None
     detected_at: str | None = None
     updated_at: str | None = None
 
@@ -77,3 +84,6 @@ class GapsResponse(BaseModel):
 class GenerateFixResponse(BaseModel):
     gap_id: str
     remediation_drafts: List[RemediationDraft]
+    # The legal review the draft was sent to.
+    review_id: str | None = None
+    review_state: str | None = None

@@ -35,6 +35,7 @@ from fastapi import HTTPException
 
 from app.db.neo4j import run_query
 from app.db.supabase import get_supabase
+from reconciliation.reconciler import GAP_SCOPE_PREDICATE, gap_scope_params
 
 logger = logging.getLogger("niam.workspace")
 
@@ -67,11 +68,15 @@ RETURN s.name AS system_name,
        data_types, vendors
 """
 
-# Gap ids are `gap-{owner}-{system}-...` (reconciler.gap_id_prefix). The
-# owner filter is the guarantee; the prefix narrows to one system.
-_COUNT_GAPS = """
-MATCH (g:Gap {owner_id: $owner_id})
-WHERE g.id STARTS WITH $prefix
+# Which gaps belong to one system. Not a bare `STARTS WITH` on the id:
+# `gap-O-acme__web-` is also a prefix of every `acme__web-api` gap, so
+# counting, deleting or sweeping by prefix alone reached the neighbouring
+# repository. GAP_SCOPE_PREDICATE matches the stored `g.system_name`, and
+# falls back to a prefix check that also inspects the next id segment
+# for gaps written before that property existed.
+_COUNT_GAPS = f"""
+MATCH (g:Gap)
+WHERE {GAP_SCOPE_PREDICATE}
 RETURN count(g) AS c
 """
 
@@ -106,10 +111,9 @@ def list_scanned_repositories(owner_id: str) -> list[dict]:
 
     out = []
     for row in rows:
-        prefix = f"gap-{owner_id}-{row['system_name']}-"
         try:
             gap_rows = run_query(
-                _COUNT_GAPS, {"owner_id": owner_id, "prefix": prefix}
+                _COUNT_GAPS, gap_scope_params(owner_id, row["system_name"])
             )
             gaps = gap_rows[0]["c"] if gap_rows else 0
         except RuntimeError:
@@ -122,25 +126,25 @@ def list_scanned_repositories(owner_id: str) -> list[dict]:
 
 # Order matters. Drafts and pull requests hang off gaps, so they go first
 # or the traversal that finds them has nothing left to walk.
-_DELETE_DRAFTS = """
-MATCH (g:Gap {owner_id: $owner_id})-[:HAS_DRAFT]->(rd:RemediationDraft)
-WHERE g.id STARTS WITH $prefix
+_DELETE_DRAFTS = f"""
+MATCH (g:Gap)-[:HAS_DRAFT]->(rd:RemediationDraft)
+WHERE {GAP_SCOPE_PREDICATE}
 WITH DISTINCT rd LIMIT 5000
 DETACH DELETE rd
 RETURN count(*) AS deleted
 """
 
-_DELETE_PRS = """
-MATCH (g:Gap {owner_id: $owner_id})-[:HAS_PR]->(pr:PullRequest)
-WHERE g.id STARTS WITH $prefix
+_DELETE_PRS = f"""
+MATCH (g:Gap)-[:HAS_PR]->(pr:PullRequest {{owner_id: $owner_id}})
+WHERE {GAP_SCOPE_PREDICATE}
 WITH DISTINCT pr LIMIT 5000
 DETACH DELETE pr
 RETURN count(*) AS deleted
 """
 
-_DELETE_GAPS = """
-MATCH (g:Gap {owner_id: $owner_id})
-WHERE g.id STARTS WITH $prefix
+_DELETE_GAPS = f"""
+MATCH (g:Gap)
+WHERE {GAP_SCOPE_PREDICATE}
 WITH g LIMIT 5000
 DETACH DELETE g
 RETURN count(*) AS deleted
@@ -221,8 +225,19 @@ def delete_repository(owner_id: str, system_name: str) -> dict:
         )
     repo = rows[0]["repo"]
 
-    prefix = f"gap-{owner_id}-{system_name}-"
-    scoped = {"owner_id": owner_id, "prefix": prefix}
+    scoped = gap_scope_params(owner_id, system_name)
+
+    # Reviews live in Postgres and are keyed by gap id; collect this
+    # system's gap ids before the gaps are deleted.
+    try:
+        gap_ids = [
+            r["id"]
+            for r in run_query(
+                f"MATCH (g:Gap) WHERE {GAP_SCOPE_PREDICATE} RETURN g.id AS id", scoped
+            )
+        ]
+    except RuntimeError:
+        gap_ids = []
     named = {"owner_id": owner_id, "system_name": system_name}
 
     try:
@@ -241,6 +256,21 @@ def delete_repository(owner_id: str, system_name: str) -> dict:
             removed["scans"] = len(response.data or [])
         except Exception as exc:
             logger.error("Could not delete scans from Supabase: %s", exc)
+        removed["reviews"] = 0
+        if gap_ids:
+            try:
+                resp = (
+                    get_supabase()
+                    .table("remediation_reviews")
+                    .delete()
+                    .eq("workspace_id", owner_id)
+                    .in_("gap_id", gap_ids)
+                    .execute()
+                )
+                removed["reviews"] = len(resp.data or [])
+            except Exception as exc:
+                # Before migration 006 the table does not exist.
+                logger.warning("Could not delete reviews: %s", exc)
 
         run_query(_DELETE_SYSTEM, named)
         removed["system"] = 1
@@ -312,6 +342,17 @@ def reset_account_data(owner_id: str) -> dict:
         
         audit_resp = supabase.table("audit_logs").delete().eq("user_id", owner_id).execute()
         removed["audit_logs"] = len(audit_resp.data or [])
+
+        try:
+            rev_resp = (
+                supabase.table("remediation_reviews")
+                .delete()
+                .eq("workspace_id", owner_id)
+                .execute()
+            )
+            removed["reviews"] = len(rev_resp.data or [])
+        except Exception as exc:
+            logger.warning("Could not delete reviews during reset: %s", exc)
         
     except Exception as exc:
         logger.error("Reset failed for %s: %s", owner_id, exc, exc_info=True)

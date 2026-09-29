@@ -10,7 +10,7 @@ means when they say "I scanned the wrong repo, get rid of it".
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from app.api.deps import require_auth
+from app.api.deps import require_owner_id, require_workspace_owner, require_writer
 from app.services import workspace_service
 
 router = APIRouter()
@@ -39,14 +39,14 @@ class RemovalResponse(BaseModel):
 
 
 @router.get("/repositories", response_model=ScannedRepositoriesResponse)
-def scanned_repositories(user_id: str = Depends(require_auth)):
+def scanned_repositories(user_id: str = Depends(require_owner_id)):
     return ScannedRepositoriesResponse(
         repositories=workspace_service.list_scanned_repositories(user_id)
     )
 
 
 @router.delete("/repositories/{system_name}", response_model=RemovalResponse)
-def remove_repository(system_name: str, user_id: str = Depends(require_auth)):
+def remove_repository(system_name: str, user_id: str = Depends(require_writer)):
     """Remove one scanned repository's findings from this account.
 
     Its :System, gaps, drafts, pull-request records, scan history and
@@ -61,7 +61,7 @@ def remove_repository(system_name: str, user_id: str = Depends(require_auth)):
 
 
 @router.post("/reset", response_model=RemovalResponse)
-def reset(user_id: str = Depends(require_auth)):
+def reset(user_id: str = Depends(require_workspace_owner)):
     """Delete every finding on this account and start over.
 
     The account and any GitHub connection survive: this is "start over",

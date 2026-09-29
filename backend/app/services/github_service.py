@@ -173,10 +173,41 @@ def validate_token(token: str) -> dict:
     data = resp.json()
     raw_scopes = resp.headers.get("X-OAuth-Scopes", "")
     return {
+        # The numeric id is what a GitHub sign-in is keyed on: logins can
+        # be renamed and then taken by someone else.
+        "id": str(data.get("id") or ""),
         "login": data.get("login") or "",
+        "name": data.get("name") or None,
         "avatar_url": data.get("avatar_url") or "",
         "scopes": [s.strip() for s in raw_scopes.split(",") if s.strip()],
     }
+
+
+def primary_verified_email(token: str) -> tuple[str | None, bool]:
+    """(primary email, verified?) from /user/emails. (None, False) when
+    the token cannot read emails. An unverified email is never used to
+    match an existing account."""
+    try:
+        resp = requests.get(
+            f"{GITHUB_API}/user/emails",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=GITHUB_TIMEOUT,
+        )
+    except requests.RequestException:
+        return None, False
+    if resp.status_code != 200:
+        return None, False
+    try:
+        emails = resp.json()
+    except ValueError:
+        return None, False
+    for e in emails if isinstance(emails, list) else []:
+        if e.get("primary"):
+            return (e.get("email") or None), bool(e.get("verified"))
+    return None, False
 
 
 def _github_message(exc: GithubException) -> str:
@@ -251,9 +282,16 @@ def _append_amendment(existing: str, draft, gap) -> str:
 #
 # The :Gap is matched with its owner too, so a guessed gap id cannot hang
 # a PullRequest node off somebody else's finding.
+#
+# The MERGE key includes owner_id. The id used to be `pr-{number}`, which
+# is not unique across repositories or accounts: user B's PR #3 matched
+# user A's node, re-owned it, and showed B A's private repository name.
+# Ids are now `pr-{owner}-{repo}-{number}` (see _pr_id), and keying the
+# MERGE on the owner as well means a legacy colliding id can at worst
+# create a second node, never take over another account's.
 _MERGE_PR = """
 MATCH (g:Gap {id: $gap_id, owner_id: $owner_id})
-MERGE (pr:PullRequest {id: $id})
+MERGE (pr:PullRequest {id: $id, owner_id: $owner_id})
 ON CREATE SET pr.gap_id = $gap_id, pr.title = $title,
               pr.repo_full_name = $repo_full_name, pr.status = $status,
               // The number is how GitHub is asked what happened to this
@@ -268,7 +306,6 @@ ON MATCH SET  pr.title = $title, pr.status = $status,
               pr.number = coalesce($number, pr.number),
               pr.github_pr_url = $github_pr_url, pr.dry_run = $dry_run,
               pr.updated_at = $now
-SET pr.owner_id = $owner_id
 MERGE (g)-[:HAS_PR]->(pr)
 """
 
@@ -291,6 +328,36 @@ RETURN pr, g.id AS gap_id,
        }) AS drafts
 ORDER BY pr.opened_at DESC
 """
+
+
+def _pr_id(owner_id: str, repo_full_name: str, number: int) -> str:
+    """A pull request id unique across accounts and repositories.
+
+    The number stays last so _number_from_id() keeps working on it.
+    """
+    return f"pr-{owner_id}-{repo_full_name.replace('/', '__')}-{number}"
+
+
+def _approval_block(approval: dict | None) -> str:
+    """The approval record for the PR body. The PR is the output of the
+    two-stage review, so it carries who approved which version."""
+    if not approval:
+        return ""
+    lines = ["", "---", "", "**Approval record (Niam)**", ""]
+    lines.append(f"- Version approved: v{approval.get('version_no', '?')}")
+    legal = approval.get("legal") or {}
+    owner = approval.get("owner") or {}
+    if legal:
+        lines.append(
+            f"- Legal review: {legal.get('by', 'unknown')} at {legal.get('at', '')}"
+        )
+    if owner:
+        lines.append(
+            f"- Owner approval: {owner.get('by', 'unknown')} at {owner.get('at', '')}"
+        )
+    if approval.get("self_approved"):
+        lines.append("- Note: both stages were approved by the same person.")
+    return "\n".join(lines) + "\n"
 
 
 def _number_from_id(pr_id: str) -> int | None:
@@ -448,8 +515,18 @@ def list_pull_requests(owner_id: str) -> PRsResponse:
     return PRsResponse(pull_requests=prs)
 
 
-def open_compliance_pr(owner_id: str, gap: Gap) -> PullRequest:
+def open_compliance_pr(
+    owner_id: str,
+    gap: Gap,
+    drafts: list[RemediationDraft] | None = None,
+    approval: dict | None = None,
+) -> PullRequest:
     """
+    `drafts`, when given, replaces the gap's own drafts: the two-stage
+    review commits the APPROVED version, never whatever the latest AI
+    draft happens to be. `approval` is the record written into the PR
+    body.
+
     Creates a real branch, updates files per remediation drafts, and opens
     a pull request against the source repository using PyGithub -- as the
     calling user, on their own token, so the PR is authored by them and
@@ -459,6 +536,8 @@ def open_compliance_pr(owner_id: str, gap: Gap) -> PullRequest:
     `owner_id` (gaps.py loads it via gap_service.get_gap(user_id, gap_id),
     which is that check).
     """
+    if drafts is not None:
+        gap = gap.model_copy(update={"remediation_drafts": list(drafts)})
     if not gap.remediation_drafts:
         raise HTTPException(
             status_code=400,
@@ -557,8 +636,10 @@ def open_compliance_pr(owner_id: str, gap: Gap) -> PullRequest:
         except GithubException:
             actor = "niam-bot"
 
-        # 1. Get base branch SHA
-        base_ref = repo.get_git_ref("heads/main")
+        # 1. Get base branch SHA. The repository's own default branch, not
+        # a hardcoded "main": repositories on "master" used to get a 503.
+        base_branch = repo.default_branch or "main"
+        base_ref = repo.get_git_ref(f"heads/{base_branch}")
 
         # 2. Create branch
         try:
@@ -638,12 +719,13 @@ def open_compliance_pr(owner_id: str, gap: Gap) -> PullRequest:
         pr_body = f"Resolves compliance gap: {gap.title}\n\n"
         for draft in gap.remediation_drafts:
             pr_body += f"- {draft.summary}\n"
+        pr_body += _approval_block(approval)
 
         pull = repo.create_pull(
-            title=pr_title, body=pr_body, head=branch_name, base="main"
+            title=pr_title, body=pr_body, head=branch_name, base=base_branch
         )
 
-        pr_id = f"pr-{pull.number}"
+        pr_id = _pr_id(owner_id, repo_full_name, pull.number)
         now = _NOW()
         pr = PullRequest(
             id=pr_id,

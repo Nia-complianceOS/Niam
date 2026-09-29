@@ -17,7 +17,9 @@ from app.api.v1.endpoints import (
     github_oauth,
     graph,
     health,
+    reviews,
     scan,
+    team,
     workspace,
     webhook,
 )
@@ -29,6 +31,9 @@ api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(health.router, prefix="/health", tags=["meta"])
 api_router.include_router(webhook.router, prefix="/webhook", tags=["webhook"])
+# Previewing an invite is public (the page shows which workspace before
+# you sign in); accepting one requires auth on the route itself.
+api_router.include_router(team.invites_router, prefix="/invites", tags=["team"])
 
 # The GitHub OAuth pair is mounted OUTSIDE the protected /github router
 # below, and this is not an oversight. GET /github/oauth/callback is
@@ -86,5 +91,17 @@ api_router.include_router(
     workspace.router,
     prefix="/workspace",
     tags=["workspace"],
+    dependencies=[Depends(require_auth)],
+)
+api_router.include_router(
+    reviews.router,
+    prefix="/reviews",
+    tags=["reviews"],
+    dependencies=[Depends(require_auth)],
+)
+api_router.include_router(
+    team.router,
+    prefix="/team",
+    tags=["team"],
     dependencies=[Depends(require_auth)],
 )

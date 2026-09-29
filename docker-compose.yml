@@ -43,7 +43,15 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
+      # An empty JWT_SECRET is refused outside development; set one.
       - JWT_SECRET=${JWT_SECRET:-}
+      - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY:-}
+      # Accounts live in Postgres (Supabase). Without these, login fails.
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SECRET_KEY=${SUPABASE_SECRET_KEY:-}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+      - FRONTEND_URL=http://localhost:5173
       # Both PR guards stay closed unless deliberately opened.
       - GITHUB_DRY_RUN=true
       - PR_ALLOWED_REPOS=

@@ -8,7 +8,7 @@ which the page renders as an empty canvas rather than as an error.
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.api.deps import require_auth
+from app.api.deps import require_owner_id
 from app.schemas.graph import GraphResponse
 from app.services.graph_service import (
     DEFAULT_NODE_LIMIT,
@@ -31,7 +31,7 @@ def compliance_graph(
             "total_nodes and truncated so the UI can say what it is showing."
         ),
     ),
-    user_id: str = Depends(require_auth),
+    user_id: str = Depends(require_owner_id),
 ):
     try:
         return get_compliance_graph(user_id, limit=limit)

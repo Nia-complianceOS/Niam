@@ -49,7 +49,7 @@ from fastapi import APIRouter, Header, Request, HTTPException, BackgroundTasks
 from app.core.config import get_settings
 from app.core.security import verify_github_signature
 from app.db.supabase import get_supabase
-from app.services import scan_service, scan_store
+from app.services import workspace_service, scan_service, scan_store
 
 logger = logging.getLogger("niam.webhook")
 
@@ -89,11 +89,21 @@ async def github_webhook(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
         
-    if payload.get("ref") != "refs/heads/main":
+    repository = payload.get("repository") or {}
+    if not isinstance(repository, dict):
+        return {"status": "received"}
+    # The repository's own default branch, not a hardcoded "main".
+    default_branch = repository.get("default_branch") or "main"
+    if payload.get("ref") != f"refs/heads/{default_branch}":
         return {"status": "received"}
 
     commit_sha = payload.get("after", "unknown")
-    repo_full_name = payload.get("repository", {}).get("full_name", "unknown")
+    repo_full_name = repository.get("full_name") or "unknown"
+    # Webhook scans land in the same :System as scans from the UI. With
+    # system_name=None they went into the module default instead, which
+    # duplicated every finding and could not be removed from the
+    # Repositories page.
+    system_name = workspace_service.system_name_for_repo(repo_full_name)
 
     try:
         supabase = get_supabase()
@@ -131,10 +141,15 @@ async def github_webhook(
                 owner_id,
                 scan_id,
                 repo=repo_full_name,
-                ref="main",
-                system_name=None,
+                ref=default_branch,
+                system_name=system_name,
                 trigger="webhook",
             )
+        except scan_store.ScanAlreadyRunning:
+            # A scan for this workspace is already in flight; the next
+            # push will pick up anything it misses.
+            logger.info("Skipped webhook scan for %s: one is already running", owner_id)
+            continue
         except (RuntimeError, ValueError) as exc:
             # One owner's scan failing to register must not cost the
             # others theirs.
@@ -147,7 +162,12 @@ async def github_webhook(
             continue
 
         background.add_task(
-            scan_service.run_scan, owner_id, scan_id, repo_full_name, "main"
+            scan_service.run_scan,
+            owner_id,
+            scan_id,
+            repo_full_name,
+            default_branch,
+            system_name,
         )
         queued += 1
         logger.info(

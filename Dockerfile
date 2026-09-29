@@ -33,4 +33,8 @@ EXPOSE 8000
 
 # ${PORT} because Render (and most PaaS) assign the port at runtime; a
 # hardcoded 8000 fails the health check.
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# --proxy-headers / --forwarded-allow-ips: behind Render's proxy the client
+# address is in X-Forwarded-For. Without these every request appears to
+# come from the proxy, and the per-IP login rate limit becomes one shared
+# bucket that a single client can exhaust for everybody.
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips=\"*\""]

@@ -1,51 +1,35 @@
 """
-GET /api/v1/github/oauth/start     — authenticated; returns the authorize URL
-GET /api/v1/github/oauth/callback  — UNAUTHENTICATED; GitHub redirects here
+GET  /api/v1/github/oauth/start     — authenticated (workspace owner); connect GitHub
+GET  /api/v1/github/oauth/callback  — UNAUTHENTICATED; GitHub redirects here
+POST /api/v1/github/oauth/exchange  — authenticated; finish a connect flow
 
-The GitHub OAuth flow, which is how a user connects their own account so
-that scans read their repositories and a pull request is opened as them.
+Sign in with GitHub uses the same callback; its start and exchange routes
+live in auth.py because they are public.
 
-WHY THIS IS A SEPARATE FILE FROM github.py: the callback cannot be behind
-Depends(require_auth). The browser arrives on a top-level navigation from
-github.com — no Authorization header, no way to add one, and no cookie
-session in this app (auth is a bearer JWT held in the SPA). So the
-callback is mounted outside the /github router's blanket auth dependency,
-and it must be read as a public route.
+THE CALLBACK DOES NOT DECIDE THE ACCOUNT ANY MORE. It exchanges the code,
+reads the GitHub user, parks the result under a one-time code and sends
+the browser to the SPA's /auth/github/complete page. The SPA finishes the
+flow by POSTing that code with the verifier whose SHA-256 it sent at
+start (kept in sessionStorage). See services/github_signin.py for why:
+previously the `state` alone chose the account, so a connect URL sent to
+somebody else attached their GitHub token to the sender's account.
 
-WHICH MAKES `state` THE AUTHENTICATION, not CSRF bookkeeping. It is the
-only thing tying the code GitHub hands back to a Niam account. If it were
-guessable, replayable or unbound, an attacker could attach their own
-GitHub account to a victim's Niam account (and then read every scan run
-against it), or attach a victim's GitHub account to their own. So
-github_identity mints 256 bits from secrets.token_urlsafe, stores it
-against the user with a 10-minute expiry, and DELETEs it as it reads it —
-one use, no exceptions, and an unknown state is refused without saying
-which of the three reasons applied.
-
-/start does NOT redirect server-side. It returns the URL as JSON so the
-SPA navigates the top-level window itself: a 302 out of an XHR is either
-followed opaquely by fetch() or dropped by CORS, and either way the user
-never sees GitHub's consent screen. The SPA does `window.location.href =
-authorize_url`.
-
-The callback never renders anything. It 302s back to FRONTEND_URL with
-?github=connected or ?github=error&reason=..., because at that moment the
-browser is on the API origin with no application loaded, and an error
-rendered here is a dead end with no way back into the app.
+/start returns the URL as JSON rather than redirecting: a 302 out of an
+XHR is either followed opaquely by fetch() or dropped by CORS.
 """
 
 import logging
 from urllib.parse import urlencode
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-from app.api.deps import require_auth
+from app.api.deps import Workspace, require_role, ROLE_OWNER
 from app.core import crypto
 from app.core.config import get_settings
-from app.services import github_identity, github_service
+from app.services import github_identity, github_service, github_signin
 
 logger = logging.getLogger("niam.github.oauth")
 
@@ -54,40 +38,41 @@ router = APIRouter()
 GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 
-# `repo` covers private repositories, which is the whole point — a
-# compliance scan that can only read public code is a demo. `read:user`
-# is what gives the connection a login and an avatar to show, so the
-# Repositories page can say WHOSE account is connected. Nothing here asks
-# for org admin, delete_repo, or workflow: this tool reads code and opens
-# pull requests, and a scope it does not need is a scope it should not
-# hold when the token is stolen.
-OAUTH_SCOPES = "repo read:user"
+# `repo` covers private repositories and is what lets Niam open the fix
+# pull request; GitHub describes it as full read/write on repositories,
+# and the UI says so. `read:user` gives the login and avatar;
+# `user:email` is what lets a GitHub sign-in read a VERIFIED email. No
+# org admin, delete_repo or workflow.
+OAUTH_SCOPES = "repo read:user user:email"
 
-# The user is waiting on this exchange.
 GITHUB_TIMEOUT = 10
 
 
 class OAuthStartResponse(BaseModel):
     authorize_url: str
-    # Returned so the SPA can correlate the tab it opened with the
-    # callback it eventually gets back. It is NOT a secret the client
-    # needs to keep — the server already holds the only copy that counts.
     state: str
 
 
-def _redirect(reason: str | None = None) -> RedirectResponse:
-    """Back to the SPA, always. See the module docstring."""
+class ExchangeRequest(BaseModel):
+    code: str
+    verifier: str
+
+
+class ConnectExchangeResponse(BaseModel):
+    login: str | None = None
+    linked_for_signin: bool = False
+
+
+def _complete_redirect(**params: str) -> RedirectResponse:
+    """Back to the SPA's completion page, always. The SPA knows from its
+    own sessionStorage whether it was signing in or connecting."""
     base = get_settings().frontend_url.rstrip("/")
-    if reason:
-        query = urlencode({"github": "error", "reason": reason})
-    else:
-        query = urlencode({"github": "connected"})
-    # 302, not 307: this is a GET landing page, and a 307 would preserve
-    # a method nothing here wants preserved.
-    return RedirectResponse(url=f"{base}/repositories?{query}", status_code=302)
+    return RedirectResponse(
+        url=f"{base}/auth/github/complete?{urlencode(params)}", status_code=302
+    )
 
 
-def _require_oauth_app() -> tuple[str, str]:
+def require_oauth_app() -> tuple[str, str]:
     settings = get_settings()
     if not settings.github_client_id or not settings.github_client_secret:
         raise HTTPException(
@@ -98,20 +83,10 @@ def _require_oauth_app() -> tuple[str, str]:
                 "pasting a personal access token instead."
             ),
         )
-    return settings.github_client_id, settings.github_client_secret
-
-
-@router.get("/start", response_model=OAuthStartResponse)
-def start(user_id: str = Depends(require_auth)):
-    """Mint a state and hand the SPA the URL to navigate to."""
-    client_id, _ = _require_oauth_app()
-    settings = get_settings()
-
-    # Checked BEFORE sending the user to GitHub, not after they come
-    # back. Discovering at the callback that we cannot store the token
-    # means the user has already granted access to an app that then
-    # tells them it failed — and the grant stays on their account.
     if not crypto.is_available():
+        # Checked BEFORE sending the user to GitHub: discovering at the
+        # callback that the token cannot be stored leaves a grant on
+        # their account for an app that then says it failed.
         raise HTTPException(
             status_code=503,
             detail=(
@@ -119,82 +94,86 @@ def start(user_id: str = Depends(require_auth)):
                 "cannot be stored safely. Set it before connecting."
             ),
         )
+    return settings.github_client_id, settings.github_client_secret
 
-    try:
-        state = github_identity.create_state(user_id)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
 
+def authorize_url(state: str) -> str:
+    settings = get_settings()
     params = {
-        "client_id": client_id,
+        "client_id": settings.github_client_id,
         "scope": OAUTH_SCOPES,
         "state": state,
-        "allow_signup": "false",
+        "allow_signup": "true",
     }
-    # Sent only when configured. GitHub validates it against the URIs
-    # registered on the app and rejects anything else, so this cannot be
-    # used to point a stolen client_id somewhere else -- it only selects
-    # WHICH registered URI to use, which is what lets one OAuth App serve
-    # both localhost and production. Omitted, GitHub falls back to the
-    # app's registered callback, correct when there is exactly one.
+    # Selects WHICH registered redirect URI to use, which lets one OAuth
+    # App serve both localhost and production. GitHub rejects any URI
+    # that is not registered on the app.
     if settings.github_oauth_redirect_uri:
         params["redirect_uri"] = settings.github_oauth_redirect_uri
-    return OAuthStartResponse(
-        authorize_url=f"{GITHUB_AUTHORIZE_URL}?{urlencode(params)}",
-        state=state,
-    )
+    return f"{GITHUB_AUTHORIZE_URL}?{urlencode(params)}"
+
+
+def start_flow(purpose: str, user_id: str | None, binding: str) -> OAuthStartResponse:
+    require_oauth_app()
+    if not github_signin.valid_binding(binding):
+        raise HTTPException(
+            status_code=422,
+            detail="binding must be the SHA-256 hex digest of a random verifier",
+        )
+    try:
+        state = github_identity.create_state(user_id, purpose, binding)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    return OAuthStartResponse(authorize_url=authorize_url(state), state=state)
+
+
+@router.get("/start", response_model=OAuthStartResponse)
+def start(
+    binding: str = Query(..., description="SHA-256 hex of the SPA's verifier"),
+    ws: Workspace = Depends(require_role(ROLE_OWNER)),
+):
+    """Connect GitHub to the current workspace (owners only)."""
+    return start_flow(github_identity.PURPOSE_CONNECT, ws.user_id, binding)
 
 
 @router.get("/callback")
-def callback(code: str | None = None, state: str | None = None):
+def callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+):
     """Where GitHub sends the browser. Unauthenticated by necessity.
 
-    Returns a redirect in every case, including every failure: the user
-    is sitting on the API origin with no application loaded, so the only
-    useful thing this can do is put them back in the SPA with a reason
-    it can render. Nothing here echoes `code`, `state` or the token into
-    the redirect, a log line, or an error.
+    Redirects in every case. Never echoes the code, state or token into a
+    redirect, log line or error.
     """
-    # Not _require_oauth_app(): a 503 body rendered on the API origin is
-    # a dead end with no way back into the app, and this is an operator
-    # error the user can do nothing about. Redirect with a reason like
-    # every other failure here.
     settings = get_settings()
-    client_id = settings.github_client_id
-    client_secret = settings.github_client_secret
-    if not client_id or not client_secret:
-        logger.error(
-            "GitHub redirected to the OAuth callback but this instance has "
-            "no GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET configured"
-        )
-        return _redirect("oauth_not_configured")
-
+    if error:
+        # The user pressed Cancel on GitHub's consent screen.
+        return _complete_redirect(error="access_denied")
+    if not settings.github_client_id or not settings.github_client_secret:
+        logger.error("OAuth callback reached but GITHUB_CLIENT_ID/SECRET are unset")
+        return _complete_redirect(error="oauth_not_configured")
     if not code or not state:
-        return _redirect("missing_code")
+        return _complete_redirect(error="missing_code")
 
-    # One use. An unknown, replayed or expired state is refused
-    # identically -- the difference is not the caller's business, and
-    # spelling it out helps only someone probing.
     try:
-        owner_id = github_identity.consume_state(state)
+        state_row = github_identity.consume_state(state)
     except RuntimeError as exc:
         logger.error("Could not validate OAuth state: %s", exc)
-        return _redirect("graph_unavailable")
-
-    if not owner_id:
+        return _complete_redirect(error="storage_failed")
+    if not state_row or not state_row.get("browser_binding"):
         logger.warning("Rejected a GitHub OAuth callback with an invalid state")
-        return _redirect("invalid_state")
+        return _complete_redirect(error="invalid_state")
 
     try:
         resp = requests.post(
             GITHUB_TOKEN_URL,
-            # redirect_uri must be repeated here, byte-identical to the
-            # one sent to /authorize. GitHub compares them and refuses the
-            # code if they differ -- which surfaces as exchange_failed,
-            # with nothing in the message to say the URIs disagreed.
+            # redirect_uri repeated byte-identical to /authorize, or GitHub
+            # refuses the code with nothing in the message about URIs.
             data={
-                "client_id": client_id,
-                "client_secret": client_secret,
+                "client_id": settings.github_client_id,
+                "client_secret": settings.github_client_secret,
                 "code": code,
                 "state": state,
                 **(
@@ -208,58 +187,56 @@ def callback(code: str | None = None, state: str | None = None):
         )
     except requests.RequestException as exc:
         logger.error("GitHub token exchange failed: %s", exc.__class__.__name__)
-        return _redirect("github_unreachable")
-
-    if resp.status_code != 200:
-        logger.error("GitHub token exchange returned %s", resp.status_code)
-        return _redirect("exchange_failed")
+        return _complete_redirect(error="github_unreachable")
 
     try:
-        payload = resp.json()
+        payload = resp.json() if resp.status_code == 200 else {}
     except ValueError:
-        return _redirect("exchange_failed")
-
+        payload = {}
     # GitHub answers 200 with {"error": "bad_verification_code"} for a
-    # reused or expired code, so the status alone proves nothing.
-    if payload.get("error"):
-        logger.error(
-            "GitHub refused the code exchange: %s", payload.get("error")
-        )
-        return _redirect("exchange_failed")
-
-    token = payload.get("access_token")
+    # reused code, so the status alone proves nothing.
+    token = payload.get("access_token") if not payload.get("error") else None
     if not token:
-        return _redirect("exchange_failed")
+        logger.error("GitHub refused the code exchange: %s", payload.get("error") or resp.status_code)
+        return _complete_redirect(error="exchange_failed")
 
-    # Scopes as GitHub actually granted them, which can be narrower than
-    # what was asked for -- a user can decline private-repo access on the
-    # consent screen. Storing the request instead of the grant would make
-    # the UI claim an access level the token does not have.
-    granted = [
-        s.strip() for s in (payload.get("scope") or "").split(",") if s.strip()
-    ]
+    granted = [s.strip() for s in (payload.get("scope") or "").split(",") if s.strip()]
 
     try:
         identity = github_service.validate_token(token)
     except HTTPException:
-        # A token GitHub just issued that GitHub then rejects is not a
-        # user error; there is nothing for them to do but retry.
         logger.error("A freshly issued GitHub token failed validation")
-        return _redirect("validation_failed")
+        return _complete_redirect(error="validation_failed")
+    if not identity.get("id"):
+        return _complete_redirect(error="validation_failed")
+
+    email, verified = github_service.primary_verified_email(token)
 
     try:
-        github_identity.save_connection(
-            owner_id,
-            token=token,
-            login=identity["login"],
-            avatar_url=identity["avatar_url"],
-            scopes=granted or identity["scopes"],
-            method=github_identity.METHOD_OAUTH,
+        completion = github_signin.park_completion(
+            state_row, token, identity, email, verified, granted or identity["scopes"]
         )
-    except (RuntimeError, ValueError) as exc:
-        # Encryption unavailable, or the graph is down. Neither message
-        # goes to the browser -- it gets a reason code.
-        logger.error("Could not store the GitHub connection: %s", exc)
-        return _redirect("storage_failed")
+    except Exception as exc:
+        logger.error("Could not park the GitHub completion: %s", exc)
+        return _complete_redirect(error="storage_failed")
 
-    return _redirect()
+    return _complete_redirect(code=completion, purpose=state_row["purpose"])
+
+
+@router.post("/exchange", response_model=ConnectExchangeResponse)
+def exchange(
+    body: ExchangeRequest,
+    ws: Workspace = Depends(require_role(ROLE_OWNER)),
+):
+    """Finish a connect flow started by this user, in this browser."""
+    try:
+        row = github_signin.redeem(
+            body.code, body.verifier, github_identity.PURPOSE_CONNECT
+        )
+        result = github_signin.finish_connect(row, ws.user_id, ws.workspace_id)
+    except github_signin.FlowError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.reason)
+    except (RuntimeError, ValueError) as exc:
+        logger.error("Could not store the GitHub connection: %s", exc)
+        raise HTTPException(status_code=503, detail="storage_failed")
+    return ConnectExchangeResponse(**result)

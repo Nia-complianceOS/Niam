@@ -22,11 +22,19 @@ class GapStatus(str, Enum):
     fix_generated = "fix_generated"
     pr_opened = "pr_opened"
     resolved = "resolved"
+    # Two-stage review (review_service). in_review covers every state
+    # between the draft reaching legal and the pull request opening.
+    in_review = "in_review"
+    dismissed = "dismissed"
+    risk_accepted = "risk_accepted"
 
     OPEN = open
     FIX_GENERATED = fix_generated
     PR_OPENED = pr_opened
     RESOLVED = resolved
+    IN_REVIEW = in_review
+    DISMISSED = dismissed
+    RISK_ACCEPTED = risk_accepted
 
 
 class PRStatus(str, Enum):

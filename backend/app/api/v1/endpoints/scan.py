@@ -22,14 +22,14 @@ import asyncio
 import json
 import logging
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 
-from app.api.deps import require_auth
+from app.api.deps import require_owner_id, require_writer
 from app.core.config import get_settings
 from app.services import scan_service, scan_store, workspace_service
 
@@ -137,7 +137,7 @@ def _enforce_rate_limit(user_id: str) -> None:
 def start_scan(
     body: ScanRequest,
     background: BackgroundTasks,
-    user_id: str = Depends(require_auth),
+    user_id: str = Depends(require_writer),
 ):
     _enforce_rate_limit(user_id)
 
@@ -161,6 +161,13 @@ def start_scan(
             ref=body.ref,
             system_name=system_name,
         )
+    except scan_store.ScanAlreadyRunning:
+        # The database's answer, which holds even when two requests pass
+        # _enforce_rate_limit() at the same moment.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="You already have a scan running. Wait for it to finish before starting another.",
+        )
     except RuntimeError as exc:
         # Registering the scan is what makes it observable. Starting the
         # background task anyway would run the work with nowhere to report.
@@ -177,16 +184,34 @@ def start_scan(
     return ScanStartedResponse(scan_id=scan_id)
 
 
-@router.get("/{scan_id}/events")
-async def scan_events(scan_id: str, user_id: str = Depends(require_auth)):
-    # The ownership check is now inside scan_store.get()'s Cypher, so
-    # another account's scan simply does not come back. The old check
-    # here ran in Python AFTER the row -- repo name, ref and progress log
-    # included -- had already been read out of the graph, and it was
-    # conditional on `scan.get("user_id")` being truthy, so a scan stored
-    # with no user (the webhook path) was streamed to any caller.
+HEARTBEAT_SECONDS = 15
+
+
+def _is_stale(row: dict) -> bool:
+    """A scan whose owning process died never writes a terminal status."""
+    updated = row.get("updated_at")
+    if not updated:
+        return False
     try:
-        scan = scan_store.get(user_id, scan_id)
+        ts = datetime.fromisoformat(str(updated).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return datetime.now(timezone.utc) - ts > scan_store.STALE_AFTER
+
+
+@router.get("/{scan_id}/events")
+async def scan_events(scan_id: str, user_id: str = Depends(require_owner_id)):
+    """Progress as server-sent events.
+
+    Every connection replays the whole log from the start, so a client
+    that reconnects loses nothing (the frontend de-duplicates). The
+    Supabase client is synchronous, so each read runs in a worker thread
+    instead of blocking the event loop for every other request. A comment
+    line is sent every 15 seconds so proxies and the browser do not drop
+    the connection during the long classification step.
+    """
+    try:
+        scan = await asyncio.to_thread(scan_store.get, user_id, scan_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     if scan is None:
@@ -194,11 +219,10 @@ async def scan_events(scan_id: str, user_id: str = Depends(require_auth)):
 
     async def event_stream():
         last_yielded = 0
-        # One second rather than half: every poll is a Cypher round trip
-        # now, and the events being reported take seconds each anyway.
+        last_sent = asyncio.get_running_loop().time()
         while True:
             try:
-                current = scan_store.get(user_id, scan_id)
+                current = await asyncio.to_thread(scan_store.get, user_id, scan_id)
             except RuntimeError as exc:
                 yield f"data: {json.dumps({'event': 'failed', 'error': str(exc)})}\n\n"
                 return
@@ -209,10 +233,41 @@ async def scan_events(scan_id: str, user_id: str = Depends(require_auth)):
             while last_yielded < len(log):
                 yield f"data: {json.dumps(log[last_yielded])}\n\n"
                 last_yielded += 1
+                last_sent = asyncio.get_running_loop().time()
 
-            if current.get("status") in ("completed", "failed"):
-                break
+            status_now = current.get("status")
+            if status_now in ("completed", "failed"):
+                # If the terminal entry never made it into the log (a
+                # logging failure is swallowed so it cannot kill a scan),
+                # synthesise one so the client is not left waiting.
+                if not any(
+                    isinstance(e, dict) and e.get("event") in ("completed", "failed")
+                    for e in log
+                ):
+                    terminal = {"event": status_now}
+                    if status_now == "failed":
+                        terminal["error"] = current.get("error") or "Scan failed"
+                    yield f"data: {json.dumps(terminal)}\n\n"
+                return
+
+            if _is_stale(current):
+                yield "data: " + json.dumps(
+                    {
+                        "event": "failed",
+                        "error": "The scan stopped reporting progress (the server may have restarted). Start it again.",
+                    }
+                ) + "\n\n"
+                return
+
+            now = asyncio.get_running_loop().time()
+            if now - last_sent >= HEARTBEAT_SECONDS:
+                yield ": ping\n\n"
+                last_sent = now
 
             await asyncio.sleep(1.0)
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

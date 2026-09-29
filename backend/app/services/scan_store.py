@@ -72,6 +72,27 @@ def create(
         )
     try:
         supabase = get_supabase()
+        # Retire this account's orphaned scans first. Migration 003 adds a
+        # partial unique index allowing one queued/running scan per
+        # account, which is what makes "one at a time" hold under
+        # concurrent requests -- and a scan whose process died would
+        # otherwise hold that slot forever.
+        stale_before = (datetime.now(timezone.utc) - STALE_AFTER).isoformat()
+        try:
+            supabase.table("scans").update(
+                {
+                    "status": "failed",
+                    "error": "Abandoned: no progress for 30 minutes",
+                    "updated_at": _now(),
+                }
+            ).eq("user_id", owner_id).in_("status", ["queued", "running"]).lt(
+                "updated_at", stale_before
+            ).execute()
+        except Exception as exc:
+            logger.warning("Could not retire stale scans for %s: %s", owner_id, exc)
+    except Exception as e:
+        raise RuntimeError(f"Database error in create: {e}")
+    try:
         supabase.table("scans").insert(
             {
                 "id": scan_id,
@@ -88,7 +109,15 @@ def create(
             }
         ).execute()
     except Exception as e:
+        text = str(e)
+        if "scans_one_active_per_user" in text or "23505" in text:
+            raise ScanAlreadyRunning() from e
         raise RuntimeError(f"Database error in create: {e}")
+
+
+class ScanAlreadyRunning(Exception):
+    """Another scan for this account is queued or running (enforced by the
+    partial unique index from migration 003, so it holds under races)."""
 
 
 def set_status(
@@ -187,9 +216,12 @@ def get(owner_id: str, scan_id: str) -> dict[str, Any] | None:
             .execute()
         )
         
-        if not response.data:
+        # maybe_single() returns None, not a response with empty data, when
+        # there is no row. Reading `.data` off None raised, which turned an
+        # unknown scan id into a 503 instead of a 404.
+        if not response or not getattr(response, "data", None):
             return None
-            
+
         row = response.data
         if not row.get("log"):
             row["log"] = []

@@ -53,10 +53,6 @@ OWNED_LABELS = (
 # Queries that touch an owned label and deliberately carry no owner
 # filter. Each one needs a reason that survives being read aloud.
 UNSCOPED_BY_DESIGN = {
-    # Counts running scans across every account to enforce the global
-    # concurrency cap on a shared classifier quota. Returns one integer
-    # and no property of anyone's scan.
-    ("scan_store", "_GLOBAL_RUNNING"),
     # Label-free `(a)-[r]->(b)`, bounded to elementIds that came from the
     # owner-filtered node query. There is no label in the pattern to hang
     # a filter on; its scoping is inherited from _QUERY_NODES.
@@ -117,6 +113,9 @@ SERVICE_FILES = [
     "app/services/scan_service.py",
     "app/services/user_service.py",
     "app/services/workspace_service.py",
+    "app/services/membership_service.py",
+    "app/services/review_service.py",
+    "app/services/github_signin.py",
 ]
 
 
@@ -130,12 +129,32 @@ def _docstring_nodes(tree):
     return out
 
 
+def _scoped_fstring_parts(tree):
+    """Literal pieces of f-strings that interpolate GAP_SCOPE_PREDICATE.
+
+    That predicate is `g.owner_id = $owner_id AND (<system scope>)`; the
+    literal pieces around it do not contain $owner_id themselves, but the
+    rendered query does. test_gap_scope_predicate_filters_by_owner()
+    checks the predicate itself."""
+    out = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.JoinedStr):
+            names = {
+                v.value.id
+                for v in node.values
+                if isinstance(v, ast.FormattedValue) and isinstance(v.value, ast.Name)
+            }
+            if "GAP_SCOPE_PREDICATE" in names:
+                out.update(id(v) for v in node.values if isinstance(v, ast.Constant))
+    return out
+
+
 def _inline_queries():
     root = pathlib.Path(__file__).resolve().parent.parent
     for rel in SERVICE_FILES:
         source = (root / rel).read_text(encoding="utf-8")
         tree = ast.parse(source)
-        skip = _docstring_nodes(tree)
+        skip = _docstring_nodes(tree) | _scoped_fstring_parts(tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Constant):
                 continue
@@ -175,7 +194,16 @@ def test_supabase_queries_filter_by_owner():
         tree = ast.parse(source)
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
-                if node.name in ("global_running", "create_user", "consume_state", "create_state", "get_user_by_email", "get_user_by_id"):
+                if node.name in (
+                    "global_running", "create_user", "consume_state", "create_state",
+                    "get_user_by_email", "get_user_by_id",
+                    # Keyed on a provider's user id or a list of user ids
+                    # for display names; neither is tenant data.
+                    "get_identity", "names_for",
+                    # Invites are found by the hash of a secret token, and
+                    # OAuth completions by the hash of a one-time code.
+                    "_find_invite", "accept_invite", "park_completion", "_take_completion",
+                ):
                     continue  # Unscoped by design, handles its own pk, or gets state/user
                 for child in ast.walk(node):
                     if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and child.func.attr == "execute":
@@ -187,12 +215,12 @@ def test_supabase_queries_filter_by_owner():
                                 if curr.func.attr == "table":
                                     is_supabase = True
                                 elif curr.func.attr == "eq" and curr.args:
-                                    if isinstance(curr.args[0], ast.Constant) and curr.args[0].value in ("user_id", "owner_id", "id"):
+                                    if isinstance(curr.args[0], ast.Constant) and curr.args[0].value in ("user_id", "owner_id", "id", "workspace_id"):
                                         has_user_id = True
                                 elif curr.func.attr in ("insert", "update", "upsert") and curr.args:
                                     if isinstance(curr.args[0], ast.Dict):
                                         for key in curr.args[0].keys:
-                                            if isinstance(key, ast.Constant) and key.value in ("user_id", "owner_id", "id"):
+                                            if isinstance(key, ast.Constant) and key.value in ("user_id", "owner_id", "id", "workspace_id"):
                                                 has_user_id = True
                                 curr = curr.func.value
                             else:
@@ -278,3 +306,11 @@ def test_owner_id_is_the_first_parameter(module, func_name):
         f"{func_name} defaults owner_id to {default!r}; there is no "
         "sensible account to guess."
     )
+
+
+def test_gap_scope_predicate_filters_by_owner():
+    """The shared system-scope predicate carries the owner filter, so
+    every query built from it is owner-scoped."""
+    from reconciliation.reconciler import GAP_SCOPE_PREDICATE
+
+    assert "g.owner_id = $owner_id" in GAP_SCOPE_PREDICATE

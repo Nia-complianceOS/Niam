@@ -1,57 +1,68 @@
 """
-GET /api/v1/gaps
-GET /api/v1/gaps/{gap_id}
+GET  /api/v1/gaps
+GET  /api/v1/gaps/{gap_id}
 POST /api/v1/gaps/{gap_id}/generate-fix
 POST /api/v1/gaps/{gap_id}/open-pr
 
-The last route is the one write action that crosses into GitHub. It is
-NOT a stub -- github_service.open_compliance_pr() creates branches,
-commits files and opens pull requests with GITHUB_TOKEN. It is guarded
-three ways: GITHUB_DRY_RUN (default true) logs the intent and creates
-nothing, PR_ALLOWED_REPOS is an explicit allow-list that denies
-everything when empty, and the target repo comes only from the gap's
-own source commit -- there is no fallback.
+Every route is scoped to the caller's workspace (deps.require_owner_id).
+A gap id in the path is user-supplied and never trusted: another
+workspace's gap 404s exactly like one that does not exist.
 
-Every route takes the account from the JWT (Depends(require_auth)) and
-hands it to gap_service as the first argument. The gap id in the path is
-user-supplied and is never trusted on its own: a gap belonging to another
-account 404s, identically to one that does not exist. That matters most
-on open-pr, where acting on somebody else's gap would push a commit to
-their repository.
+generate-fix drafts the amendment AND sends it to legal review. open-pr
+no longer opens anything on its own: a pull request opens only when a
+finding's review has owner approval (review_service). The route stays so
+an owner can retry a pull request that GitHub refused after approval.
 """
 
 from fastapi import APIRouter, Depends
 
-from app.api.deps import require_auth
+from app.api.deps import (
+    ROLE_LEGAL,
+    ROLE_MEMBER,
+    ROLE_OWNER,
+    Workspace,
+    require_owner_id,
+    require_role,
+)
 from app.schemas.gaps import Gap, GapsResponse, GenerateFixResponse
-from app.schemas.prs import OpenPRResponse
-from app.services import gap_service, github_service
+from app.services import gap_service, review_service
 
 router = APIRouter()
 
 
 @router.get("", response_model=GapsResponse)
-def list_gaps(user_id: str = Depends(require_auth)):
-    return gap_service.list_gaps(user_id)
+def list_gaps(owner_id: str = Depends(require_owner_id)):
+    resp = gap_service.list_gaps(owner_id)
+    resp.gaps = review_service.apply_to_gaps(owner_id, resp.gaps)
+    resp.open_gap_count = sum(
+        1 for g in resp.gaps if g.status not in ("resolved", "dismissed", "risk_accepted")
+    )
+    return resp
 
 
 @router.get("/{gap_id}", response_model=Gap)
-def get_gap(gap_id: str, user_id: str = Depends(require_auth)):
-    return gap_service.get_gap(user_id, gap_id)
+def get_gap(gap_id: str, owner_id: str = Depends(require_owner_id)):
+    gap = gap_service.get_gap(owner_id, gap_id)
+    return review_service.apply_to_gaps(owner_id, [gap])[0]
 
 
 @router.post("/{gap_id}/generate-fix", response_model=GenerateFixResponse)
-def generate_fix(gap_id: str, user_id: str = Depends(require_auth)):
-    drafts = gap_service.generate_fix(user_id, gap_id)
-    return GenerateFixResponse(gap_id=gap_id, remediation_drafts=drafts)
+def generate_fix(
+    gap_id: str,
+    ws: Workspace = Depends(require_role(ROLE_OWNER, ROLE_MEMBER, ROLE_LEGAL)),
+):
+    drafts = gap_service.generate_fix(ws.workspace_id, gap_id)
+    gap = gap_service.get_gap(ws.workspace_id, gap_id)
+    review = review_service.start_review(ws, gap)
+    return GenerateFixResponse(
+        gap_id=gap_id,
+        remediation_drafts=drafts,
+        review_id=review["id"],
+        review_state=review["state"],
+    )
 
 
-@router.post("/{gap_id}/open-pr", response_model=OpenPRResponse)
-def open_pr(gap_id: str, user_id: str = Depends(require_auth)):
-    # get_gap() first, and not only to load the gap: it is the ownership
-    # check that stands between a guessed gap id and a branch pushed to
-    # somebody else's repository.
-    gap = gap_service.get_gap(user_id, gap_id)
-    pr = github_service.open_compliance_pr(user_id, gap)
-    gap_service.mark_pr_opened(user_id, gap_id, pr.id)
-    return OpenPRResponse(pull_request=pr)
+@router.post("/{gap_id}/open-pr")
+def open_pr(gap_id: str, ws: Workspace = Depends(require_role(ROLE_OWNER))):
+    """Retry opening the pull request for an owner-approved finding."""
+    return review_service.open_pr_for_gap(ws, gap_id)

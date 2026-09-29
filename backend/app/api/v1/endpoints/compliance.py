@@ -17,7 +17,7 @@ has.
 
 from fastapi import APIRouter, Depends
 
-from app.api.deps import require_auth
+from app.api.deps import require_owner_id
 from app.schemas.audit import AuditResponse
 from app.schemas.policies import PoliciesResponse
 from app.schemas.regulations import RegulationsResponse
@@ -28,20 +28,20 @@ router = APIRouter()
 
 
 @router.get("/vendors", response_model=VendorsResponse)
-def vendors(user_id: str = Depends(require_auth)):
+def vendors(user_id: str = Depends(require_owner_id)):
     return gap_service.list_vendors(user_id)
 
 
 @router.get("/regulations", response_model=RegulationsResponse)
-def regulations(user_id: str = Depends(require_auth)):
+def regulations(user_id: str = Depends(require_owner_id)):
     return gap_service.list_regulations(user_id)
 
 
 @router.get("/policies", response_model=PoliciesResponse)
-def policies(user_id: str = Depends(require_auth)):
+def policies(user_id: str = Depends(require_owner_id)):
     return gap_service.list_policies(user_id)
 
 
 @router.get("/audit", response_model=AuditResponse)
-def audit(user_id: str = Depends(require_auth)):
+def audit(user_id: str = Depends(require_owner_id)):
     return gap_service.list_audit_events(user_id)

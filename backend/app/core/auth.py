@@ -8,12 +8,22 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 ALGORITHM = "HS256"
 
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+def verify_password(plain_password: str, hashed_password: str | None) -> bool:
+    if not hashed_password:
+        return False
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except ValueError:
+        return False
 
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
+
+
+# A real bcrypt hash of a random string, verified against when an email has
+# no account (or no password) so login takes the same time either way.
+DUMMY_HASH = pwd_context.hash("niam-timing-equaliser-not-a-password")
 
 
 def create_access_token(

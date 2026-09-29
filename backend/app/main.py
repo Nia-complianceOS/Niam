@@ -32,7 +32,21 @@ async def lifespan(app: FastAPI):
     # now requires a real JWT. What is still worth shouting about is a
     # deployment running on the default signing key, which would let
     # anybody mint their own valid token.
-    if settings.jwt_secret == "dev-secret-do-not-use-in-prod":
+    weak_secret = (
+        not settings.jwt_secret
+        or settings.jwt_secret == "dev-secret-do-not-use-in-prod"
+        or len(settings.jwt_secret) < 32
+    )
+    if weak_secret and settings.app_env != "development":
+        # Refuse to start. An empty or default signing key lets anybody
+        # mint a valid token for any account, and a warning in a log
+        # nobody reads is not a control.
+        raise RuntimeError(
+            "JWT_SECRET is empty, the development default, or shorter than "
+            "32 characters. Set a long random JWT_SECRET (APP_ENV="
+            f"{settings.app_env})."
+        )
+    if weak_secret:
         logger.warning(
             "JWT_SECRET is unset and using the default development value. "
             "Anyone who knows it can forge a valid token. Set a long random "

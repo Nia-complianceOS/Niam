@@ -287,8 +287,11 @@ def _gap_from_graph_row(row: dict) -> Gap:
         ai_recommendation=node.get("ai_recommendation", ""),
         remediation_drafts=drafts,
         pr_id=pr["id"] if pr is not None else None,
-        pr_url=pr.get("url") if pr is not None else None,
+        # The node stores `github_pr_url` (github_service._MERGE_PR); reading
+        # "url" made this null for every gap, so the PR link never showed.
+        pr_url=(pr.get("github_pr_url") or None) if pr is not None else None,
         pr_number=pr.get("number") if pr is not None else None,
+        system_name=node.get("system_name"),
         detected_at=node.get("detected_at"),
         updated_at=node.get("updated_at"),
     )
@@ -429,6 +432,32 @@ def generate_fix(owner_id: str, gap_id: str) -> list[RemediationDraft]:
         raise HTTPException(status_code=503, detail=str(exc))
 
     return gap.remediation_drafts
+
+
+_REVIEW_STATUSES = {"in_review", "dismissed", "risk_accepted", "open"}
+
+
+def set_gap_status(owner_id: str, gap_id: str, status: str) -> None:
+    """Mirror a review outcome onto the :Gap. The reconciler preserves
+    these (reconciler.PRESERVED_STATUSES), so a re-scan does not quietly
+    reopen a finding legal is working on or has dismissed."""
+    if status not in _REVIEW_STATUSES:
+        raise ValueError(f"not a review status: {status}")
+    try:
+        run_query(
+            """
+        MATCH (g:Gap {id: $gap_id, owner_id: $owner_id})
+        SET g.status = $status, g.updated_at = $now
+        """,
+            {
+                "gap_id": gap_id,
+                "owner_id": owner_id,
+                "status": status,
+                "now": _NOW().isoformat(),
+            },
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
 
 def mark_pr_opened(owner_id: str, gap_id: str, pr_id: str) -> None:

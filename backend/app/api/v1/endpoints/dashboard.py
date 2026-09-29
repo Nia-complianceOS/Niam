@@ -8,7 +8,7 @@ FastAPI resolves it once per request either way.
 
 from fastapi import APIRouter, Depends
 
-from app.api.deps import require_auth
+from app.api.deps import require_owner_id
 from app.schemas.dashboard import DashboardSummaryResponse
 from app.services.dashboard_service import get_dashboard_summary
 
@@ -16,5 +16,5 @@ router = APIRouter()
 
 
 @router.get("/summary", response_model=DashboardSummaryResponse)
-def dashboard_summary(user_id: str = Depends(require_auth)):
+def dashboard_summary(user_id: str = Depends(require_owner_id)):
     return get_dashboard_summary(user_id)

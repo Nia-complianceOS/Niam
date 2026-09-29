@@ -208,35 +208,83 @@ def run_scan(
         )
         classified_results = scanner.scan_repo_remote(ref=ref, classify=True)
 
-        if classified_results:
+        stats = getattr(scanner, "last_scan_stats", None) or {}
+        if stats.get("truncated"):
+            # Said out loud, in the user's own scan log: a capped scan that
+            # reports "no findings" for lines it never read would be a
+            # compliance tool overstating its own coverage.
             scan_store.append_log(
                 owner_id,
                 scan_id,
                 {
-                    "event": "writing",
-                    "message": "Writing classifier output to Graph",
+                    "event": "scanning",
+                    "message": (
+                        f"Scan capped: classified {stats.get('max_candidates')} "
+                        f"of {stats.get('candidates_found')} candidate lines "
+                        f"({stats.get('candidates_dropped')} not reviewed). "
+                        "Raise SCAN_MAX_CANDIDATES to read more."
+                    ),
                 },
             )
-            writer = GraphWriter(owner_id=owner_id, **system_kwargs)
-            writer.write_classifier_output(classified_results)
+        if not classified_results:
+            scan_store.append_log(
+                owner_id,
+                scan_id,
+                {
+                    "event": "scanning",
+                    "message": "No lines were confirmed as handling personal data",
+                },
+            )
 
+        # Write and reconcile even when nothing was confirmed. Skipping
+        # both left every earlier finding for this repository standing
+        # after the code that caused it had been removed.
+        scan_store.append_log(
+            owner_id,
+            scan_id,
+            {"event": "writing", "message": "Writing classifier output to Graph"},
+        )
+        writer = GraphWriter(owner_id=owner_id, **system_kwargs)
+        try:
+            writer.write_classifier_output(classified_results)
             _load_policy_documents(
                 owner_id, scan_id, writer, repo_full_name, ref, token
             )
+        finally:
             writer.close()
 
+        scan_store.append_log(
+            owner_id,
+            scan_id,
+            {"event": "reconciling", "message": "Reconciling gaps against policy"},
+        )
+        reconciler = Reconciler(owner_id=owner_id, **system_kwargs)
+        try:
+            result = reconciler.find_and_write_gaps()
+        finally:
+            reconciler.close()
+        if isinstance(result, dict) and result.get("sweep_skipped"):
             scan_store.append_log(
                 owner_id,
                 scan_id,
                 {
                     "event": "reconciling",
-                    "message": "Reconciling gaps against policy",
+                    "message": (
+                        "Some data types could not be reconciled ("
+                        + ", ".join(result.get("failed_data_types") or [])
+                        + "); earlier findings were left open, not resolved"
+                    ),
                 },
             )
-            reconciler = Reconciler(owner_id=owner_id, **system_kwargs)
-            reconciler.find_and_write_gaps()
-            reconciler.close()
 
+        # The terminal log entry goes BEFORE the status flip. The progress
+        # stream stops once the status is final, so the other order could
+        # end a stream without it ever sending "completed".
+        scan_store.append_log(
+            owner_id,
+            scan_id,
+            {"event": "completed", "message": "Scan completed successfully"},
+        )
         scan_store.set_status(owner_id, scan_id, "completed")
         audit_service.log_event(
             owner_id,
@@ -245,14 +293,12 @@ def run_scan(
             f"Scan {scan_id} completed successfully on {repo_full_name}@{ref}",
             actor="User",
         )
-        scan_store.append_log(
-            owner_id,
-            scan_id,
-            {"event": "completed", "message": "Scan completed successfully"},
-        )
     except Exception as exc:
         logger.error("Scan %s failed: %s", scan_id, exc, exc_info=True)
         try:
+            scan_store.append_log(
+                owner_id, scan_id, {"event": "failed", "error": str(exc)}
+            )
             scan_store.set_status(owner_id, scan_id, "failed", error=str(exc))
             audit_service.log_event(
                 owner_id,
@@ -260,9 +306,6 @@ def run_scan(
                 "Repository scan failed",
                 f"Scan {scan_id} failed on {repo_full_name}@{ref}: {exc}",
                 actor="System",
-            )
-            scan_store.append_log(
-                owner_id, scan_id, {"event": "failed", "error": str(exc)}
             )
         except RuntimeError:
             # The graph is the thing that is down. Nothing left to write to.

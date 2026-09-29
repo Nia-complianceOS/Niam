@@ -205,23 +205,43 @@ def delete_connection(owner_id: str) -> bool:
         raise RuntimeError(f"Database error in delete_connection: {e}")
 
 
-def create_state(owner_id: str) -> str:
-    """Mint a one-use, expiring OAuth state bound to this account."""
-    if not owner_id:
+PURPOSE_CONNECT = "connect"
+PURPOSE_LOGIN = "login"
+
+
+def create_state(
+    owner_id: str | None,
+    purpose: str = PURPOSE_CONNECT,
+    browser_binding: str | None = None,
+) -> str:
+    """Mint a one-use, expiring OAuth state.
+
+    `purpose` is "connect" (a signed-in user adding repository access;
+    owner_id is that user) or "login" (sign in with GitHub; no user yet).
+    `browser_binding` is the SHA-256 of a verifier the SPA keeps in
+    sessionStorage. The flow can only be finished by presenting that
+    verifier, which ties it to the browser that started it: sending
+    somebody your connect link no longer attaches THEIR GitHub account to
+    YOUR workspace, and nobody can be signed into an attacker's account.
+    """
+    if purpose == PURPOSE_CONNECT and not owner_id:
         raise ValueError(
-            "create_state requires owner_id: the state is what identifies "
-            "the user when the callback arrives unauthenticated"
+            "create_state requires owner_id for a connect flow: the state "
+            "is what identifies the user when the callback arrives"
         )
+    if purpose not in (PURPOSE_CONNECT, PURPOSE_LOGIN):
+        raise ValueError(f"unknown OAuth purpose {purpose!r}")
+    if not browser_binding:
+        raise ValueError("create_state requires a browser binding")
     now = _now()
-    
+
     try:
         supabase = get_supabase()
-        
-        # Housekeeping: Purge expired states
+
+        # Housekeeping: purge expired states and completions.
         try:
             supabase.table("oauth_states").delete().lt("expires_at", now.isoformat()).execute()
         except Exception as exc:
-            # Housekeeping only. Failing it must not stop a user connecting.
             logger.warning("Could not purge expired OAuth states: %s", exc)
 
         state = secrets.token_urlsafe(32)
@@ -229,23 +249,23 @@ def create_state(owner_id: str) -> str:
             {
                 "state": state,
                 "user_id": owner_id,
+                "purpose": purpose,
+                "browser_binding": browser_binding,
                 "created_at": now.isoformat(),
                 "expires_at": (now + STATE_TTL).isoformat(),
             }
         ).execute()
-        
         return state
     except Exception as e:
         raise RuntimeError(f"Database error in create_state: {e}")
 
 
-def consume_state(state: str) -> str | None:
-    """Redeem a state, returning the owner it was issued to, or None.
+def consume_state(state: str) -> dict | None:
+    """Redeem a state: {"user_id", "purpose", "browser_binding"} or None.
 
-    None means unknown, already used, or expired -- all of which the
-    callback must treat identically: refuse, and say nothing about which
-    it was. The row is deleted as part of the same query, so two
-    concurrent redemptions of one state cannot both succeed.
+    None means unknown, already used, or expired -- all treated
+    identically. The row is deleted in the same statement that reads it,
+    so two concurrent redemptions cannot both succeed.
     """
     if not state:
         return None
@@ -253,42 +273,42 @@ def consume_state(state: str) -> str | None:
     try:
         supabase = get_supabase()
 
-        # Try atomic RPC first
         try:
             rpc_resp = supabase.rpc("consume_oauth_state", {"p_state": state}).execute()
-            if rpc_resp and rpc_resp.data is not None:
-                if isinstance(rpc_resp.data, str) and rpc_resp.data:
-                    return rpc_resp.data
-                if isinstance(rpc_resp.data, list) and rpc_resp.data:
-                    first = rpc_resp.data[0]
-                    return first.get("user_id") if isinstance(first, dict) else str(first)
+            data = getattr(rpc_resp, "data", None)
+            if isinstance(data, list):
+                if not data:
+                    return None
+                row = data[0] if isinstance(data[0], dict) else {"user_id": data[0]}
+                return {
+                    "user_id": row.get("user_id"),
+                    "purpose": row.get("purpose") or PURPOSE_CONNECT,
+                    "browser_binding": row.get("browser_binding"),
+                }
         except Exception:
-            # Fallback to atomic delete-first if RPC is not registered
+            # RPC not registered (migration 003/005 not applied): fall
+            # back to delete-first below.
             pass
 
-        # Atomic DELETE-first: PostgREST returns the deleted row(s).
-        # The DELETE serializes concurrent requests so only one caller gets the row back.
-        del_resp = (
-            supabase.table("oauth_states")
-            .delete()
-            .eq("state", state)
-            .execute()
-        )
-        rows = del_resp.data if del_resp and hasattr(del_resp, "data") and del_resp.data else []
+        del_resp = supabase.table("oauth_states").delete().eq("state", state).execute()
+        rows = del_resp.data if del_resp and getattr(del_resp, "data", None) else []
         if not rows:
             return None
 
         row = rows[0]
         expires_at = row.get("expires_at") or ""
         try:
-            if datetime.fromisoformat(expires_at.replace('Z', '+00:00')) < _now():
+            if datetime.fromisoformat(expires_at.replace("Z", "+00:00")) < _now():
                 logger.info("Rejected an expired GitHub OAuth state")
                 return None
-        except (TypeError, ValueError):
-            # An unparseable expiry is not a reason to trust the row.
+        except (TypeError, ValueError, AttributeError):
             logger.warning("Rejected an OAuth state with an unreadable expiry")
             return None
 
-        return row.get("user_id") or None
+        return {
+            "user_id": row.get("user_id"),
+            "purpose": row.get("purpose") or PURPOSE_CONNECT,
+            "browser_binding": row.get("browser_binding"),
+        }
     except Exception as e:
         raise RuntimeError(f"Database error in consume_state: {e}")

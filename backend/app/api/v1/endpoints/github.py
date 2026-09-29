@@ -28,7 +28,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.api.deps import require_auth
+from app.api.deps import require_owner_id, require_workspace_owner
 from app.schemas.prs import PRsResponse
 from app.schemas.repos import ReposResponse
 from app.services import github_identity, github_service
@@ -83,7 +83,7 @@ def repos(
         default=None,
         description="Case-insensitive substring filter on owner/repo.",
     ),
-    user_id: str = Depends(require_auth),
+    user_id: str = Depends(require_owner_id),
 ):
     """This user's repositories. 409 if they have not connected GitHub.
 
@@ -96,12 +96,12 @@ def repos(
 
 
 @router.get("/prs", response_model=PRsResponse)
-def pull_requests(user_id: str = Depends(require_auth)):
+def pull_requests(user_id: str = Depends(require_owner_id)):
     return github_service.list_pull_requests(user_id)
 
 
 @router.get("/connection", response_model=ConnectionStatus)
-def connection(user_id: str = Depends(require_auth)):
+def connection(user_id: str = Depends(require_owner_id)):
     try:
         return _status(user_id)
     except RuntimeError as exc:
@@ -113,7 +113,7 @@ def connection(user_id: str = Depends(require_auth)):
 
 @router.post("/connect-token", response_model=ConnectionStatus)
 def connect_token(
-    body: ConnectTokenRequest, user_id: str = Depends(require_auth)
+    body: ConnectTokenRequest, user_id: str = Depends(require_workspace_owner)
 ):
     """Connect by pasting a personal access token.
 
@@ -154,7 +154,7 @@ def connect_token(
 
 
 @router.delete("/connection", response_model=DisconnectResponse)
-def disconnect(user_id: str = Depends(require_auth)):
+def disconnect(user_id: str = Depends(require_workspace_owner)):
     """Forget this account's stored GitHub credential.
 
     This does not revoke anything at GitHub -- only the user can do that,
