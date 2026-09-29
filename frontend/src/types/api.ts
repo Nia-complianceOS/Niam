@@ -2,7 +2,16 @@
 // until we generate one from the other via the OpenAPI schema.
 
 export type ComplianceStatus = 'compliant' | 'warning' | 'gap' | 'unknown'
-export type GapStatus = 'open' | 'fix_generated' | 'pr_opened' | 'resolved'
+export type GapStatus =
+  | 'open'
+  | 'fix_generated'
+  | 'pr_opened'
+  | 'resolved'
+  // Two-stage review (backend review_service): in_review covers every
+  // state from "sent to legal" until the pull request opens.
+  | 'in_review'
+  | 'dismissed'
+  | 'risk_accepted'
 export type PRStatus = 'ready_for_review' | 'awaiting_author' | 'merged' | 'closed'
 export type RegulationCode = 'DPDP' | 'GDPR' | 'SOC2' | 'HIPAA'
 
@@ -90,6 +99,11 @@ export interface Gap {
   pr_id: string | null
   pr_url: string | null
   pr_number: number | null
+  // Which scanned repository (:System) the finding belongs to. null for
+  // findings written before the reconciler recorded it.
+  system_name: string | null
+  review_id: string | null
+  review_state: ReviewState | null
   detected_at: string
   updated_at: string
 }
@@ -111,6 +125,9 @@ export interface GapsResponse {
 export interface GenerateFixResponse {
   gap_id: string
   remediation_drafts: RemediationDraft[]
+  // The legal review the draft was sent to.
+  review_id: string | null
+  review_state: ReviewState | null
 }
 
 // --- dashboard.py -----------------------------------------------------------
@@ -379,4 +396,161 @@ export interface RemovalResponse {
   removed: RemovalCounts
   /** Set only by the reset. null for a single-repository removal. */
   reset_at: string | null
+}
+
+// --- reviews.py (two-stage approval) -----------------------------------------
+
+export type ReviewState =
+  | 'in_legal_review'
+  | 'legal_approved'
+  | 'owner_approved'
+  | 'pr_opened'
+  | 'pending_owner_ack'
+  | 'dismissed'
+  | 'risk_accepted'
+
+export type ReviewAction =
+  | 'edit'
+  | 'redo'
+  | 'approve'
+  | 'not_required'
+  | 'owner_approve'
+  | 'send_back'
+  | 'confirm'
+  | 'reject'
+  | 'open_pr'
+
+export interface ReviewApproval {
+  user_id: string
+  by: string
+  at: string
+  role?: string
+  version_no?: number | null
+  version_id?: string | null
+}
+
+export interface ReviewSummary {
+  id: string
+  gap_id: string
+  gap_title: string | null
+  state: ReviewState
+  approvals: { legal?: ReviewApproval; owner?: ReviewApproval }
+  // Both stages approved by the same person (allowed unless the
+  // workspace requires distinct approvers). Always shown as such.
+  self_approved: boolean
+  proposed_outcome: 'dismissed' | 'risk_accepted' | null
+  outcome_reason: string | null
+  review_by: string | null
+  pr_id: string | null
+  pr_url: string | null
+  // Why opening the pull request failed after owner approval, if it did.
+  last_error: string | null
+  created_at: string
+  // Send this back as expected_updated_at on the next action.
+  updated_at: string
+}
+
+export interface ReviewDocument {
+  file_path: string | null
+  title: string
+  summary: string
+  body: string
+}
+
+export interface ReviewVersion {
+  id: string
+  version_no: number
+  author_kind: 'ai' | 'human'
+  author_name: string | null
+  documents: ReviewDocument[]
+  // For an AI redo: the reviewer's instructions. For a human edit: the note.
+  instructions: string | null
+  // Advisory checks; never blocking.
+  analysis: { warnings?: string[]; verified_citation?: boolean; checked_at?: string }
+  created_at: string
+}
+
+export interface ReviewEvent {
+  action: string
+  actor_name: string | null
+  actor_role: string | null
+  comment: string | null
+  from_state: string | null
+  to_state: string | null
+  at: string
+}
+
+export interface ReviewDetail extends ReviewSummary {
+  current_version_id: string | null
+  require_distinct_approvers: boolean
+  versions: ReviewVersion[]
+  events: ReviewEvent[]
+}
+
+export interface ReviewActionRequest {
+  action: ReviewAction
+  expected_updated_at: string
+  comment?: string
+  documents?: { title?: string; summary?: string; body: string }[]
+  instructions?: string
+  outcome?: 'dismissed' | 'risk_accepted'
+  review_by?: string // YYYY-MM-DD
+}
+
+export interface ReviewCounts {
+  legal: number
+  owner: number
+}
+
+// --- team.py (workspaces) ----------------------------------------------------
+
+export type WorkspaceRole = 'owner' | 'legal' | 'member'
+
+export interface WorkspaceInfo {
+  workspace_id: string
+  name: string
+  role: WorkspaceRole
+  personal: boolean
+}
+
+export interface TeamMember {
+  user_id: string
+  role: WorkspaceRole
+  joined_at: string | null
+  email: string | null
+  name: string | null
+}
+
+export interface TeamResponse {
+  workspace: {
+    id: string
+    name: string
+    settings: { require_distinct_approvers?: boolean }
+    created_at?: string
+  }
+  members: TeamMember[]
+  my_role: WorkspaceRole
+  my_user_id: string
+}
+
+export interface InviteCreated {
+  // Shown once. Build the link as `${origin}/invite/${token}`.
+  token: string
+  role: WorkspaceRole
+  expires_at: string
+}
+
+export interface InviteSummary {
+  id: string
+  role: WorkspaceRole
+  created_at: string
+  expires_at: string
+  used_at: string | null
+}
+
+export interface InvitePreview {
+  workspace_id: string
+  workspace_name: string
+  role: WorkspaceRole
+  expires_at: string
 }

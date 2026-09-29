@@ -18,6 +18,11 @@ const PullRequests = lazy(() => import('@/pages/PullRequests'))
 const AuditTrail = lazy(() => import('@/pages/AuditTrail'))
 const Settings = lazy(() => import('@/pages/Settings'))
 const NotFound = lazy(() => import('@/pages/NotFound'))
+const Reviews = lazy(() => import('@/pages/Reviews'))
+const ReviewDetail = lazy(() => import('@/pages/ReviewDetail'))
+const Team = lazy(() => import('@/pages/Team'))
+const GitHubComplete = lazy(() => import('@/pages/GitHubComplete'))
+const Invite = lazy(() => import('@/pages/Invite'))
 
 export default function App() {
   return (
@@ -26,6 +31,10 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/" element={<LandingPage />} />
+        {/* Public: GitHub returns here for both sign-in and connect, and an
+            invite link is opened before the visitor has signed in. */}
+        <Route path="/auth/github/complete" element={<GitHubComplete />} />
+        <Route path="/invite/:token" element={<Invite />} />
         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/graph" element={<Graph />} />
@@ -36,6 +45,9 @@ export default function App() {
           <Route path="/policies" element={<Policies />} />
           <Route path="/pull-requests" element={<PullRequests />} />
           <Route path="/audit" element={<AuditTrail />} />
+          <Route path="/reviews" element={<Reviews />} />
+          <Route path="/reviews/:reviewId" element={<ReviewDetail />} />
+          <Route path="/team" element={<Team />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<NotFound />} />
         </Route>

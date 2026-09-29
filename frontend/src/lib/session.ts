@@ -13,8 +13,12 @@
 export const TOKEN_KEY = 'token'
 export const USER_KEY = 'niam_user'
 export const SIDEBAR_KEY = 'niam_sidebar_collapsed'
+// Which workspace this browser is acting in. Sent as X-Niam-Workspace on
+// every request; the server checks membership every time, so this is a
+// request, never a credential. Absent = the user's own workspace.
+export const WORKSPACE_KEY = 'niam_workspace'
 
-const KNOWN_KEYS = [TOKEN_KEY, USER_KEY, SIDEBAR_KEY]
+const KNOWN_KEYS = [TOKEN_KEY, USER_KEY, SIDEBAR_KEY, WORKSPACE_KEY]
 
 /**
  * Wipe every key this app owns.
@@ -57,6 +61,23 @@ export function readToken(): string | null {
 export function writeToken(token: string): void {
   try {
     localStorage.setItem(TOKEN_KEY, token)
+  } catch {
+    /* see clearStoredSession */
+  }
+}
+
+export function readWorkspaceId(): string | null {
+  try {
+    return localStorage.getItem(WORKSPACE_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function writeWorkspaceId(workspaceId: string | null): void {
+  try {
+    if (workspaceId) localStorage.setItem(WORKSPACE_KEY, workspaceId)
+    else localStorage.removeItem(WORKSPACE_KEY)
   } catch {
     /* see clearStoredSession */
   }

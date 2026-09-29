@@ -3,14 +3,15 @@ import { NavLink } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { SIDEBAR_KEY } from '@/lib/session'
 import { useGaps } from '@/hooks/useGaps'
+import { useReviewCounts } from '@/hooks/useReviewCounts'
 import { useTheme } from '@/context/ThemeContext'
 import { motion, AnimatePresence } from 'framer-motion'
+import { NiamMark } from '@/components/brand/NiamMark'
 import {
   LayoutDashboard,
   Share2,
   FolderGit2,
   Building2,
-  ShieldCheck,
   FileText,
   GitPullRequest,
   ScrollText,
@@ -22,6 +23,7 @@ import {
   Sun,
   Moon,
   Scale,
+  Stamp,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -30,7 +32,12 @@ interface NavItem {
   label: string
   icon: LucideIcon
   end?: boolean
-  badge?: (gapsCount: number) => number | null
+  badge?: (counts: BadgeCounts) => number | null
+}
+
+interface BadgeCounts {
+  gaps: number
+  reviews: number
 }
 
 interface NavSection {
@@ -49,7 +56,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Audit & Analysis',
     items: [
-      { to: '/gaps', label: 'Compliance Gaps', icon: ShieldAlert, badge: (count) => count > 0 ? count : null },
+      { to: '/gaps', label: 'Compliance Gaps', icon: ShieldAlert, badge: (c) => c.gaps > 0 ? c.gaps : null },
       { to: '/repositories', label: 'Repositories', icon: FolderGit2 },
       { to: '/vendors', label: 'Data Processors', icon: Building2 },
     ]
@@ -59,6 +66,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/regulations', label: 'DPDP Clauses', icon: Scale },
       { to: '/policies', label: 'Privacy Policies', icon: FileText },
+      { to: '/reviews', label: 'Legal Review', icon: Stamp, badge: (c) => c.reviews > 0 ? c.reviews : null },
       { to: '/pull-requests', label: 'Pull Requests', icon: GitPullRequest },
       { to: '/audit', label: 'Audit Trail', icon: ScrollText },
     ]
@@ -75,7 +83,14 @@ export function Sidebar({
   const { user, logout } = useAuth()
   const { gaps } = useGaps()
   const { theme, toggleTheme } = useTheme()
-  const openGapsCount = gaps.filter(g => g.status !== 'resolved').length
+  const openGapsCount = gaps.filter(
+    g => g.status !== 'resolved' && g.status !== 'dismissed' && g.status !== 'risk_accepted'
+  ).length
+  const reviewCounts = useReviewCounts()
+  const badgeCounts: BadgeCounts = {
+    gaps: openGapsCount,
+    reviews: reviewCounts.legal + reviewCounts.owner,
+  }
   
   const [isCollapsed, setIsCollapsed] = useState(() => {
     return localStorage.getItem(SIDEBAR_KEY) === 'true'
@@ -104,9 +119,11 @@ export function Sidebar({
 
       {/* Brand Header */}
       <div className={`flex items-center gap-2.5 pb-6 pt-1 border-b border-border/60 ${isCollapsed ? 'justify-center px-0' : 'px-2'}`}>
-        <div className="w-7 h-7 rounded border border-border bg-surface flex items-center justify-center text-text-primary flex-shrink-0">
-          <ShieldCheck size={16} strokeWidth={1.75} className="text-text-primary" />
-        </div>
+        <NiamMark
+          size={isCollapsed ? 22 : 20}
+          title={isCollapsed ? 'Niam' : ''}
+          className="text-text-primary flex-shrink-0"
+        />
         {!isCollapsed && (
           <div className="flex items-baseline gap-2 overflow-hidden">
             <span className="font-serif font-semibold text-[17px] tracking-tight text-text-primary">Niam</span>
@@ -149,9 +166,9 @@ export function Sidebar({
                     
                     {!isCollapsed && <span className="truncate">{label}</span>}
                     
-                    {!isCollapsed && badge && badge(openGapsCount) !== null && (
+                    {!isCollapsed && badge && badge(badgeCounts) !== null && (
                       <span className="ml-auto font-mono text-[10px] px-1.5 py-0.2 rounded border border-status-gap/30 bg-status-gap/10 text-status-gap font-medium">
-                        {badge(openGapsCount)}
+                        {badge(badgeCounts)}
                       </span>
                     )}
 
