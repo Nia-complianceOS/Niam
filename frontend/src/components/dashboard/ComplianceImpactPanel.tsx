@@ -2,17 +2,22 @@ import type { ReactNode } from 'react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import type { Gap } from '@/types/api'
-import { Sparkles, GitPullRequest, CheckCircle2, Clock } from 'lucide-react'
+import { Sparkles, CheckCircle2 } from 'lucide-react'
+import { GapReviewStatus } from '@/components/reviews/GapReviewStatus'
 
 interface Props {
   gap: Gap | undefined
   fixLoading: boolean
   actionError?: string | null
+  /** Drafts the fix and sends it to legal review. */
   onGenerateFix: () => void
-  onOpenPR: () => void
 }
 
-export function ComplianceImpactPanel({ gap, fixLoading, actionError, onGenerateFix, onOpenPR }: Props) {
+/**
+ * There is no "open PR" here: a pull request opens only when the owner
+ * approves the legal-approved version, on the review page.
+ */
+export function ComplianceImpactPanel({ gap, fixLoading, actionError, onGenerateFix }: Props) {
   return (
     <Card className="p-5">
       <div className="font-display text-[15px] font-semibold mb-1">Compliance Impact</div>
@@ -88,40 +93,18 @@ export function ComplianceImpactPanel({ gap, fixLoading, actionError, onGenerate
                   tone="good"
                   text={gap.pr_id ? `Resolved · PR #${gap.pr_id} merged` : 'Resolved'}
                 />
-              ) : gap.status === 'pr_opened' ? (
-                <StatusBanner
-                  icon={<Clock size={15} />}
-                  tone="neutral"
-                  text={gap.pr_id ? `PR #${gap.pr_id} opened — awaiting legal review` : 'Awaiting legal review'}
-                />
-              ) : gap.remediation_drafts.length === 0 ? (
+              ) : gap.review_id || gap.status === 'pr_opened' ? (
+                <GapReviewStatus gap={gap} compact />
+              ) : (
                 <Button size="block" onClick={onGenerateFix} disabled={fixLoading}>
                   {fixLoading ? (
-                    'Analyzing…'
+                    'Drafting…'
                   ) : (
                     <>
-                      <Sparkles size={14} /> Generate Fix
+                      <Sparkles size={14} /> Draft fix and send to legal review
                     </>
                   )}
                 </Button>
-              ) : (
-                <>
-                  <div className="text-[11px] font-semibold text-text-faint uppercase tracking-wide mb-2">Generated Updates</div>
-                  <div className="flex flex-col gap-2.5 mb-4">
-                    {gap.remediation_drafts.map((draft, i) => (
-                      <div key={i} className="flex gap-2.5 items-start p-2.5 bg-accent-green/5 border border-accent-green/15 rounded-[10px]">
-                        <span className="text-accent-green font-mono font-bold text-[13px]">＋</span>
-                        <div>
-                          <div className="text-[12.5px] font-semibold">{draft.document}</div>
-                          <div className="text-xs text-text-dim mt-0.5">{draft.summary}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <Button variant="ghost" size="block" onClick={onOpenPR}>
-                    <GitPullRequest size={14} /> Open Compliance PR
-                  </Button>
-                </>
               )}
             </div>
           </div>

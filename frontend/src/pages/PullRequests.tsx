@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { PRReviewModal } from '@/components/dashboard/PRReviewModal'
@@ -12,7 +12,9 @@ import { TableSkeleton } from '@/components/skeletons/TableSkeleton'
 import { usePullRequests } from '@/hooks/usePullRequests'
 import { useGitHubConnection } from '@/hooks/useGitHubConnection'
 import { AlertTriangle, ArrowRight, ExternalLink, FileText, GitPullRequest, User } from 'lucide-react'
-import type { PullRequest, PRStatus } from '@/types/api'
+import type { PullRequest, PRStatus, ReviewSummary } from '@/types/api'
+import { getReviews } from '@/services/api/client'
+import { useAsync } from '@/hooks/useAsync'
 import { useSEO } from '@/hooks/useSEO'
 import { motion } from 'framer-motion'
 
@@ -41,6 +43,14 @@ export default function PullRequests() {
   const { connection } = useGitHubConnection()
   const connected = Boolean(connection?.connected)
   const [selected, setSelected] = useState<PullRequest | null>(null)
+  // Which review approved each pull request, for the "Approved by" line.
+  // Optional: before the review tables exist this fails and reads as none.
+  const { data: reviews } = useAsync(() => getReviews('pr_opened').catch(() => [] as ReviewSummary[]))
+  const reviewFor = useMemo(() => {
+    const byPr = new Map<string, ReviewSummary>()
+    for (const r of reviews ?? []) if (r.pr_id) byPr.set(r.pr_id, r)
+    return (pr: PullRequest) => byPr.get(pr.id) ?? null
+  }, [reviews])
 
   if (error) {
     return (
@@ -48,7 +58,7 @@ export default function PullRequests() {
         <PageHeader
           eyebrow="Remediation Queue"
           title="Pull Requests"
-          subtitle="Proposed policy amendments and statutory remediations awaiting legal review."
+          subtitle="Policy amendments opened after legal review and owner approval. Merging follows each repository's own process on GitHub."
         />
         <ErrorState message={error} />
       </div>
@@ -61,7 +71,7 @@ export default function PullRequests() {
         <PageHeader
           eyebrow="Remediation Queue"
           title="Pull Requests"
-          subtitle="Proposed policy amendments and statutory remediations awaiting legal review."
+          subtitle="Policy amendments opened after legal review and owner approval. Merging follows each repository's own process on GitHub."
         />
         <TableSkeleton rows={3} />
       </div>
@@ -83,7 +93,7 @@ export default function PullRequests() {
       <PageHeader
         eyebrow="Remediation Queue"
         title="Pull Requests"
-        subtitle="Proposed policy amendments and statutory remediations awaiting legal review."
+        subtitle="Policy amendments opened after legal review and owner approval. Merging follows each repository's own process on GitHub."
       />
 
       {dryRunCount > 0 && (
@@ -103,13 +113,13 @@ export default function PullRequests() {
         connected ? (
           <EmptyState
             title="No Pending Remediation Requests"
-            message="No policy amendments or remediation pull requests are currently awaiting review. Inspect findings on the Compliance Gaps queue to draft amendments; once drafted, dossiers appear here for counsel sign-off."
+            message="No pull requests yet. Draft a fix from a finding; it goes to legal review, and the pull request opens here once the owner approves it."
             action={{ label: 'Inspect Compliance Gaps', to: '/gaps' }}
           />
         ) : (
           <GetStartedState
             title="Repository Connection Required"
-            message="Connect a source repository to begin automated compliance audits. When statutory gaps are detected, you can draft remediation PRs and review them here prior to submission."
+            message="Connect a source repository to begin automated compliance audits. Fixes you draft go through legal review and owner approval; the approved pull requests appear here."
           />
         )
       ) : (
@@ -119,6 +129,9 @@ export default function PullRequests() {
             const tone = prTone(pr.status, isDryRun)
             const cleanTitle = pr.title.replace(/^\[DRY RUN\]\s*/, '')
             const filesCount = pr.files?.length || 0
+            const review = reviewFor(pr)
+            const legalBy = review?.approvals.legal?.by
+            const ownerBy = review?.approvals.owner?.by
 
             return (
               <Card 
@@ -191,7 +204,13 @@ export default function PullRequests() {
                 <div className="px-5 py-3 border-t border-border-subtle bg-surface-sunken flex items-center justify-between text-xs">
                   <div className="flex items-center gap-1.5 text-text-muted truncate mr-2">
                     <User size={12} className="text-text-faint flex-shrink-0" />
-                    <span className="truncate">{pr.reviewer || 'Unassigned Reviewer'}</span>
+                    <span className="truncate" title={review?.self_approved ? 'Self-approved' : undefined}>
+                      {review
+                        ? legalBy && ownerBy && legalBy !== ownerBy
+                          ? `Approved by ${legalBy} and ${ownerBy}`
+                          : `Approved by ${legalBy ?? ownerBy ?? 'unknown'}${review.self_approved ? ' (self-approved)' : ''}`
+                        : 'Before approval workflow'}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1 text-text-primary group-hover:text-accent-clause font-medium text-xs transition-colors whitespace-nowrap">
                     <span>Examine Draft</span>
@@ -205,7 +224,7 @@ export default function PullRequests() {
       )}
 
       {selected && (
-        <PRReviewModal pr={selected} onClose={() => setSelected(null)} />
+        <PRReviewModal pr={selected} review={reviewFor(selected)} onClose={() => setSelected(null)} />
       )}
     </motion.div>
   )

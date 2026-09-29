@@ -3,10 +3,22 @@ import { useNavigate } from 'react-router-dom'
 import {
   abortInFlightRequests,
   getMe,
+  httpStatus,
+  isAbortError,
   login as apiLogin,
   signup as apiSignup,
+  type MeResponse,
+  type TokenResponse,
 } from '@/services/api/client'
-import { clearStoredSession, readToken, writeToken } from '@/lib/session'
+import {
+  clearStoredSession,
+  readToken,
+  readWorkspaceId,
+  writeToken,
+  writeWorkspaceId,
+} from '@/lib/session'
+import { safeNextPath } from '@/lib/redirect'
+import type { WorkspaceInfo, WorkspaceRole } from '@/types/api'
 
 interface User {
   id: string
@@ -22,8 +34,34 @@ interface AuthContextType {
    * under another -- see the note on logout() below.
    */
   userId: string | null
-  login: (email: string, password: string) => Promise<void>
-  signup: (email: string, name: string, password: string) => Promise<void>
+  /** Role in the workspace this browser is acting in (null until known). */
+  role: WorkspaceRole | null
+  /** The workspace every request acts in (the server's answer, not ours). */
+  workspaceId: string | null
+  /** Every workspace this account belongs to, personal first. */
+  workspaces: WorkspaceInfo[]
+  /** False for an account created with GitHub that has no password yet. */
+  hasPassword: boolean
+  /** GitHub login linked for sign-in, if any. */
+  githubLogin: string | null
+  /**
+   * `next` is where to land afterwards; anything that is not a same-origin
+   * path is ignored and the dashboard is used.
+   */
+  login: (email: string, password: string, next?: string | null) => Promise<void>
+  signup: (email: string, name: string, password: string, next?: string | null) => Promise<void>
+  /**
+   * Store a session the server has just issued (password or GitHub
+   * sign-in) and load the account. Does not navigate.
+   */
+  establishSession: (data: TokenResponse) => Promise<void>
+  /** Re-read /auth/me (after a password is set, GitHub is unlinked…). */
+  refreshAccount: () => Promise<void>
+  /**
+   * Act in another workspace. Reloads the app so nothing fetched for the
+   * previous workspace can flash on screen for the next one.
+   */
+  switchWorkspace: (workspaceId: string) => void
   logout: () => void
   isAuthenticated: boolean
   isLoading: boolean
@@ -57,8 +95,42 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
  *      hook has it in its dependency list, all cached page state is thrown
  *      away with it rather than being reused for the next account.
  */
+interface Account {
+  role: WorkspaceRole | null
+  workspaceId: string | null
+  workspaces: WorkspaceInfo[]
+  hasPassword: boolean
+  githubLogin: string | null
+}
+
+const NO_ACCOUNT: Account = {
+  role: null,
+  workspaceId: null,
+  workspaces: [],
+  hasPassword: true,
+  githubLogin: null,
+}
+
+const toAccount = (me: MeResponse): Account => ({
+  role: me.role,
+  workspaceId: me.workspace_id,
+  workspaces: me.workspaces ?? [],
+  hasPassword: me.has_password !== false,
+  githubLogin: me.github_login ?? null,
+})
+
+/**
+ * 403 on /auth/me with a workspace id stored means this browser is asking
+ * to act in a workspace the account was removed from (or that was
+ * deleted). The server answers the same for both, on purpose.
+ */
+function isStaleWorkspaceError(err: unknown): boolean {
+  return httpStatus(err) === 403 && !!readWorkspaceId()
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [account, setAccount] = useState<Account>(NO_ACCOUNT)
   const [isLoading, setIsLoading] = useState(true)
   const navigate = useNavigate()
 
@@ -80,41 +152,92 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // cached user object. An expired token, a rotated JWT_SECRET or a
     // deleted account all fail here -- which is better than rendering a
     // signed-in shell whose every request then 401s.
-    getMe()
-      .then((me) => setUser(toUser(me)))
-      .catch(() => {
+    // Removed from the workspace this browser was acting in: forget it
+    // and ask again as the personal workspace, once. Nothing else has
+    // mounted yet (ProtectedRoute waits on isLoading), so no reload is
+    // needed to keep stale data off screen.
+    const loadMe = () =>
+      getMe().catch((err) => {
+        if (!isStaleWorkspaceError(err)) throw err
+        writeWorkspaceId(null)
+        return getMe()
+      })
+
+    loadMe()
+      .then((me) => {
+        setUser(toUser(me))
+        setAccount(toAccount(me))
+      })
+      .catch((err) => {
+        // Cancelled because a new session is being established (a sign-in
+        // finished while this was in flight): that session owns storage
+        // now, so clearing it here would sign the new person straight out.
+        if (isAbortError(err)) return
         clearStoredSession()
         setUser(null)
+        setAccount(NO_ACCOUNT)
       })
       .finally(() => setIsLoading(false))
   }, [])
 
-  const persist = (data: { access_token: string; user_id: string; email: string; name: string | null }) => {
+  const establishSession = useCallback(async (data: TokenResponse) => {
     // Start from empty. Signing in without signing out first (a second
     // person on a shared machine typing a different email into the login
     // form) must not inherit a single byte from the previous session.
     abortInFlightRequests()
     clearStoredSession()
     writeToken(data.access_token)
+    // Role and workspaces come from /auth/me. The token response is
+    // enough to be signed in, so a failure here is not fatal: the pages
+    // still work, and role-gated controls stay hidden until known.
+    let nextAccount = NO_ACCOUNT
+    try {
+      nextAccount = toAccount(await getMe())
+    } catch {
+      /* keep NO_ACCOUNT */
+    }
+    setAccount(nextAccount)
     setUser(toUser(data))
-    navigate('/dashboard')
-  }
+  }, [])
 
-  const login = async (email: string, password: string) => {
+  const refreshAccount = useCallback(async () => {
+    const me = await getMe()
+    setUser(toUser(me))
+    setAccount(toAccount(me))
+  }, [])
+
+  const login = async (email: string, password: string, next?: string | null) => {
     // Errors propagate deliberately. The pages catch them and show the
     // message; swallowing them here is what made a wrong password look
     // like a dead button.
-    persist(await apiLogin(email, password))
+    await establishSession(await apiLogin(email, password))
+    navigate(safeNextPath(next) ?? '/dashboard')
   }
 
-  const signup = async (email: string, name: string, password: string) => {
-    persist(await apiSignup(email, password, name))
+  const signup = async (email: string, name: string, password: string, next?: string | null) => {
+    await establishSession(await apiSignup(email, password, name))
+    navigate(safeNextPath(next) ?? '/dashboard')
   }
+
+  const switchWorkspace = useCallback(
+    (workspaceId: string) => {
+      // The personal workspace's id is the user's id; storing nothing
+      // means "my own workspace" and survives that id never being sent.
+      const personal =
+        workspaceId === user?.id ||
+        account.workspaces.some((w) => w.workspace_id === workspaceId && w.personal)
+      abortInFlightRequests()
+      writeWorkspaceId(personal ? null : workspaceId)
+      window.location.assign('/dashboard')
+    },
+    [user, account.workspaces]
+  )
 
   const logout = useCallback(() => {
     abortInFlightRequests()
     clearStoredSession()
     setUser(null)
+    setAccount(NO_ACCOUNT)
     navigate('/login')
   }, [navigate])
 
@@ -123,8 +246,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         userId: user?.id ?? null,
+        role: user ? account.role : null,
+        workspaceId: user ? account.workspaceId : null,
+        workspaces: user ? account.workspaces : [],
+        hasPassword: account.hasPassword,
+        githubLogin: user ? account.githubLogin : null,
         login,
         signup,
+        establishSession,
+        refreshAccount,
+        switchWorkspace,
         logout,
         isAuthenticated: !!user,
         isLoading,

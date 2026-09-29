@@ -1,4 +1,4 @@
-import type { Gap, GapKind, GapSeverity } from '@/types/api'
+import type { Gap, GapKind, GapSeverity, GapStatus } from '@/types/api'
 
 /**
  * Plain English for everything the graph stores as a slug.
@@ -118,13 +118,26 @@ export function severityClasses(severity: GapSeverity | null): string {
 }
 
 /**
- * Most urgent first, then most recently detected. Severity was recorded by
- * the reconciler all along and the UI never used it, so a critical
- * undisclosed transfer sat in the same undifferentiated list as a
- * low-severity readiness item.
+ * Findings that are finished with: fixed in code (resolved), or closed by
+ * a legal decision without a change (dismissed, risk accepted). These do
+ * not count as open anywhere -- badges, dashboard, "urgent" lists.
+ */
+export const CLOSED_GAP_STATUSES: readonly GapStatus[] = ['resolved', 'dismissed', 'risk_accepted']
+
+export function isClosedGap(gap: Pick<Gap, 'status'>): boolean {
+  return CLOSED_GAP_STATUSES.includes(gap.status)
+}
+
+/**
+ * Open findings before closed ones; within each, most urgent first, then
+ * most recently detected. Severity was recorded by the reconciler all
+ * along and the UI never used it, so a critical undisclosed transfer sat
+ * in the same undifferentiated list as a low-severity readiness item.
  */
 export function sortGaps(gaps: Gap[]): Gap[] {
   return [...gaps].sort((a, b) => {
+    const closed = Number(isClosedGap(a)) - Number(isClosedGap(b))
+    if (closed !== 0) return closed
     const rank =
       (SEVERITY_RANK[b.severity ?? ''] ?? 0) -
       (SEVERITY_RANK[a.severity ?? ''] ?? 0)
@@ -163,11 +176,63 @@ export function gapMatches(gap: Gap, query: string): boolean {
   return haystack.includes(q)
 }
 
-export const GAP_STATUS_LABELS: Record<string, string> = {
+export const GAP_STATUS_LABELS: Record<GapStatus, string> = {
   open: 'Needs attention',
+  // A draft from before the approval workflow, never sent to review.
   fix_generated: 'Fix drafted',
-  pr_opened: 'With legal',
+  in_review: 'In review',
+  pr_opened: 'Pull request opened',
   resolved: 'Resolved',
+  dismissed: 'Dismissed',
+  risk_accepted: 'Risk accepted',
+}
+
+/** Filter menu order. */
+export const GAP_STATUS_ORDER: GapStatus[] = [
+  'open',
+  'fix_generated',
+  'in_review',
+  'pr_opened',
+  'resolved',
+  'dismissed',
+  'risk_accepted',
+]
+
+/**
+ * The status as a person should read it. "In review" is split by the
+ * review's own state, so the list says WHO the finding is waiting on.
+ */
+export function gapStatusLabel(gap: Pick<Gap, 'status' | 'review_state' | 'review_id'>): string {
+  if (gap.status === 'in_review') {
+    switch (gap.review_state) {
+      case 'in_legal_review':
+        return 'With legal review'
+      case 'legal_approved':
+        return 'Awaiting owner approval'
+      case 'owner_approved':
+        return 'Approved — PR not open'
+      case 'pending_owner_ack':
+        return 'Not required — awaiting owner'
+    }
+  }
+  if (gap.status === 'pr_opened' && !gap.review_id) return 'PR opened (pre-approval)'
+  return GAP_STATUS_LABELS[gap.status] ?? String(gap.status).replace(/_/g, ' ')
+}
+
+/** Chip colours by status, from the semantic status tokens only. */
+export function gapStatusClasses(gap: Pick<Gap, 'status'>): string {
+  switch (gap.status) {
+    case 'in_review':
+      return 'border-status-warning/30 bg-status-warning/10 text-status-warning'
+    case 'pr_opened':
+    case 'resolved':
+      return 'border-status-compliant/30 bg-status-compliant/10 text-status-compliant'
+    case 'dismissed':
+    case 'risk_accepted':
+      return 'border-border bg-bg-subtle text-text-secondary'
+    default:
+      return 'border-border bg-bg-subtle text-text-tertiary'
+  }
 }
 
 /**

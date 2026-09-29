@@ -13,6 +13,7 @@ const ROUTE_NAMES: Record<string, string> = {
   '/pull-requests': 'Pull Requests',
   '/audit': 'Audit Trail',
   '/settings': 'Settings',
+  '/team': 'Team',
 }
 
 export function Breadcrumbs() {

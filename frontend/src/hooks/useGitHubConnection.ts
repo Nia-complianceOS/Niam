@@ -7,6 +7,7 @@ import {
   isAbortError,
   startGitHubOAuth,
 } from '@/services/api/client'
+import { beginGitHubFlow } from '@/lib/githubFlow'
 import type { GitHubConnection } from '@/types/api'
 
 export type ConnectionPhase =
@@ -80,11 +81,14 @@ export function useGitHubConnection(): UseGitHubConnectionResult {
     setActionError(null)
     setPhase('connecting')
     try {
-      const { authorize_url } = await startGitHubOAuth()
+      // Bind the flow to this browser tab: only the hash of a verifier
+      // kept in sessionStorage goes to the server (see lib/githubFlow.ts).
+      const binding = await beginGitHubFlow('connect', '/repositories')
+      const { authorize_url } = await startGitHubOAuth(binding)
       // A top-level navigation, not fetch(): the consent screen has to be
-      // something the person sees and agrees to. The page is left behind
-      // here; GitHub sends the browser back to /repositories with a
-      // ?github= result that Repositories.tsx reads on mount.
+      // something the person sees and agrees to. GitHub sends the browser
+      // back to /auth/github/complete, which finishes the exchange and
+      // lands on /repositories?github=connected (or ?github=error).
       window.location.assign(authorize_url)
     } catch (err) {
       if (isAbortError(err)) return

@@ -4,7 +4,11 @@ import type { Gap } from '@/types/api'
 import type { FilterStatus, FilterSeverity } from '@/hooks/useGapFilters'
 import {
   GAP_STATUS_LABELS,
+  GAP_STATUS_ORDER,
   gapHeadline,
+  gapStatusClasses,
+  gapStatusLabel,
+  isClosedGap,
   kindCopy,
   SEVERITY_LABELS,
 } from '@/lib/gapLanguage'
@@ -83,13 +87,15 @@ export function GapList({
               <select 
                 value={status} 
                 onChange={(e) => onStatusChange!(e.target.value as FilterStatus)}
-                className="appearance-none bg-surface border border-border rounded pl-2.5 pr-7 py-1 text-xs text-text-primary hover:border-text-tertiary transition-colors cursor-pointer focus:outline-none"
+                aria-label="Filter by status"
+                className="appearance-none bg-surface border border-border rounded pl-2.5 pr-7 py-1 text-xs text-text-primary hover:border-text-tertiary transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-text-tertiary"
               >
                 <option value="all">All Statuses</option>
-                <option value="open">Open</option>
-                <option value="fix_generated">Fix Generated</option>
-                <option value="pr_opened">PR Opened</option>
-                <option value="resolved">Resolved</option>
+                {GAP_STATUS_ORDER.map((s) => (
+                  <option key={s} value={s}>
+                    {GAP_STATUS_LABELS[s]}
+                  </option>
+                ))}
               </select>
               <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
             </div>
@@ -98,7 +104,8 @@ export function GapList({
               <select 
                 value={severity} 
                 onChange={(e) => onSeverityChange!(e.target.value as FilterSeverity)}
-                className="appearance-none bg-surface border border-border rounded pl-2.5 pr-7 py-1 text-xs text-text-primary hover:border-text-tertiary transition-colors cursor-pointer focus:outline-none"
+                aria-label="Filter by severity"
+                className="appearance-none bg-surface border border-border rounded pl-2.5 pr-7 py-1 text-xs text-text-primary hover:border-text-tertiary transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-text-tertiary"
               >
                 <option value="all">All Severities</option>
                 <option value="high">High Severity</option>
@@ -119,6 +126,7 @@ export function GapList({
               value={query}
               onChange={(e) => onQueryChange!(e.target.value)}
               placeholder="Search findings by clause or keyword..."
+              aria-label="Search findings"
               className="w-full bg-bg border border-border rounded pl-8 pr-3 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-text-tertiary transition-colors"
             />
           </div>
@@ -145,7 +153,7 @@ export function GapList({
             {gaps.map((gap) => {
               const isSelected = gap.id === selectedId
               const copy = kindCopy(gap.kind)
-              const done = gap.status === 'resolved'
+              const done = isClosedGap(gap)
               const severityKey = gap.severity || 'low'
               const badge = severityBadges[severityKey] || severityBadges.low
 
@@ -153,8 +161,15 @@ export function GapList({
                 <div
                   key={gap.id}
                   onClick={() => onSelect(gap.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onSelect(gap.id)
+                    }
+                  }}
                   role="button"
                   tabIndex={0}
+                  aria-pressed={isSelected}
                   className={`w-full text-left p-2.5 rounded border transition-colors cursor-pointer outline-none relative group ${
                     isSelected
                       ? 'bg-surface-elevated border-text-tertiary shadow-xs'
@@ -185,8 +200,8 @@ export function GapList({
                       {copy.label}
                     </span>
                     {gap.status && gap.status !== 'open' && (
-                      <span className="px-1.5 py-0.2 rounded bg-bg-subtle border border-border text-[10px] font-mono text-text-tertiary">
-                        {GAP_STATUS_LABELS[gap.status] ?? gap.status}
+                      <span className={`px-1.5 py-0.2 rounded border text-[10px] font-mono ${gapStatusClasses(gap)}`}>
+                        {gapStatusLabel(gap)}
                       </span>
                     )}
                   </div>

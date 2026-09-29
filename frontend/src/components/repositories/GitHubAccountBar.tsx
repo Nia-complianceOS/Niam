@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { AlertTriangle, Github } from 'lucide-react'
 import type { GitHubConnection } from '@/types/api'
+import { useAuth } from '@/context/AuthContext'
 
 export function GitHubAccountBar({
   connection,
@@ -12,6 +13,10 @@ export function GitHubAccountBar({
   onDisconnect: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
+  // Disconnecting is an owner action (403 otherwise). Unknown role: show
+  // it and let the server decide.
+  const { role } = useAuth()
+  const canManage = !role || role === 'owner'
   const initials = (connection.login ?? '?').slice(0, 2).toUpperCase()
 
   return (
@@ -48,8 +53,13 @@ export function GitHubAccountBar({
           </div>
         </div>
 
-        {!confirming && (
+        {!canManage && (
+          <span className="text-[11px] text-text-tertiary">Managed by the workspace owner</span>
+        )}
+
+        {canManage && !confirming && (
           <button
+            type="button"
             onClick={() => setConfirming(true)}
             className="px-2.5 py-1 rounded border border-border text-xs text-text-secondary hover:text-status-gap hover:border-status-gap/30 hover:bg-status-gap/5 transition-colors"
           >
@@ -58,7 +68,7 @@ export function GitHubAccountBar({
         )}
       </div>
 
-      {confirming && (
+      {canManage && confirming && (
         <div className="mt-3 pt-3 border-t border-border space-y-2">
           <div className="font-medium text-text-primary">
             Disconnect {connection.login ?? 'this GitHub account'}?
