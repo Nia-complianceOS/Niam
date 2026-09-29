@@ -259,3 +259,248 @@ def test_gap_id_helpers_refuse_an_empty_owner():
         gap_id_prefix("", SYSTEM)
     with pytest.raises(ValueError):
         build_gap_id(None, SYSTEM, "email", "Stripe")
+
+
+# --- system scoping: the prefix-collision bug --------------------------
+# `gap-O-acme__web-` is a prefix of `gap-O-acme__web-api-...`, so a bare
+# STARTS WITH sweep of acme/web retired acme/web-api's findings. Gaps now
+# carry `system_name`; the prefix survives only for gaps written before.
+
+import re  # noqa: E402
+
+from ingestion.github.classifier import ALLOWED_DATA_TYPES  # noqa: E402
+from reconciliation.reconciler import (  # noqa: E402
+    GAP_SCOPE_PREDICATE,
+    MERGE_GAP,
+    PRESERVED_STATUSES,
+    RESOLVE_STALE_GAPS,
+    gap_scope_params,
+)
+
+
+def _legacy_in_scope(gap_id: str, params: dict) -> bool:
+    """Pure-Python mirror of GAP_SCOPE_PREDICATE's legacy branch (a gap
+    with no system_name, same owner)."""
+    prefix = params["gap_prefix"]
+    if not gap_id.startswith(prefix):
+        return False
+    head = gap_id[len(prefix):].split("-")[0]
+    return head in params["gap_legacy_heads"]
+
+
+def _squash(cypher: str) -> str:
+    return re.sub(r"\s+", " ", cypher)
+
+
+def test_gap_scope_params_shape():
+    params = gap_scope_params(OWNER, "acme__web")
+    assert params["owner_id"] == OWNER
+    assert params["system_name"] == "acme__web"
+    assert params["gap_prefix"] == gap_id_prefix(OWNER, "acme__web")
+    assert set(params) == {
+        "owner_id",
+        "system_name",
+        "gap_prefix",
+        "gap_legacy_heads",
+    }
+
+
+def test_gap_scope_params_refuse_an_empty_owner():
+    with pytest.raises(ValueError):
+        gap_scope_params("", "acme__web")
+
+
+def test_legacy_heads_cover_the_taxonomy_and_disclosure():
+    heads = gap_scope_params(OWNER, SYSTEM)["gap_legacy_heads"]
+    assert "disclosure" in heads
+    assert set(ALLOWED_DATA_TYPES) <= set(heads)
+
+
+def test_no_taxonomy_name_contains_a_hyphen():
+    """The legacy branch splits on '-' and reads the first segment as the
+    data type. A hyphenated data type would break that silently."""
+    assert all("-" not in dt for dt in ALLOWED_DATA_TYPES)
+
+
+def test_legacy_predicate_does_not_cross_into_a_longer_system_name():
+    web = gap_scope_params(OWNER, "acme__web")
+    api = gap_scope_params(OWNER, "acme__web-api")
+
+    web_ids = [
+        build_gap_id(OWNER, "acme__web", dt, vendor, disclosure=disc)
+        for dt in ("email", "date_of_birth")
+        for vendor in ("Stripe", None)
+        for disc in (False, True)
+    ]
+    api_ids = [
+        build_gap_id(OWNER, "acme__web-api", dt, vendor, disclosure=disc)
+        for dt in ("email", "date_of_birth")
+        for vendor in ("Stripe", None)
+        for disc in (False, True)
+    ]
+
+    # The old bug, stated: the bare prefix matches the other system.
+    assert all(i.startswith(web["gap_prefix"]) for i in api_ids)
+
+    assert all(_legacy_in_scope(i, web) for i in web_ids)
+    assert not any(_legacy_in_scope(i, web) for i in api_ids)
+    assert all(_legacy_in_scope(i, api) for i in api_ids)
+    assert not any(_legacy_in_scope(i, api) for i in web_ids)
+
+
+def test_scope_predicate_prefers_the_system_name_property():
+    pred = _squash(GAP_SCOPE_PREDICATE)
+    assert "g.owner_id = $owner_id" in pred
+    assert "g.system_name = $system_name" in pred
+    assert "g.system_name IS NULL" in pred
+    assert "g.id STARTS WITH $gap_prefix" in pred
+    assert (
+        "split(substring(g.id, size($gap_prefix)), '-')[0] IN "
+        "$gap_legacy_heads" in pred
+    )
+
+
+def test_stale_sweep_uses_the_scope_predicate():
+    sweep = _squash(RESOLVE_STALE_GAPS)
+    assert _squash(GAP_SCOPE_PREDICATE) in sweep
+    assert "$prefix" not in sweep
+    assert "NOT g.id IN $written_ids" in sweep
+
+
+def _merge_branches():
+    create, match = MERGE_GAP.split("ON MATCH SET", 1)
+    assert "ON CREATE SET" in create
+    match = match.split("WITH g", 1)[0]
+    return create, match
+
+
+def test_merge_gap_writes_system_name_on_create_and_match():
+    create, match = _merge_branches()
+    assert "g.system_name = $system_name" in create
+    assert "g.system_name = $system_name" in match
+
+
+# --- status preservation -----------------------------------------------
+
+
+def test_preserved_statuses():
+    assert set(PRESERVED_STATUSES) == {
+        "pr_opened",
+        "fix_generated",
+        "in_review",
+        "dismissed",
+        "risk_accepted",
+    }
+
+
+def test_merge_gap_keeps_a_preserved_status_on_rematch():
+    _, match = _merge_branches()
+    match = _squash(match)
+    assert (
+        "g.status = CASE WHEN $status = 'open' AND g.status IN "
+        "$preserved_statuses THEN g.status ELSE $status END" in match
+    )
+
+
+def test_stale_sweep_leaves_human_decisions_alone():
+    from reconciliation.reconciler import SWEEP_EXEMPT_STATUSES
+
+    assert {"resolved", "dismissed", "risk_accepted"} <= set(
+        SWEEP_EXEMPT_STATUSES
+    )
+    # Everything else still gets swept, as before.
+    assert not {"open", "pr_opened", "fix_generated", "in_review"} & set(
+        SWEEP_EXEMPT_STATUSES
+    )
+    assert (
+        "NOT coalesce(g.status, 'open') IN $sweep_exempt_statuses"
+        in _squash(RESOLVE_STALE_GAPS)
+    )
+
+
+# --- param plumbing, via a fake client ---------------------------------
+
+from retrieval.queries import VENDORS_FOR_DATA_TYPE  # noqa: E402
+
+
+class _FakeClient:
+    """Answers the reconciler's reads from fixed data and records every
+    write. `fail_for` makes VENDORS_FOR_DATA_TYPE raise for that type."""
+
+    def __init__(self, fail_for=()):
+        self.fail_for = set(fail_for)
+        self.writes = []
+
+    def run_read(self, query, params=None):
+        if query == VENDORS_FOR_DATA_TYPE:
+            if params["data_type"] in self.fail_for:
+                raise RuntimeError(f"boom: {params['data_type']}")
+            return [{"vendors": []}]
+        # No policy documents, no provenance.
+        return []
+
+    def run_write(self, query, params=None):
+        self.writes.append((query, params))
+        if query == RESOLVE_STALE_GAPS:
+            return [{"resolved": 0}]
+        return []
+
+    def close(self):
+        pass
+
+
+class _FakeRetriever:
+    def __init__(self, client):
+        pass
+
+    def clauses_for_system(self, owner_id, system_name):
+        # No clauses -> an ungoverned_collection gap per data type.
+        return {"email": [], "phone": []}
+
+
+def _run(monkeypatch, fail_for=()):
+    import reconciliation.reconciler as rec
+
+    monkeypatch.setattr(rec, "DPDPRetriever", _FakeRetriever)
+    client = _FakeClient(fail_for=fail_for)
+    result = Reconciler(
+        client=client, owner_id=OWNER, system_name="acme__web"
+    ).find_and_write_gaps()
+    return client, result
+
+
+def test_merge_gap_call_site_passes_system_name_and_statuses(monkeypatch):
+    client, _ = _run(monkeypatch)
+    merges = [p for q, p in client.writes if q == MERGE_GAP]
+    assert len(merges) == 2
+    for params in merges:
+        assert params["system_name"] == "acme__web"
+        assert params["preserved_statuses"] == list(PRESERVED_STATUSES)
+
+
+def test_sweep_runs_with_scope_params_when_nothing_fails(monkeypatch):
+    from reconciliation.reconciler import SWEEP_EXEMPT_STATUSES
+
+    client, result = _run(monkeypatch)
+    sweeps = [p for q, p in client.writes if q == RESOLVE_STALE_GAPS]
+    assert len(sweeps) == 1
+    params = sweeps[0]
+    for key, value in gap_scope_params(OWNER, "acme__web").items():
+        assert params[key] == value
+    assert params["sweep_exempt_statuses"] == list(SWEEP_EXEMPT_STATUSES)
+    assert len(params["written_ids"]) == 2
+    assert result["sweep_skipped"] is False
+    assert result["failed_data_types"] == []
+
+
+def test_a_failing_data_type_skips_the_sweep(monkeypatch):
+    """phone's evaluation crashed, so its gaps were not re-written. A sweep
+    now would retire them as though the code had been fixed."""
+    client, result = _run(monkeypatch, fail_for={"phone"})
+    assert not [q for q, _ in client.writes if q == RESOLVE_STALE_GAPS]
+    # The data type that did evaluate is still written.
+    assert result["gaps_written"] == 1
+    assert result["gaps_resolved"] == 0
+    assert result["sweep_skipped"] is True
+    assert result["failed_data_types"] == ["phone"]
+    assert "gaps_by_kind" in result

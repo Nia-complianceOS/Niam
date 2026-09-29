@@ -59,7 +59,7 @@ export default function Regulations() {
       {regulations.length === 0 ? (
         <EmptyState
           title="No Regulatory Frameworks Loaded"
-          message="Run the DPDP statutory clause loader to initialize the Act, then scan a repository to map discovered AST data flows against compliance controls."
+          message="Run the DPDP statutory clause loader to initialize the Act, then scan a repository to map the data flows it finds against compliance controls."
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -85,7 +85,9 @@ function RegulationCard({ regulation }: { regulation: RegulationCoverage }) {
     }
   }
 
-  const radius = 22
+  // Must match the r= on the two <circle>s below, or the dash maths is
+  // computed for a different circle than the one drawn.
+  const radius = 20
   const circumference = 2 * Math.PI * radius
   const strokeDashoffset = circumference - (percent / 100) * circumference
   const ringColor = !regulation.enabled 
@@ -93,8 +95,8 @@ function RegulationCard({ regulation }: { regulation: RegulationCoverage }) {
     : percent >= 80 
       ? 'stroke-status-compliant' 
       : percent >= 50 
-        ? 'stroke-warning' 
-        : 'stroke-danger'
+        ? 'stroke-status-warning' 
+        : 'stroke-status-gap'
 
   const REG_NAMES: Record<string, string> = {
     'DPDP': 'Digital Personal Data Protection Act, 2023 (India)',
@@ -132,10 +134,10 @@ function RegulationCard({ regulation }: { regulation: RegulationCoverage }) {
           {/* Ring Chart */}
           {regulation.enabled && regulation.score_label && (
             <div className="flex items-center justify-center relative w-14 h-14 flex-shrink-0 bg-surface-sunken rounded-full border border-border-subtle p-1">
-              <svg className="w-full h-full -rotate-90 transform">
-                <circle cx="24" cy="24" r="20" className="stroke-border-subtle fill-none" strokeWidth="3" />
+              <svg viewBox="0 0 48 48" className="w-full h-full -rotate-90 transform">
+                <circle cx="24" cy="24" r={radius} className="stroke-border-subtle fill-none" strokeWidth="3" />
                 <circle 
-                  cx="24" cy="24" r="20" 
+                  cx="24" cy="24" r={radius} 
                   className={`fill-none transition-all duration-700 ease-out ${ringColor}`} 
                   strokeWidth="3" 
                   strokeDasharray={circumference} 

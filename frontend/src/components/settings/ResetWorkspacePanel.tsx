@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { isAbortError, resetWorkspace } from '@/services/api/client'
 import { summariseRemoval } from '@/lib/workspaceMessages'
+import { notifyDataChanged } from '@/lib/dataEvents'
 import type { RemovalResponse } from '@/types/api'
 
 /** Typed exactly, ignoring case and stray spaces. */
@@ -48,6 +49,7 @@ export function ResetWorkspacePanel() {
     setResult(null)
     try {
       setResult(await resetWorkspace())
+      notifyDataChanged('workspace_reset')
       setArmed(false)
       setTyped('')
     } catch (err) {
@@ -66,7 +68,7 @@ export function ResetWorkspacePanel() {
         Purge Compliance Ledger
       </div>
       <div className="text-xs text-text-secondary leading-relaxed max-w-[620px] font-sans">
-        This wipes all findings discovered for your account: repository links, mapped personal data entities, external processor associations, identified statutory gaps, and scan telemetry. This action is irreversible.
+        This wipes all findings discovered for your account: repository links, mapped personal data entities, external processor associations, identified statutory gaps, scan history, and this account's audit trail. This action is irreversible.
       </div>
 
       <div className="mt-4 rounded bg-surface-sunken border border-border-subtle p-4">

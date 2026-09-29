@@ -2,10 +2,12 @@ import { Card } from '@/components/ui/Card'
 import { GapList } from '@/components/gaps/GapList'
 import { DashboardSkeleton } from '@/components/skeletons/DashboardSkeleton'
 import { useDashboard } from '@/hooks/useDashboard'
+import { useReviewQueueCounts } from '@/hooks/useReviewCounts'
+import { isClosedGap } from '@/lib/gapLanguage'
 import { useSEO } from '@/hooks/useSEO'
 import { StructuredData } from '@/components/seo/StructuredData'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowRight, CheckCircle2, ShieldCheck, ShieldAlert, Scale, GitCommit } from 'lucide-react'
+import { ArrowRight, CheckCircle2, ShieldCheck, ShieldAlert, Scale, GitCommit, Stamp } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 
 export default function Dashboard() {
@@ -25,7 +27,11 @@ export default function Dashboard() {
     selectCommit,
   } = useDashboard()
   const navigate = useNavigate()
-  const topGaps = gaps.filter((g) => g.status !== 'resolved').slice(0, 5)
+  const reviewQueue = useReviewQueueCounts()
+  // Dismissed and risk-accepted findings are closed by a legal decision;
+  // like resolved ones they are not urgent and not part of the open risk.
+  const openGaps = gaps.filter((g) => !isClosedGap(g))
+  const topGaps = openGaps.slice(0, 5)
   
   const softwareSchema = {
     "@context": "https://schema.org",
@@ -108,8 +114,8 @@ export default function Dashboard() {
                 2
               </div>
               <div className="flex-1">
-                <h3 className="text-xs font-medium text-text-primary">2. Scan Repository AST</h3>
-                <p className="text-[11px] text-text-secondary mt-0.5 mb-3">Authorize scoped access to scan data flows and parse third-party processors.</p>
+                <h3 className="text-xs font-medium text-text-primary">2. Scan a Repository</h3>
+                <p className="text-[11px] text-text-secondary mt-0.5 mb-3">Connect GitHub and scan a repository to find personal data and the third-party processors it is sent to.</p>
                 <Link 
                   to="/repositories" 
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-text-primary text-bg hover:opacity-90 transition-opacity"
@@ -137,12 +143,12 @@ export default function Dashboard() {
 
   // Derived severity metrics
   const severityData = [
-    { name: 'High', value: gaps.filter(g => g.severity === 'high').length, fill: '#F43F5E' },
-    { name: 'Medium', value: gaps.filter(g => g.severity === 'medium').length, fill: '#F59E0B' },
-    { name: 'Low', value: gaps.filter(g => g.severity === 'low').length, fill: '#10B981' }
+    { name: 'High', value: openGaps.filter(g => g.severity === 'high').length, fill: '#F43F5E' },
+    { name: 'Medium', value: openGaps.filter(g => g.severity === 'medium').length, fill: '#F59E0B' },
+    { name: 'Low', value: openGaps.filter(g => g.severity === 'low').length, fill: '#10B981' }
   ].filter(d => d.value > 0)
 
-  const kinds = gaps.reduce((acc, gap) => {
+  const kinds = openGaps.reduce((acc, gap) => {
     const kind = gap.kind || 'unknown'
     acc[kind] = (acc[kind] || 0) + 1
     return acc
@@ -301,6 +307,27 @@ export default function Dashboard() {
         })}
       </div>
 
+      {/* 2b. APPROVAL QUEUE -- only when something is waiting */}
+      {reviewQueue.legal + reviewQueue.owner > 0 && (
+        <Link
+          to="/reviews"
+          className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded border border-status-warning/30 bg-status-warning/5 hover:bg-status-warning/10 transition-colors text-xs"
+        >
+          <span className="flex items-center gap-2.5 text-text-primary">
+            <Stamp size={14} strokeWidth={1.75} className="text-status-warning flex-shrink-0" aria-hidden />
+            <span>
+              <span className="font-medium">Fixes awaiting approval:</span>{' '}
+              <span className="text-text-secondary">
+                {reviewQueue.legal} with legal review · {reviewQueue.owner} awaiting the owner
+              </span>
+            </span>
+          </span>
+          <span className="flex items-center gap-1 font-medium text-text-secondary">
+            Legal Review <ArrowRight size={12} aria-hidden />
+          </span>
+        </Link>
+      )}
+
       {/* 3. RISK HEATMAP & PRIORITY FINDINGS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Risk Overview Heatmap */}
@@ -309,7 +336,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-2">
               <h2 className="font-medium text-sm text-text-primary">Statutory Risk Distribution</h2>
               <span className="font-mono text-[10px] text-text-tertiary px-1.5 py-0.2 rounded border border-border bg-bg">
-                AST-MAPPED
+                FROM SCANS
               </span>
             </div>
             <Link to="/gaps" className="text-xs text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1 font-medium">

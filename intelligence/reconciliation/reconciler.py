@@ -15,6 +15,7 @@ from typing import Optional
 
 from graph.neo4j_client import Neo4jClient
 from graph.schema import DEFAULT_SYSTEM_NAME
+from ingestion.github.classifier import ALLOWED_DATA_TYPES
 from legal.commencement import imposes_data_obligation
 from retrieval.dpdp_retrieval import DPDPRetriever
 from retrieval.queries import (
@@ -54,7 +55,7 @@ def _section_of(clause) -> str:
 #     gap-{owner_id}-{system_name}-disclosure-{data_type}-{vendor|none}
 #
 # Both shapes share one prefix, `gap-{owner_id}-{system_name}-`, which is
-# what RESOLVE_STALE_GAPS sweeps.
+# what RESOLVE_STALE_GAPS swept (see GAP_SCOPE_PREDICATE below).
 #
 # THE DANGEROUS PART. That sweep resolves every gap matching the prefix
 # that this run did not re-write. If the prefix could match another
@@ -66,6 +67,16 @@ def _section_of(clause) -> str:
 # also matches on the indexed `owner_id` property, which cannot be
 # ambiguous. Both conditions, and neither is decorative: the property
 # filter is the guarantee, the prefix keeps the sweep to this system.
+#
+# THE PREFIX WAS NOT ENOUGH FOR SYSTEMS EITHER. System names are like
+# `acme__web` and `acme__web-api`, and `gap-O-acme__web-` is a prefix of
+# `gap-O-acme__web-api-...` -- so reconciling acme/web resolved every
+# acme/web-api finding. Gaps now carry `system_name` as a property and
+# GAP_SCOPE_PREDICATE matches on it. The id format is unchanged, so gaps
+# written before that property existed still need the prefix; for those,
+# the segment right after the prefix must be a data type (or
+# "disclosure"). Data-type names contain no '-', so `acme__web-api-...`
+# has head `api` there and is excluded.
 
 
 def gap_id_prefix(owner_id: str, system_name: str) -> str:
@@ -96,6 +107,34 @@ def build_gap_id(
     prefix = gap_id_prefix(owner_id, system_name)
     kind_segment = "disclosure-" if disclosure else ""
     return f"{prefix}{kind_segment}{data_type}-{vendor or 'none'}"
+
+
+# Every value the first id segment after gap_id_prefix() can take: a data
+# type (coverage gaps) or "disclosure". Imported, not copied, so a new
+# data type cannot silently fall out of the legacy sweep.
+GAP_LEGACY_HEADS = tuple(ALLOWED_DATA_TYPES) + ("disclosure",)
+
+# Boolean over `g`: "this :Gap belongs to (owner, system)". The backend
+# imports it too, so every gap read and the stale sweep agree on scope.
+# Params come from gap_scope_params(). The second branch covers gaps
+# written before `g.system_name` existed -- see the gap-identity note.
+GAP_SCOPE_PREDICATE = """g.owner_id = $owner_id
+  AND (g.system_name = $system_name
+       OR (g.system_name IS NULL
+           AND g.id STARTS WITH $gap_prefix
+           AND split(substring(g.id, size($gap_prefix)), '-')[0]
+               IN $gap_legacy_heads))"""
+
+
+def gap_scope_params(owner_id: str, system_name: str) -> dict:
+    """Parameters for GAP_SCOPE_PREDICATE. Raises on an empty owner, as
+    gap_id_prefix() does."""
+    return {
+        "owner_id": owner_id,
+        "system_name": system_name,
+        "gap_prefix": gap_id_prefix(owner_id, system_name),
+        "gap_legacy_heads": list(GAP_LEGACY_HEADS),
+    }
 
 
 def classify_disclosure_gap(
@@ -294,6 +333,7 @@ def latest_code_provenance(sources: list) -> dict:
 MERGE_GAP = """
 MERGE (g:Gap {id: $id})
 ON CREATE SET g.owner_id = $owner_id,
+              g.system_name = $system_name,
               g.title = $title,
               g.status = $status,
               g.severity = $severity,
@@ -312,18 +352,21 @@ ON CREATE SET g.owner_id = $owner_id,
               g.remediation_path = $remediation_path,
               g.remediation_repo = $remediation_repo
 ON MATCH SET g.owner_id = $owner_id,
+             // Backfills gaps written before the property existed.
+             g.system_name = $system_name,
              g.title = $title,
              // Re-finding a gap means the condition still holds, so the
              // status resets -- that is what withdraws a 'resolved' claim
              // if a merged amendment did not actually fix it.
              //
-             // 'pr_opened' is preserved, because a review that is still
-             // out is still out. Resetting it to 'open' every reconcile
-             // was how a finding sitting with legal quietly reverted to
-             // looking untouched.
+             // $preserved_statuses (PRESERVED_STATUSES) are kept: a review
+             // that is still out is still out, and a human's dismissal or
+             // risk acceptance is a decision, not drift. Resetting them to
+             // 'open' every reconcile was how a finding sitting with legal
+             // quietly reverted to looking untouched.
              g.status = CASE
-                 WHEN $status = 'open' AND g.status = 'pr_opened'
-                 THEN 'pr_opened' ELSE $status END,
+                 WHEN $status = 'open' AND g.status IN $preserved_statuses
+                 THEN g.status ELSE $status END,
              g.severity = $severity,
              g.kind = $kind,
              g.updated_at = $now,
@@ -386,17 +429,30 @@ CALL {
 """
 
 
-# Two conditions, both load-bearing. `owner_id` is the guarantee -- it is
-# an indexed property that cannot be confused between accounts. The `id`
-# prefix narrows the sweep to gaps from THIS system, so reconciling one
-# system does not retire another system's findings within the same
-# account. See the gap-identity note above for why the prefix alone was
-# not safe enough to stand on.
-RESOLVE_STALE_GAPS = """
-MATCH (g:Gap {owner_id: $owner_id})
-WHERE g.id STARTS WITH $prefix
+# Statuses MERGE_GAP keeps when a gap is re-found (see its ON MATCH).
+PRESERVED_STATUSES = (
+    "pr_opened",
+    "fix_generated",
+    "in_review",
+    "dismissed",
+    "risk_accepted",
+)
+
+# Statuses the stale sweep never touches. 'dismissed' and 'risk_accepted'
+# are human decisions: a dismissed finding stays dismissed, rather than
+# being relabelled 'resolved' as though the code had changed.
+SWEEP_EXEMPT_STATUSES = ("resolved", "dismissed", "risk_accepted")
+
+# `owner_id` is the guarantee -- an indexed property that cannot be
+# confused between accounts. GAP_SCOPE_PREDICATE narrows the sweep to THIS
+# system, so reconciling one system does not retire another system's
+# findings within the same account. See the gap-identity note above for
+# why an id prefix alone was not safe enough to stand on.
+RESOLVE_STALE_GAPS = f"""
+MATCH (g:Gap {{owner_id: $owner_id}})
+WHERE ({GAP_SCOPE_PREDICATE})
   AND NOT g.id IN $written_ids
-  AND coalesce(g.status, 'open') <> 'resolved'
+  AND NOT coalesce(g.status, 'open') IN $sweep_exempt_statuses
 SET g.status = 'resolved',
     g.resolved_at = $now,
     g.updated_at = $now
@@ -432,7 +488,10 @@ class Reconciler:
 
     def find_and_write_gaps(self) -> dict:
         """
-        Returns {"gaps_written": N, "gaps_by_kind": {...}}.
+        Returns {"gaps_written": N, "gaps_resolved": N,
+        "gaps_by_kind": {...}, "sweep_skipped": bool,
+        "failed_data_types": [...]}. `sweep_skipped` is True when a data
+        type failed to evaluate, in which case nothing was resolved.
         """
         retriever = DPDPRetriever(self.client)
         clauses_by_dt = retriever.clauses_for_system(
@@ -587,8 +646,10 @@ class Reconciler:
                       params = {
                         "id": f_gap_id,
                         "owner_id": self.owner_id,
+                        "system_name": self.system_name,
                         "title": gap_title(f_kind, data_type, vendor),
                         "status": "open",
+                        "preserved_statuses": list(PRESERVED_STATUSES),
                         "severity": f_severity,
                         "kind": f_kind,
                         "ai_recommendation": "",
@@ -661,19 +722,33 @@ class Reconciler:
         # erases the evidence that it was ever detected and fixed -- which
         # is precisely the record a DPDP audit would ask for.
         #
-        # Scoped by owner_id AND by the owner-prefixed id -- see the
+        # Scoped by owner_id AND by system (GAP_SCOPE_PREDICATE) -- see the
         # gap-identity note at the top of this file. This is the one write
         # in the engine that touches gaps it did not just create, so it is
         # the one place a missing filter would resolve another account's
         # findings instead of merely revealing them.
+        #
+        # Skipped entirely when any data type failed: its gaps were not
+        # re-written, so the sweep would read "evaluation crashed" as
+        # "condition fixed" and retire them.
+        failed_data_types = [s["data_type"] for s in skipped_malformed]
+        sweep_skipped = bool(failed_data_types)
         resolved = 0
-        if written_ids or clauses_by_dt:
+        if sweep_skipped:
+            logger.warning(
+                "Skipping the stale-gap sweep for %s/%s: evaluation failed "
+                "for data type(s) %s, so their gaps cannot be judged stale",
+                self.owner_id,
+                self.system_name,
+                failed_data_types,
+            )
+        elif written_ids or clauses_by_dt:
             rows = self.client.run_write(
                 RESOLVE_STALE_GAPS,
                 {
-                    "owner_id": self.owner_id,
-                    "prefix": gap_id_prefix(self.owner_id, self.system_name),
+                    **gap_scope_params(self.owner_id, self.system_name),
                     "written_ids": written_ids,
+                    "sweep_exempt_statuses": list(SWEEP_EXEMPT_STATUSES),
                     "now": now,
                 },
             )
@@ -690,4 +765,6 @@ class Reconciler:
             "gaps_written": written,
             "gaps_resolved": resolved,
             "gaps_by_kind": kind_counts,
+            "sweep_skipped": sweep_skipped,
+            "failed_data_types": failed_data_types,
         }

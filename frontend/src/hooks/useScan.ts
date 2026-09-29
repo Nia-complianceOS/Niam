@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { isAbortError, startScan, subscribeToScan } from '@/services/api/client'
+import { notifyDataChanged } from '@/lib/dataEvents'
 
 export type ScanEvent = {
   event: string
@@ -26,6 +27,9 @@ export const useScan = () => {
   const [status, setStatus] = useState<ScanStatus>('idle')
   const [logs, setLogs] = useState<ScanEvent[]>([])
   const [error, setError] = useState<string | null>(null)
+  // Set while the event stream is between connections. The scan itself is
+  // still running on the server; only our view of it is interrupted.
+  const [reconnecting, setReconnecting] = useState<{ attempt: number } | null>(null)
 
   const isFinishedRef = useRef(false)
   // The live event stream. An EventSource is not an axios request, so
@@ -52,6 +56,7 @@ export const useScan = () => {
     setStatus('idle')
     setLogs([])
     setError(null)
+    setReconnecting(null)
   }, [userId])
 
   const triggerScan = useCallback(
@@ -60,6 +65,7 @@ export const useScan = () => {
       setStatus('starting')
       setLogs([])
       setError(null)
+      setReconnecting(null)
       isFinishedRef.current = false
 
       try {
@@ -74,6 +80,9 @@ export const useScan = () => {
             if (scanEvent.event === 'completed') {
               setStatus('completed')
               isFinishedRef.current = true
+              // Findings, the graph, the gap count and the scanned list all
+              // changed. Every mounted data hook refetches on this.
+              notifyDataChanged('scan_completed')
             } else if (scanEvent.event === 'failed') {
               setStatus('failed')
               setError(scanEvent.error || 'Scan failed during execution')
@@ -81,14 +90,24 @@ export const useScan = () => {
             }
           },
           () => {
+            setReconnecting(null)
             if (!isFinishedRef.current) {
               setStatus('connection_lost')
-              setError('Lost connection to the scan stream.')
+              setError(
+                'Lost the connection to the scan progress stream after several retries. ' +
+                  'The scan may still be running on the server: check back in a minute, ' +
+                  'or reload this page to see its results.'
+              )
             }
           },
           () => {
             isFinishedRef.current = true
             closeStreamRef.current = null
+            setReconnecting(null)
+          },
+          {
+            onReconnecting: (attempt) => setReconnecting({ attempt }),
+            onConnected: () => setReconnecting(null),
           }
         )
       } catch (err: unknown) {
@@ -106,5 +125,5 @@ export const useScan = () => {
     [stopStream]
   )
 
-  return { status, logs, error, triggerScan }
+  return { status, logs, error, reconnecting, triggerScan }
 }

@@ -5,10 +5,16 @@ import { useAuditTrail } from '@/hooks/useAuditTrail'
 import { useSEO } from '@/hooks/useSEO'
 import { motion } from 'framer-motion'
 
+// Accurate about its limits: this is an activity log, not a tamper-proof
+// record. Resetting the workspace (Settings) deletes it along with the
+// findings.
+const AUDIT_SUBTITLE =
+  'Timestamped record of scans, GitHub connections and pull requests on this account. Resetting the workspace in Settings deletes this log along with the findings.'
+
 export default function AuditTrail() {
   useSEO({
     title: 'Audit Trail',
-    description: 'Forensic immutable log of compliance events and regulatory amendments.',
+    description: 'Timestamped log of scans, GitHub connections and pull requests on this account.',
   })
 
   const { data, loading, error } = useAuditTrail()
@@ -19,7 +25,7 @@ export default function AuditTrail() {
         <PageHeader
           eyebrow="Forensic Ledger"
           title="Audit Trail"
-          subtitle="Immutable, timestamped record of AST scans, detected data flows, and remediation amendments."
+          subtitle={AUDIT_SUBTITLE}
         />
         <ErrorState message={error} />
       </div>
@@ -32,7 +38,7 @@ export default function AuditTrail() {
         <PageHeader
           eyebrow="Forensic Ledger"
           title="Audit Trail"
-          subtitle="Immutable, timestamped record of AST scans, detected data flows, and remediation amendments."
+          subtitle={AUDIT_SUBTITLE}
         />
         <TableSkeleton rows={6} />
       </div>
@@ -49,12 +55,12 @@ export default function AuditTrail() {
       <PageHeader
         eyebrow="Forensic Ledger"
         title="Audit Trail"
-        subtitle="Immutable, timestamped record of AST scans, detected data flows, and remediation amendments."
+        subtitle={AUDIT_SUBTITLE}
       />
       {!data || data.events.length === 0 ? (
         <GetStartedState
           title="Audit Ledger Empty"
-          message="Connect a source repository to initiate static compliance analysis. Every subsequent scan, AST finding, vendor indexing, and remediation diff is permanently recorded here."
+          message="Connect a source repository and run a scan. Scans, GitHub connections and pull requests on this account are recorded here as they happen."
         />
       ) : (
         <AuditEventList events={data.events} />

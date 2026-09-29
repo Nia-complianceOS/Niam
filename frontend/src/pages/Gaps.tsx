@@ -1,14 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { GapList } from '@/components/gaps/GapList'
 import { GapDetail } from '@/components/gaps/GapDetail'
-import { PRReviewModal } from '@/components/dashboard/PRReviewModal'
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton'
 import { useGaps } from '@/hooks/useGaps'
 import { useGapFilters } from '@/hooks/useGapFilters'
 import { useSEO } from '@/hooks/useSEO'
 import { Link } from 'react-router-dom'
-import { ArrowRight, CheckCircle2 } from 'lucide-react'
+import { ArrowRight, CheckCircle2, X } from 'lucide-react'
 
 export default function Gaps() {
   useSEO({
@@ -26,12 +25,9 @@ export default function Gaps() {
     isEmptyAccount,
     scoreExplanation,
     fixLoading,
-    prLoading,
     actionError,
-    openedPR,
-    dismissPR,
+    sentToReview,
     runGenerateFix,
-    runOpenPR,
   } = useGaps()
 
   const {
@@ -56,8 +52,38 @@ export default function Gaps() {
     setIsMobileDetailView(false)
   }
 
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const requested = params.get('select')
+
+  // Deep links from elsewhere in the app:
+  //   /gaps?vendor=<name>   (Vendors page)          -> search box
+  //   /gaps?search=<text>   (graph data-type node)  -> search box
+  //   /gaps?system=<name>   (graph system node)     -> repository filter
+  //   /gaps?select=<gap id> (dashboard, reviews)    -> selects that finding
+  // The repository filter matches the finding's system_name; findings
+  // written before that was recorded fall back to the id, which is
+  // `gap-{owner}-{system}-...`. The text search cannot see the repository.
+  const searchParam = params.get('search') ?? params.get('vendor')
+  const systemParam = params.get('system')
+  useEffect(() => {
+    if (searchParam) setQuery(searchParam)
+  }, [searchParam, setQuery])
+
+  const listedGaps = useMemo(
+    () =>
+      systemParam
+        ? visibleGaps.filter((g) =>
+            g.system_name ? g.system_name === systemParam : g.id.includes(`-${systemParam}-`)
+          )
+        : visibleGaps,
+    [visibleGaps, systemParam]
+  )
+
+  const clearSystemFilter = () => {
+    const next = new URLSearchParams(params)
+    next.delete('system')
+    setParams(next, { replace: true })
+  }
   useEffect(() => {
     if (requested && !selectedId && gaps.some((g) => g.id === requested)) {
       select(requested)
@@ -164,8 +190,23 @@ export default function Gaps() {
           {/* List Panel (Left) */}
           <div className={`w-full lg:w-[45%] h-full flex-shrink-0 flex flex-col ${isMobileDetailView ? 'hidden lg:flex' : 'flex'}`}>
             <div className="p-4 flex-1 min-h-0 flex flex-col bg-surface rounded border border-border">
+              {systemParam && (
+                <div className="mb-3 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded border border-entity-system/30 bg-entity-system/10 font-mono text-[11px] text-text-secondary">
+                  <span className="truncate">
+                    Repository: <span className="text-text-primary">{systemParam.replace('__', '/')}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearSystemFilter}
+                    className="flex items-center gap-1 text-text-tertiary hover:text-text-primary flex-shrink-0"
+                    aria-label="Clear repository filter"
+                  >
+                    <X size={12} /> Clear
+                  </button>
+                </div>
+              )}
               <GapList
-                gaps={visibleGaps}
+                gaps={listedGaps}
                 totalCount={gaps.length}
                 selectedId={selectedId}
                 onSelect={handleSelect}
@@ -184,22 +225,16 @@ export default function Gaps() {
             <GapDetail
               gap={selected}
               fixLoading={fixLoading}
-              prLoading={prLoading}
               actionError={actionError}
+              sentToReviewId={
+                sentToReview && selected && sentToReview.gapId === selected.id ? sentToReview.reviewId : null
+              }
               onGenerateFix={runGenerateFix}
-              onOpenPR={runOpenPR}
               onBack={handleBack}
               isMobile={isMobileDetailView}
             />
           </div>
         </div>
-      )}
-
-      {openedPR && (
-        <PRReviewModal
-          pr={openedPR}
-          onClose={dismissPR}
-        />
       )}
     </div>
   )

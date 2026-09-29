@@ -5,9 +5,10 @@ import {
   getDashboardSummary,
   getGaps,
   isAbortError,
-  openPR,
 } from '@/services/api/client'
-import type { DashboardSummaryResponse, Gap, PullRequest } from '@/types/api'
+import type { DashboardSummaryResponse, Gap } from '@/types/api'
+import { isClosedGap } from '@/lib/gapLanguage'
+import { notifyDataChanged, useDataVersion } from '@/lib/dataEvents'
 
 interface UseDashboardResult {
   summary: DashboardSummaryResponse | null
@@ -29,8 +30,8 @@ interface UseDashboardResult {
   fixLoading: boolean
   actionError: string | null
   selectCommit: (sha: string) => void
-  runGenerateFix: () => Promise<void>
-  runOpenPR: () => Promise<PullRequest | null>
+  /** Drafts the fix and sends it to legal review; resolves to the review id. */
+  runGenerateFix: () => Promise<string | null>
 }
 
 export function useDashboard(): UseDashboardResult {
@@ -47,9 +48,8 @@ export function useDashboard(): UseDashboardResult {
   // Deliberately separate from `error`. `error` means the initial page load
   // (summary + gaps) failed and there's nothing to show — full-page
   // ErrorState in Dashboard.tsx. `actionError` means the page loaded fine
-  // but a specific action (generate-fix / open-pr) failed — e.g. the gap
-  // was already resolved, or open-pr was called before any fix was
-  // generated. That should surface inline next to the button that
+  // but a specific action (drafting a fix) failed — e.g. the gap was
+  // already resolved. That should surface inline next to the button that
   // triggered it, not blow away stat cards / timeline / activity feed that
   // are all still perfectly valid.
   const [actionError, setActionError] = useState<string | null>(null)
@@ -59,8 +59,32 @@ export function useDashboard(): UseDashboardResult {
   // decoded must not be written into a page that now belongs to somebody
   // else -- so the run number, not just the abort, is the guard.
   const runRef = useRef(0)
+  const dataVersion = useDataVersion()
+  const loadedForRef = useRef<string | null | undefined>(undefined)
+  const refreshRef = useRef(0)
+
+  // Same account, data changed elsewhere (see lib/dataEvents.ts): refetch
+  // in place, keeping the selected commit and everything on screen.
+  useEffect(() => {
+    if (loadedForRef.current !== userId) return
+    const run = runRef.current
+    const refresh = ++refreshRef.current
+    Promise.all([getDashboardSummary(), getGaps()])
+      .then(([summaryData, gapsData]) => {
+        if (run !== runRef.current || refresh !== refreshRef.current) return
+        setSummary(summaryData)
+        setGaps(gapsData.gaps)
+        setScore(gapsData.score)
+        setScoreExplanation(gapsData.score_explanation)
+      })
+      .catch(() => {
+        // Keep what is on screen.
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataVersion])
 
   useEffect(() => {
+    loadedForRef.current = userId
     const run = ++runRef.current
     // Emptied at the start of the run, not when the answer arrives. Left
     // in place, the previous account's stat cards and findings would be on
@@ -104,14 +128,16 @@ export function useDashboard(): UseDashboardResult {
     setSelectedCommitSha(sha)
   }, [])
 
-  const runGenerateFix = useCallback(async () => {
-    if (!selectedGap) return
-    // Defensive client-side guard mirroring the backend's own check
-    // (gap_service.generate_fix raises 400 for an already-resolved gap).
-    // The UI shouldn't normally even show the button in this state (see
-    // ComplianceImpactPanel's status branching), but this keeps the hook
-    // safe to call from anywhere.
-    if (selectedGap.status === 'resolved' || selectedGap.status === 'pr_opened') return
+  // There is no "open PR" here any more: a pull request opens only when
+  // the owner approves the legal-approved version on /reviews/:id.
+  const runGenerateFix = useCallback(async (): Promise<string | null> => {
+    if (!selectedGap) return null
+    // Defensive client-side guard mirroring the backend (generate_fix
+    // raises 400 for a resolved gap); a finding already in review or
+    // closed by a decision has nothing to draft either.
+    if (isClosedGap(selectedGap) || selectedGap.status === 'pr_opened' || selectedGap.review_id) {
+      return selectedGap.review_id
+    }
 
     setFixLoading(true)
     setActionError(null)
@@ -120,32 +146,23 @@ export function useDashboard(): UseDashboardResult {
       setGaps((prev) =>
         prev.map((g) =>
           g.id === selectedGap.id
-            ? { ...g, remediation_drafts: result.remediation_drafts, status: 'fix_generated' }
+            ? {
+                ...g,
+                remediation_drafts: result.remediation_drafts,
+                status: result.review_id ? 'in_review' : 'fix_generated',
+                review_id: result.review_id,
+                review_state: result.review_state,
+              }
             : g
         )
       )
+      notifyDataChanged('fix_generated')
+      return result.review_id
     } catch (err) {
-      setActionError((err as Error).message)
-    } finally {
-      setFixLoading(false)
-    }
-  }, [selectedGap])
-
-  const runOpenPR = useCallback(async (): Promise<PullRequest | null> => {
-    if (!selectedGap) return null
-    setActionError(null)
-    try {
-      const result = await openPR(selectedGap.id)
-      setGaps((prev) =>
-        prev.map((g) => (g.id === selectedGap.id ? { ...g, pr_id: result.pull_request.id, status: 'pr_opened' } : g))
-      )
-      return result.pull_request
-    } catch (err) {
-      // Backend returns HTTPException(400) here if the gap has no
-      // remediation drafts yet (see github_service.open_compliance_pr) —
-      // client.ts's interceptor surfaces that detail message directly.
       setActionError((err as Error).message)
       return null
+    } finally {
+      setFixLoading(false)
     }
   }, [selectedGap])
 
@@ -168,6 +185,5 @@ export function useDashboard(): UseDashboardResult {
     actionError,
     selectCommit,
     runGenerateFix,
-    runOpenPR,
   }
 }

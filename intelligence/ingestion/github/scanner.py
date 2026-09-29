@@ -29,6 +29,7 @@ import requests
 from .classifier import DataHandlingClassifier
 from .diff_parser import (
     CODE_FILE_EXTENSIONS,
+    MAX_LINE_LENGTH,
     find_candidate_lines_in_diff,
     find_candidate_lines_in_file,
 )
@@ -48,6 +49,33 @@ SKIP_DIR_NAMES = {
     "build",
 }
 
+# Cost ceiling: at most this many stage-1 candidates reach the LLM per
+# full-repo scan. Override with SCAN_MAX_CANDIDATES.
+MAX_CANDIDATES_PER_SCAN = 400
+
+
+def max_candidates_per_scan() -> int:
+    """MAX_CANDIDATES_PER_SCAN, or SCAN_MAX_CANDIDATES when it is a
+    positive integer. Read per call so a changed env takes effect without
+    a restart. A bad value falls back to the default rather than lifting
+    the ceiling."""
+    raw = os.getenv("SCAN_MAX_CANDIDATES")
+    if raw is None or not raw.strip():
+        return MAX_CANDIDATES_PER_SCAN
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value <= 0:
+        logger.warning(
+            "Ignoring SCAN_MAX_CANDIDATES=%r (not a positive integer); "
+            "using %d",
+            raw,
+            MAX_CANDIDATES_PER_SCAN,
+        )
+        return MAX_CANDIDATES_PER_SCAN
+    return value
+
 
 class GitHubScanner:
     """
@@ -63,6 +91,7 @@ class GitHubScanner:
         repo_full_name: Optional[str] = None,
         github_token: Optional[str] = None,
         classifier: Optional[DataHandlingClassifier] = None,
+        max_candidates: Optional[int] = None,
     ):
         if not repo_path and not repo_full_name:
             raise ValueError(
@@ -72,6 +101,18 @@ class GitHubScanner:
         self.repo_full_name = repo_full_name
         self.github_token = github_token or os.getenv("GITHUB_TOKEN")
         self.classifier = classifier or DataHandlingClassifier()
+        # None -> max_candidates_per_scan() at scan time.
+        self.max_candidates = max_candidates
+        # Summary of the most recent scan, for callers that report
+        # progress (the scan methods return only the records). Keys:
+        #   candidates_found      stage-1 hits before the cap
+        #   candidates_dropped    hits cut by the cap (0 if none)
+        #   truncated             True when the cap cut anything
+        #   max_candidates        the cap that applied (None for diffs)
+        #   long_lines_skipped    lines over diff_parser.MAX_LINE_LENGTH
+        #   candidates_confirmed  stage-2 data-handling count, or None
+        #                         when classify=False
+        self.last_scan_stats: dict = {}
 
     # ---------- diff-based scan (incremental) ----------
 
@@ -99,9 +140,12 @@ class GitHubScanner:
         self, since_commit: str, until: str = "HEAD", classify: bool = True
     ) -> List[dict]:
         """Given a commit range, returns candidate data-handling lines
-        with file + line number, optionally classified by the LLM."""
+        with file + line number, optionally classified by the LLM (in
+        which case only confirmed data-handling lines are returned)."""
         diff_text = self.get_repo_diff(since_commit, until)
-        candidates = find_candidate_lines_in_diff(diff_text)
+        stats = self._new_stats()
+        candidates = find_candidate_lines_in_diff(diff_text, stats=stats)
+        stats["candidates_found"] = len(candidates)
         logger.info(
             "Stage 1: %d candidate lines in diff %s..%s",
             len(candidates),
@@ -123,14 +167,19 @@ class GitHubScanner:
     ) -> List[dict]:
         """Walks the local working tree and runs the two-stage pipeline
         over full file contents — used for the first graph build,
-        before any commit history exists to diff against."""
+        before any commit history exists to diff against.
+
+        Stage-1 candidates are capped (see _cap_candidates); what was cut
+        is in self.last_scan_stats."""
         if not self.repo_path:
             raise ValueError(
                 "scan_repo (local mode) requires repo_path. Use scan_repo_remote() otherwise."
             )
 
+        stats = self._new_stats()
         all_candidates = []
-        for path in Path(self.repo_path).rglob("*"):
+        # Sorted so the candidate cap truncates the same files every run.
+        for path in sorted(Path(self.repo_path).rglob("*")):
             if not path.is_file() or path.suffix not in CODE_FILE_EXTENSIONS:
                 continue
             if SKIP_DIR_NAMES & set(path.parts):
@@ -145,12 +194,14 @@ class GitHubScanner:
 
             rel_path = str(path.relative_to(self.repo_path))
             all_candidates.extend(
-                find_candidate_lines_in_file(rel_path, content)
+                find_candidate_lines_in_file(rel_path, content, stats=stats)
             )
 
+        self._log_long_lines(stats)
         logger.info(
             "Stage 1: %d candidate lines across repo", len(all_candidates)
         )
+        all_candidates = self._cap_candidates(all_candidates, stats)
         if not all_candidates:
             return []
         if not classify:
@@ -223,7 +274,8 @@ class GitHubScanner:
         max_file_bytes: int = 200_000,
     ) -> List[dict]:
         """Same as scan_repo(), but pulls file contents via the GitHub
-        API instead of reading a local clone."""
+        API instead of reading a local clone. Same candidate cap, same
+        self.last_scan_stats."""
         if not self.repo_full_name:
             raise ValueError("scan_repo_remote requires repo_full_name.")
         headers = github_headers(self.github_token)
@@ -242,8 +294,10 @@ class GitHubScanner:
         resp.raise_for_status()
         tree = resp.json().get("tree", [])
 
+        stats = self._new_stats()
         all_candidates = []
         skipped_large = 0
+        # Tree order (sorted by path), so the cap is deterministic.
         for entry in tree:
             if entry["type"] != "blob":
                 continue
@@ -277,8 +331,12 @@ class GitHubScanner:
                 logger.warning("Skipping undecodable file %s: %s", path, exc)
                 continue
 
-            all_candidates.extend(find_candidate_lines_in_file(path, content))
+            all_candidates.extend(
+                find_candidate_lines_in_file(path, content, stats=stats)
+            )
 
+        stats["files_skipped_large"] = skipped_large
+        self._log_long_lines(stats)
         if skipped_large:
             logger.info(
                 "Skipped %d file(s) larger than %d bytes",
@@ -289,6 +347,7 @@ class GitHubScanner:
             "Stage 1: %d candidate lines across remote repo",
             len(all_candidates),
         )
+        all_candidates = self._cap_candidates(all_candidates, stats)
         if not all_candidates:
             return []
         if not classify:
@@ -302,7 +361,57 @@ class GitHubScanner:
 
     # ---------- shared ----------
 
+    def _new_stats(self) -> dict:
+        self.last_scan_stats = {
+            "candidates_found": 0,
+            "candidates_dropped": 0,
+            "truncated": False,
+            "max_candidates": None,
+            "long_lines_skipped": 0,
+            "candidates_confirmed": None,
+        }
+        return self.last_scan_stats
+
+    @staticmethod
+    def _log_long_lines(stats: dict) -> None:
+        if stats.get("long_lines_skipped"):
+            logger.info(
+                "Skipped %d line(s) longer than %d chars (minified or "
+                "generated code)",
+                stats["long_lines_skipped"],
+                MAX_LINE_LENGTH,
+            )
+
+    def _cap_candidates(self, candidates: list, stats: dict) -> list:
+        """Truncate to the per-scan cap, keeping file order, and record
+        what was cut in `stats` (i.e. self.last_scan_stats)."""
+        limit = self.max_candidates or max_candidates_per_scan()
+        found = len(candidates)
+        dropped = max(0, found - limit)
+        stats.update(
+            candidates_found=found,
+            candidates_dropped=dropped,
+            truncated=dropped > 0,
+            max_candidates=limit,
+        )
+        if dropped:
+            logger.warning(
+                "Candidate cap hit: %d stage-1 candidates, classifying the "
+                "first %d in file order and dropping %d. Raise "
+                "SCAN_MAX_CANDIDATES to classify more.",
+                found,
+                limit,
+                dropped,
+            )
+        return candidates[:limit]
+
     def _classify_and_log(self, candidates) -> List[dict]:
+        """Classify, and return ONLY the lines confirmed as data-handling.
+
+        It used to return every classified line, so the UI scan path
+        (which writes this straight to the graph) wrote lines the model
+        had rejected, and ones it failed to classify. The CLIs call the
+        classifier themselves and filter on their own."""
         classified = self.classifier.classify_candidates(candidates)
         kept = [c for c in classified if c.get("is_data_handling")]
         logger.info(
@@ -310,4 +419,5 @@ class GitHubScanner:
             len(kept),
             len(candidates),
         )
-        return classified
+        self.last_scan_stats["candidates_confirmed"] = len(kept)
+        return kept

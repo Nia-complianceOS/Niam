@@ -11,7 +11,7 @@ export function PolicyCard({ policy }: { policy: Policy }) {
       </div>
       <div className="text-[13px] text-text-dim leading-relaxed">{policy.description}</div>
       <div className="h-1.5 rounded-md bg-white/[0.06] overflow-hidden mt-3">
-        <div className="h-full rounded-md bg-grad-primary" style={{ width: `${policy.coverage_percent}%` }} />
+        <div className="h-full rounded-md bg-accent-blue" style={{ width: `${policy.coverage_percent}%` }} />
       </div>
     </Card>
   )

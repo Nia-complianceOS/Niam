@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useSEO } from '@/hooks/useSEO'
+import { NiamMark } from '@/components/brand/NiamMark'
 import {
-  ShieldCheck,
   Menu,
   X,
   ArrowRight,
@@ -44,10 +44,8 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 lg:px-12 flex justify-between items-center">
           {/* Logo & Category */}
           <div className="flex items-center gap-3">
-            <Link to="/" className="flex items-center gap-2.5 group">
-              <div className="w-8 h-8 rounded border border-border bg-surface flex items-center justify-center text-text-primary transition-colors group-hover:border-text-tertiary">
-                <ShieldCheck size={18} strokeWidth={1.75} />
-              </div>
+            <Link to="/" aria-label="Niam home" className="flex items-center gap-2.5 group rounded">
+              <NiamMark size={26} title="" className="text-text-primary flex-shrink-0" />
               <span className="font-serif font-semibold text-xl tracking-tight text-text-primary">Niam</span>
             </Link>
             <div className="hidden sm:flex items-center gap-2 pl-3 border-l border-border text-[11px] font-mono text-text-tertiary">
@@ -96,7 +94,10 @@ export default function LandingPage() {
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-[60] bg-bg/95 backdrop-blur-md md:hidden flex flex-col p-6">
           <div className="flex justify-between items-center pb-6 border-b border-border">
-            <span className="font-serif font-semibold text-lg">Niam</span>
+            <span className="inline-flex items-center gap-2 font-serif font-semibold text-lg">
+              <NiamMark size={20} title="" />
+              Niam
+            </span>
             <button 
               className="p-1.5 rounded border border-border text-text-secondary" 
               onClick={() => setIsMobileMenuOpen(false)}
@@ -161,90 +162,95 @@ export default function LandingPage() {
             <div className="mt-10 pt-8 border-t border-border w-full grid grid-cols-3 gap-4 font-mono text-[11px] text-text-tertiary">
               <div>
                 <span className="block text-text-primary font-medium text-sm font-sans mb-0.5">Section 6(1)</span>
-                Purpose limitation & notice
+                Consent for a specified purpose
               </div>
               <div>
-                <span className="block text-text-primary font-medium text-sm font-sans mb-0.5">Section 8(6)</span>
-                Data fiduciary erasure rules
+                <span className="block text-text-primary font-medium text-sm font-sans mb-0.5">Section 8(7)</span>
+                Erasure once the purpose is served
               </div>
               <div>
                 <span className="block text-text-primary font-medium text-sm font-sans mb-0.5">Section 16</span>
-                Cross-border data transfer
+                Transfer outside India
               </div>
             </div>
           </div>
 
-          {/* Right Column: Architectural Regulatory Ledger Card */}
+          {/* Right Column: an ILLUSTRATIVE finding, labelled as such. Nothing
+              here is live data or a real customer's scan -- it shows the
+              shape of what a scan produces. */}
           <div className="lg:col-span-5 w-full">
-            <div className="rounded border border-border bg-surface p-1 shadow-md">
-              {/* Ledger Terminal Header */}
-              <div className="px-4 py-2.5 border-b border-border/80 bg-bg-subtle flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-status-gap" />
-                  <span className="font-mono text-[11px] text-text-secondary font-medium tracking-tight">AUDIT-RUN // AST-GRAPH #048</span>
+            <figure className="rounded border border-border bg-surface p-1 shadow-md">
+              {/* Ledger Header */}
+              <div className="px-4 py-2.5 border-b border-border/80 bg-bg-subtle flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-2 h-2 rounded-full bg-status-neutral flex-shrink-0" />
+                  <span className="font-mono text-[11px] text-text-secondary font-medium tracking-tight truncate">SAMPLE FINDINGS // example-app</span>
                 </div>
-                <span className="font-mono text-[10px] text-text-tertiary px-1.5 py-0.5 rounded border border-border bg-bg">
-                  REALTIME
+                <span className="font-mono text-[10px] text-status-warning px-1.5 py-0.5 rounded border border-status-warning/30 bg-status-warning/10 uppercase flex-shrink-0">
+                  Illustrative example
                 </span>
               </div>
 
               {/* Forensic Ledger Preview Body */}
               <div className="p-4 space-y-4 font-sans text-xs">
-                {/* Metric Strip */}
-                <div className="grid grid-cols-3 gap-2 pb-3 border-b border-border">
-                  <div className="p-2.5 rounded border border-border bg-bg">
-                    <span className="block font-mono text-[10px] text-text-tertiary">REPOSITORIES</span>
-                    <span className="text-lg font-mono font-semibold text-text-primary">12</span>
-                  </div>
-                  <div className="p-2.5 rounded border border-border bg-bg">
-                    <span className="block font-mono text-[10px] text-status-gap">ACTIVE GAPS</span>
-                    <span className="text-lg font-mono font-semibold text-status-gap">04</span>
-                  </div>
-                  <div className="p-2.5 rounded border border-border bg-bg">
-                    <span className="block font-mono text-[10px] text-status-compliant">REMEDIATED</span>
-                    <span className="text-lg font-mono font-semibold text-status-compliant">08</span>
-                  </div>
-                </div>
+                {/* How a finding is produced */}
+                <ol className="grid grid-cols-3 gap-2 pb-3 border-b border-border">
+                  <li className="p-2.5 rounded border border-border bg-bg">
+                    <span className="block font-mono text-[10px] text-text-tertiary">STAGE 1</span>
+                    <span className="text-[12px] font-medium text-text-primary">Signal filter</span>
+                  </li>
+                  <li className="p-2.5 rounded border border-border bg-bg">
+                    <span className="block font-mono text-[10px] text-text-tertiary">STAGE 2</span>
+                    <span className="text-[12px] font-medium text-text-primary">Model classifies</span>
+                  </li>
+                  <li className="p-2.5 rounded border border-border bg-bg">
+                    <span className="block font-mono text-[10px] text-text-tertiary">STAGE 3</span>
+                    <span className="text-[12px] font-medium text-text-primary">Clause check</span>
+                  </li>
+                </ol>
 
                 {/* Finding Item 1 */}
                 <div className="p-3 rounded border border-border bg-bg/50 space-y-1.5">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <span className="font-mono text-[10px] uppercase text-status-gap bg-status-gap/10 px-1.5 py-0.2 rounded border border-status-gap/20 font-medium">
-                      High Statutory Risk
+                      Undisclosed processor
                     </span>
-                    <span className="font-mono text-[10px] text-text-tertiary">src/auth/session.ts:42</span>
+                    <span className="font-mono text-[10px] text-text-tertiary truncate">src/analytics/track.ts</span>
                   </div>
                   <h4 className="font-medium text-text-primary text-[13px]">
-                    Ungoverned biometrics transmitted to third-party telemetry
+                    Email address and phone number sent to an analytics SDK
                   </h4>
                   <p className="text-[11px] text-text-secondary leading-relaxed">
-                    Breach of <span className="text-text-primary font-mono">DPDP Act §6(1)</span>: Processing biometric telemetry without explicit categorical consent declaration.
+                    The privacy notice does not mention this processor or purpose. Under <span className="text-text-primary font-mono">DPDP Act §5–6</span>, consent must follow a notice of the data and the purpose it is used for.
                   </p>
                   <div className="pt-2 flex items-center justify-between border-t border-border/50 text-[11px]">
-                    <span className="font-mono text-text-tertiary">Processor: Segment SDK</span>
+                    <span className="font-mono text-text-tertiary">Vendor: analytics SDK</span>
                     <span className="text-text-primary font-medium inline-flex items-center gap-1">
-                      PR #31 Drafted <ArrowRight size={11} />
+                      Notice amendment drafted <ArrowRight size={11} />
                     </span>
                   </div>
                 </div>
 
                 {/* Finding Item 2 */}
                 <div className="p-3 rounded border border-border bg-bg/50 space-y-1.5">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <span className="font-mono text-[10px] uppercase text-status-warning bg-status-warning/10 px-1.5 py-0.2 rounded border border-status-warning/20 font-medium">
-                      Notice Inconsistency
+                      Retention gap
                     </span>
-                    <span className="font-mono text-[10px] text-text-tertiary">src/api/kyc.py:118</span>
+                    <span className="font-mono text-[10px] text-text-tertiary truncate">src/kyc/models.py</span>
                   </div>
                   <h4 className="font-medium text-text-primary text-[13px]">
-                    PAN Card identifier stored without automated erasure hook
+                    PAN number stored with no stated retention period
                   </h4>
                   <p className="text-[11px] text-text-secondary leading-relaxed">
-                    Non-compliance with <span className="text-text-primary font-mono">DPDP Act §8(6)</span>: Retention period absent in posted privacy schedule.
+                    <span className="text-text-primary font-mono">DPDP Act §8(7)</span> requires erasure once the specified purpose is served or consent is withdrawn, unless the law requires retention.
                   </p>
                 </div>
               </div>
-            </div>
+              <figcaption className="px-4 py-2 border-t border-border/80 font-mono text-[10px] text-text-tertiary">
+                Illustrative example of the findings format. Not data from a real scan.
+              </figcaption>
+            </figure>
           </div>
         </div>
       </section>
@@ -260,7 +266,7 @@ export default function LandingPage() {
               Lawyers write privacy notices. Engineers push code. Neither reads the other.
             </h2>
             <p className="text-text-secondary text-[15px] leading-relaxed">
-              India&apos;s Digital Personal Data Protection Act 2023 penalizes unnotified personal data processing up to ₹250 Crore. The risk is not policy absence — it is the divergence between what your legal terms claim and what your AST actually invokes.
+              Under the Schedule to India&apos;s Digital Personal Data Protection Act 2023, failing to take reasonable security safeguards against a personal data breach (§8(5)) can cost up to ₹250 crore, and failing to notify a breach to the Board and affected people (§8(6)) up to ₹200 crore. The risk is rarely a missing policy — it is the gap between what your privacy notice says and what your code actually does.
             </p>
           </div>
 
@@ -270,13 +276,13 @@ export default function LandingPage() {
                 <div className="w-8 h-8 rounded border border-border bg-bg flex items-center justify-center text-text-primary mb-4">
                   <SearchCode size={16} strokeWidth={1.75} />
                 </div>
-                <h3 className="font-medium text-base text-text-primary mb-2">AST Data-Flow Discovery</h3>
+                <h3 className="font-medium text-base text-text-primary mb-2">Data-Flow Discovery</h3>
                 <p className="text-xs text-text-secondary leading-relaxed">
-                  We parse Abstract Syntax Trees across your repositories to uncover hidden PII collections, third-party egress SDKs, and database write patterns without running arbitrary code.
+                  Niam reads your code at a specific commit. A signal filter picks out candidate lines, then a model classifies each one into a fixed taxonomy of personal-data types and vendors. Your code is never executed.
                 </p>
               </div>
               <div className="mt-6 pt-4 border-t border-border font-mono text-[11px] text-text-tertiary">
-                Direct AST Static Analysis
+                Two-Stage Scan: Filter, Then Model
               </div>
             </div>
 
@@ -302,7 +308,7 @@ export default function LandingPage() {
                 </div>
                 <h3 className="font-medium text-base text-text-primary mb-2">Prose-First Remedial PRs</h3>
                 <p className="text-xs text-text-secondary leading-relaxed">
-                  Rather than dumping raw linter errors on developers, Niam drafts statutory policy amendments and disclosures directly into an open Pull Request for your counsel and engineers to sign off.
+                  Rather than dumping raw linter errors on developers, Niam drafts statutory policy amendments and disclosures and, when you choose to, opens them as a pull request for your counsel and engineers to sign off.
                 </p>
               </div>
               <div className="mt-6 pt-4 border-t border-border font-mono text-[11px] text-text-tertiary">
@@ -333,7 +339,7 @@ export default function LandingPage() {
                   <span className="w-2.5 h-2.5 rounded-full bg-entity-system mt-1.5 flex-shrink-0" />
                   <div>
                     <h4 className="font-medium text-[13px] text-text-primary">Source Code Systems</h4>
-                    <p className="text-[11px] text-text-secondary">AST nodes representing services, routes, and controllers.</p>
+                    <p className="text-[11px] text-text-secondary">Each scanned repository, with the commit its findings came from.</p>
                   </div>
                 </div>
 
@@ -341,7 +347,7 @@ export default function LandingPage() {
                   <span className="w-2.5 h-2.5 rounded-full bg-entity-datatype mt-1.5 flex-shrink-0" />
                   <div>
                     <h4 className="font-medium text-[13px] text-text-primary">Data Types & Identifiers</h4>
-                    <p className="text-[11px] text-text-secondary">Categorized PII, financial identifiers, biometrics, and credentials.</p>
+                    <p className="text-[11px] text-text-secondary">Contact details, government IDs, payment cards, credentials, device and location data, classified into a fixed taxonomy.</p>
                   </div>
                 </div>
 
@@ -368,8 +374,8 @@ export default function LandingPage() {
               <div className="border border-border/80 rounded bg-bg p-6 space-y-6">
                 <div className="flex items-center justify-between pb-4 border-b border-border">
                   <span className="font-mono text-xs text-text-secondary font-medium">GRAPH ARBITRATION TOPOLOGY</span>
-                  <span className="font-mono text-[10px] text-status-compliant px-1.5 py-0.5 rounded border border-status-compliant/30 bg-status-compliant/10">
-                    GRAPH ENGINE ACTIVE
+                  <span className="font-mono text-[10px] text-status-warning px-1.5 py-0.5 rounded border border-status-warning/30 bg-status-warning/10 uppercase">
+                    Illustrative example
                   </span>
                 </div>
 
@@ -401,10 +407,10 @@ export default function LandingPage() {
                     <ChevronRight size={12} className="text-text-tertiary" />
                     <span className="text-text-primary">Twilio SMS Gateway</span>
                     <ChevronRight size={12} className="text-text-tertiary" />
-                    <span className="text-status-gap font-medium">Section 6(1) Notice Missing</span>
+                    <span className="text-status-gap font-medium">Section 5(1) Notice Missing</span>
                   </div>
                   <div className="text-[11px] text-text-secondary leading-normal font-sans pt-1">
-                    Arbitration Verdict: Transmitting unverified personal data to third-party SMS vendor without corresponding notice schedule in Privacy Policy v1.4.
+                    Example verdict: phone numbers are sent to a third-party SMS vendor, but the privacy notice does not describe this data or purpose.
                   </div>
                 </div>
               </div>
@@ -433,12 +439,12 @@ export default function LandingPage() {
               {
                 step: '01',
                 title: 'Authorize Repository',
-                desc: 'Grant scoped read access via GitHub OAuth. No production database connections or runtime environment credentials required.'
+                desc: 'Connect GitHub with OAuth. Niam asks for the repo scope, which GitHub describes as full read and write access to your repositories; write access is used only to open the fix pull request you ask for. No database or production credentials needed.'
               },
               {
                 step: '02',
-                title: 'Static AST Traversal',
-                desc: 'The scanning engine traverses your repository AST, detecting variables, network calls, and third-party SDK initialization points.'
+                title: 'Two-Stage Scan',
+                desc: 'A keyword and signal filter selects candidate lines from your repository at a specific commit; a Google Gemini model then classifies each line into a fixed taxonomy of personal-data types and vendors.'
               },
               {
                 step: '03',
@@ -448,7 +454,7 @@ export default function LandingPage() {
               {
                 step: '04',
                 title: 'Review Remedial PR',
-                desc: 'Niam generates an editorial pull request with amended policy language and statutory reasoning for human sign-off.'
+                desc: 'Niam drafts amended policy language with statutory reasoning. It opens a pull request only when you click to, and never merges it for you.'
               }
             ].map((item, idx) => (
               <div key={idx} className="p-5 rounded border border-border bg-surface flex flex-col justify-between">
@@ -467,31 +473,46 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 6. STATUTORY TRUST / SPECIFICATIONS */}
+      {/* 6. DATA HANDLING -- exactly what leaves, exactly what is kept */}
       <section className="py-16 px-6 lg:px-12 border-t border-border">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
-          <div>
+        <div className="max-w-7xl mx-auto grid lg:grid-cols-12 gap-8 items-start">
+          <div className="lg:col-span-4">
             <span className="font-mono text-[11px] text-text-tertiary uppercase tracking-wider block mb-1">
-              Statutory Assurances
+              Data Handling
             </span>
             <h3 className="font-serif text-2xl text-text-primary font-medium">
-              Forensic, self-hostable compliance with zero runtime dependencies.
+              We tell you exactly what leaves your repository, and what we keep.
             </h3>
+            <p className="text-xs text-text-secondary leading-relaxed mt-3">
+              A compliance tool should meet the standard it checks you against. Here is the whole list.
+            </p>
           </div>
-          <div className="flex flex-wrap items-center gap-6 font-mono text-xs text-text-secondary">
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-status-compliant" />
-              <span>Fernet Token Encryption</span>
+          <dl className="lg:col-span-8 grid sm:grid-cols-2 gap-4 text-xs">
+            <div className="p-4 rounded border border-border bg-surface">
+              <dt className="font-mono text-[11px] uppercase tracking-wider text-text-primary mb-1.5">Sent for classification</dt>
+              <dd className="text-text-secondary leading-relaxed">
+                Only the candidate code lines picked out by the signal filter, never whole files, go to Google&apos;s Gemini API to be classified.
+              </dd>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-status-compliant" />
-              <span>Zero Customer Data Storage</span>
+            <div className="p-4 rounded border border-border bg-surface">
+              <dt className="font-mono text-[11px] uppercase tracking-wider text-text-primary mb-1.5">Stored by Niam</dt>
+              <dd className="text-text-secondary leading-relaxed">
+                Findings with file paths and line numbers, commit SHAs and messages, and the resulting compliance graph, plus your account details. Not your source files.
+              </dd>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-status-compliant" />
-              <span>Open Source Verification</span>
+            <div className="p-4 rounded border border-border bg-surface">
+              <dt className="font-mono text-[11px] uppercase tracking-wider text-text-primary mb-1.5">Never done</dt>
+              <dd className="text-text-secondary leading-relaxed">
+                Your code is never executed. Nothing is pushed to GitHub unless you choose to open a pull request, and pull requests are never merged for you.
+              </dd>
             </div>
-          </div>
+            <div className="p-4 rounded border border-border bg-surface">
+              <dt className="font-mono text-[11px] uppercase tracking-wider text-text-primary mb-1.5">Your GitHub credential</dt>
+              <dd className="text-text-secondary leading-relaxed">
+                Encrypted at rest (Fernet) and never sent back to the browser. Disconnect at any time; delete all findings from Settings.
+              </dd>
+            </div>
+          </dl>
         </div>
       </section>
 
@@ -505,7 +526,7 @@ export default function LandingPage() {
             Close the gap between your code and India&apos;s DPDP Act.
           </h2>
           <p className="text-text-secondary text-[15px] max-w-xl mx-auto leading-relaxed">
-            Scan your first repository in under three minutes. Review your statutory posture before your next release cycle or compliance audit.
+            Connect GitHub, scan a repository, and review your statutory posture before your next release cycle or compliance audit. The DPDP Act&apos;s core obligations apply from May 2027, 18 months after the DPDP Rules were notified.
           </p>
           <div className="pt-2 flex flex-col sm:flex-row justify-center gap-3">
             <Link 
@@ -531,16 +552,14 @@ export default function LandingPage() {
           <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
             <div className="col-span-2 space-y-3">
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded border border-border bg-surface flex items-center justify-center text-text-primary">
-                  <ShieldCheck size={14} strokeWidth={1.75} />
-                </div>
+                <NiamMark size={20} title="" className="text-text-primary flex-shrink-0" />
                 <span className="font-serif font-semibold text-base text-text-primary">Niam</span>
               </div>
               <p className="text-text-tertiary text-xs max-w-sm leading-relaxed">
                 Automated statutory risk governance and continuous compliance for the Digital Personal Data Protection Act 2023.
               </p>
               <div className="font-mono text-[11px] text-text-tertiary pt-2">
-                AUDIT ENGINE SPECIFICATION // DPDP-2023-REV4
+                DPDP ACT 2023 · DPDP RULES 2025
               </div>
             </div>
 

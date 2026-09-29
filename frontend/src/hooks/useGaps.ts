@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { generateFix, getGaps, isAbortError, openPR } from '@/services/api/client'
+import { generateFix, getGaps, isAbortError } from '@/services/api/client'
 
-import type { Gap, PullRequest } from '@/types/api'
+import type { Gap } from '@/types/api'
 import { gapMatches, sortGaps } from '@/lib/gapLanguage'
+import { notifyDataChanged, useDataVersion } from '@/lib/dataEvents'
 
 /**
  * Every gap, selectable one at a time.
@@ -27,17 +28,47 @@ export function useGaps() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [fixLoading, setFixLoading] = useState(false)
-  const [prLoading, setPrLoading] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [openedPR, setOpenedPR] = useState<PullRequest | null>(null)
+  // The review a draft was just sent to, so the detail panel can say so
+  // and link to it. Cleared on a change of selection.
+  const [sentToReview, setSentToReview] = useState<{ gapId: string; reviewId: string } | null>(null)
 
   // Re-runs on a change of signed-in account, and every reply is matched
   // against the run that asked for it -- one account's findings carry
   // vendor names and private file paths, so a stale reply landing in the
   // next account's page is a disclosure, not a glitch.
   const runRef = useRef(0)
+  const dataVersion = useDataVersion()
+  const loadedForRef = useRef<string | null | undefined>(undefined)
+  const refreshRef = useRef(0)
+
+  // A change of account starts from nothing. A notifyDataChanged() refresh
+  // (a scan finished elsewhere, a fix was drafted) is the same account, so
+  // the list, the selection and the search box stay put while the new copy
+  // loads -- this is what keeps the sidebar's gap badge current.
+  useEffect(() => {
+    if (loadedForRef.current !== userId) return
+    // Its own counter, so a refresh never cancels the account's initial
+    // load (which owns `loading`); runRef still discards it if the account
+    // changes while it is in flight.
+    const run = runRef.current
+    const refresh = ++refreshRef.current
+    getGaps()
+      .then((data) => {
+        if (run !== runRef.current || refresh !== refreshRef.current) return
+        setGaps(data.gaps)
+        setScore(data.score)
+        setScoreExplanation(data.score_explanation)
+        setError(null)
+      })
+      .catch(() => {
+        // Keep what is on screen; the next refresh will try again.
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataVersion])
 
   useEffect(() => {
+    loadedForRef.current = userId
     const run = ++runRef.current
     setGaps([])
     setScore(null)
@@ -45,7 +76,7 @@ export function useGaps() {
     setSelectedId(null)
     setQuery('')
     setActionError(null)
-    setOpenedPR(null)
+    setSentToReview(null)
     setError(null)
     setLoading(true)
 
@@ -80,6 +111,7 @@ export function useGaps() {
 
   const select = useCallback((id: string) => {
     setActionError(null)
+    setSentToReview(null)
     setSelectedId(id)
   }, [])
 
@@ -89,42 +121,31 @@ export function useGaps() {
     )
   }, [])
 
+  /**
+   * Draft the fix and send it to legal review. There is no direct "open a
+   * pull request" any more: the PR opens when the owner approves the
+   * legal-approved version (see /reviews/:id).
+   */
   const runGenerateFix = useCallback(async () => {
     if (!selected) return
+    const gapId = selected.id
     setFixLoading(true)
     setActionError(null)
+    setSentToReview(null)
     try {
-      const result = await generateFix(selected.id)
-      patch(selected.id, {
+      const result = await generateFix(gapId)
+      patch(gapId, {
         remediation_drafts: result.remediation_drafts,
-        status: 'fix_generated',
+        status: result.review_id ? 'in_review' : 'fix_generated',
+        review_id: result.review_id,
+        review_state: result.review_state,
       })
+      if (result.review_id) setSentToReview({ gapId, reviewId: result.review_id })
+      notifyDataChanged('fix_generated')
     } catch (err) {
       setActionError((err as Error).message)
     } finally {
       setFixLoading(false)
-    }
-  }, [selected, patch])
-
-  const runOpenPR = useCallback(async () => {
-    if (!selected) return null
-    setPrLoading(true)
-    setActionError(null)
-    try {
-      const result = await openPR(selected.id)
-      // Only this gap changes. Other gaps keep whatever state they are in,
-      // so several can be with legal at the same time.
-      patch(selected.id, {
-        pr_id: result.pull_request.id,
-        status: 'pr_opened',
-      })
-      setOpenedPR(result.pull_request)
-      return result.pull_request
-    } catch (err) {
-      setActionError((err as Error).message)
-      return null
-    } finally {
-      setPrLoading(false)
     }
   }, [selected, patch])
 
@@ -147,11 +168,8 @@ export function useGaps() {
     loading,
     error,
     fixLoading,
-    prLoading,
     actionError,
-    openedPR,
-    dismissPR: () => setOpenedPR(null),
+    sentToReview,
     runGenerateFix,
-    runOpenPR,
   }
 }

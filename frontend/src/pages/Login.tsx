@@ -1,8 +1,12 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { ShieldCheck, Mail, Lock, Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react'
 import { useSEO } from '@/hooks/useSEO'
+import { NiamMark } from '@/components/brand/NiamMark'
+import { GitHubSignInButton, OrDivider } from '@/components/auth/GitHubSignInButton'
+import { AuthNotice } from '@/components/auth/AuthNotice'
+import { useNextPath, withNext, type AuthPageState } from '@/lib/redirect'
 
 export default function Login() {
   useSEO({
@@ -16,6 +20,9 @@ export default function Login() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { login } = useAuth()
+  const location = useLocation()
+  const next = useNextPath()
+  const notice = ((location.state ?? null) as AuthPageState | null)?.notice ?? null
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -24,7 +31,7 @@ export default function Login() {
     setIsSubmitting(true)
     setError(null)
     try {
-      await login(email, password)
+      await login(email, password, next)
     } catch (err) {
       setError((err as Error).message || 'Sign in failed')
     } finally {
@@ -37,10 +44,8 @@ export default function Login() {
       {/* LEFT COLUMN: Regulatory Briefing & Ledger Identity */}
       <div className="w-full md:w-[50%] lg:w-[48%] flex flex-col justify-between p-8 md:p-14 lg:p-18 border-b md:border-b-0 md:border-r border-border bg-bg-subtle/40">
         <div>
-          <Link to="/" className="inline-flex items-center gap-2.5 group mb-12">
-            <div className="w-8 h-8 rounded border border-border bg-surface flex items-center justify-center text-text-primary transition-colors group-hover:border-text-tertiary">
-              <ShieldCheck size={18} strokeWidth={1.75} />
-            </div>
+          <Link to="/" aria-label="Niam home" className="inline-flex items-center gap-2.5 group mb-12 rounded">
+            <NiamMark size={26} title="" className="text-text-primary flex-shrink-0" />
             <span className="font-serif font-semibold text-xl tracking-tight text-text-primary">Niam</span>
             <span className="text-[10px] font-mono text-text-tertiary px-1.5 py-0.5 rounded border border-border bg-bg">
               DPDP ACT 2023
@@ -62,7 +67,7 @@ export default function Login() {
               </div>
               <div className="flex items-center gap-2.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-status-compliant" />
-                <span>Engine: AST Static Analysis & Policy Cross-Check</span>
+                <span>Engine: Signal Filter + Taxonomy-Constrained Model</span>
               </div>
               <div className="flex items-center gap-2.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-status-compliant" />
@@ -74,7 +79,7 @@ export default function Login() {
 
         <div className="pt-10 text-[11px] font-mono text-text-tertiary border-t border-border/60 flex items-center justify-between">
           <span>CONFIDENTIAL AUDIT LEDGER</span>
-          <span>SEC. 4 // NOTICE & CONSENT</span>
+          <span>SEC. 5–6 // NOTICE & CONSENT</span>
         </div>
       </div>
 
@@ -89,13 +94,26 @@ export default function Login() {
             <p className="text-xs text-text-secondary">Enter your credentials to enter the compliance ledger.</p>
           </div>
 
+          {notice && (
+            <AuthNotice tone={notice.tone ?? 'error'} title={notice.title}>
+              {notice.message}
+            </AuthNotice>
+          )}
+
           <div className="rounded border border-border bg-surface p-6 sm:p-7 shadow-sm">
             {error && (
-              <div className="mb-5 p-3 rounded border border-status-gap/30 bg-status-gap/10 text-status-gap text-xs leading-relaxed flex items-start gap-2 font-sans">
+              <div role="alert" className="mb-5 p-3 rounded border border-status-gap/30 bg-status-gap/10 text-status-gap text-xs leading-relaxed flex items-start gap-2 font-sans">
                 <span className="font-mono text-[11px] font-bold">ERR:</span>
                 <span>{error}</span>
               </div>
             )}
+
+            <GitHubSignInButton returnTo={next ?? '/repositories'} />
+            <p className="mt-2 text-[11px] leading-relaxed text-text-tertiary">
+              New to Niam? GitHub creates your account and lists your repositories straight away.
+            </p>
+
+            <OrDivider />
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
@@ -121,7 +139,7 @@ export default function Login() {
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label htmlFor="password" aria-label="Password" className="text-xs font-medium text-text-secondary">
+                  <label htmlFor="password" className="text-xs font-medium text-text-secondary">
                     Password
                   </label>
                 </div>
@@ -173,7 +191,7 @@ export default function Login() {
 
             <div className="mt-5 pt-4 border-t border-border text-center text-xs text-text-secondary">
               Need a new workspace?{' '}
-              <Link to="/signup" className="text-text-primary font-medium hover:underline underline-offset-4">
+              <Link to={withNext('/signup', next)} className="text-text-primary font-medium hover:underline underline-offset-4">
                 Register repository audit
               </Link>
             </div>

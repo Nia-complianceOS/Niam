@@ -95,7 +95,7 @@ export default function Vendors() {
       {vendors.length === 0 ? (
         <GetStartedState
           title="No Processors Identified"
-          message="Scan a repository to discover external processors in your codebase. Niam audits import ASTs, SDK instantiations, and network configurations to index outside data recipients."
+          message="Scan a repository to discover external processors in your codebase. Niam's two-stage scan (a signal filter, then a taxonomy-constrained model) flags the lines where your code sends personal data to a known vendor."
         />
       ) : (
         <Card className="overflow-hidden border-border bg-surface">
@@ -122,7 +122,7 @@ export default function Vendors() {
                     </td>
                     <td className="px-5 py-3.5 text-text-secondary">
                       <span className="font-mono text-[11px] text-text-muted bg-surface-sunken px-2 py-0.5 rounded border border-border-subtle">
-                        {vendor.category || 'General Processor'}
+                        {vendor.category || 'Uncategorised'}
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-text-secondary max-w-[240px] truncate" title={vendor.data_collected}>
@@ -147,7 +147,7 @@ export default function Vendors() {
                         ) : (
                           <span className="inline-flex items-center gap-1 text-text-muted">
                             <Server size={12} />
-                            AST Static Code
+                            Code scan
                           </span>
                         )}
                       </div>

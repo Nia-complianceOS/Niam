@@ -184,7 +184,7 @@ function ScannedRepositoryRow({
             <span>Purge {repo.repo} from statutory compliance graph?</span>
           </div>
           <p className="text-[11px] text-text-secondary leading-relaxed">
-            This will remove all AST entities, data egress edges, and unresolved compliance gaps associated with this codebase. Source code at GitHub remains untouched.
+            This removes the findings Niam recorded for this repository: its mapped data types and vendor links, its compliance gaps, and any drafted fixes. Nothing on GitHub is changed.
           </p>
 
           <div className="flex items-center gap-2 pt-1">

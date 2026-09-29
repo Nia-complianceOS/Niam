@@ -18,7 +18,7 @@ export function ScanPanel({
   const [ref, setRef] = useState('main')
   const [pickerOpen, setPickerOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const { status, logs, error, triggerScan } = useScan()
+  const { status, logs, error, reconnecting, triggerScan } = useScan()
 
   const busy = status === 'starting' || status === 'running'
   const valid = REPO_RE.test(repo.trim())
@@ -40,13 +40,13 @@ export function ScanPanel({
     <div className="p-5 rounded border border-border bg-surface mb-4 font-sans shadow-xs">
       <div className="flex items-center justify-between pb-3 mb-3 border-b border-border">
         <div>
-          <h2 className="font-medium text-sm text-text-primary">Initiate Codebase AST Scan</h2>
-          <p className="text-xs text-text-secondary mt-0.5">
-            Parses file trees and abstract syntax nodes for personal data handling without storing code.
+          <h2 className="font-medium text-sm text-text-primary">Scan a Repository</h2>
+          <p className="text-xs text-text-secondary mt-0.5 max-w-[560px] leading-relaxed">
+            Reads the repository at the chosen branch or commit in two stages: a signal filter picks out candidate lines, then a Google Gemini model classifies each one into a fixed taxonomy of personal-data types and vendors. Only those candidate lines are sent to Gemini; Niam keeps the findings (file paths, line numbers, commit details), not your source files, and never runs your code.
           </p>
         </div>
         <span className="font-mono text-[10px] text-text-tertiary px-1.5 py-0.5 rounded border border-border bg-bg">
-          STATIC AST
+          TWO-STAGE SCAN
         </span>
       </div>
 
@@ -167,7 +167,13 @@ export function ScanPanel({
                 <span>{log.message || log.error || 'stream packet received'}</span>
               </div>
             ))}
-            {busy && <div className="text-text-tertiary animate-pulse">_ executing graph arbitration</div>}
+            {busy && !reconnecting && <div className="text-text-tertiary animate-pulse">_ scan in progress</div>}
+            {busy && reconnecting && (
+              <div className="text-status-warning flex items-center gap-1.5">
+                <Loader2 size={11} className="animate-spin" />
+                <span>Connection interrupted — reconnecting (attempt {reconnecting.attempt})…</span>
+              </div>
+            )}
           </div>
 
           {status === 'completed' && (
@@ -191,7 +197,7 @@ export function ScanPanel({
           {status === 'connection_lost' && (
             <div className="mt-3 pt-2 border-t border-border flex items-center gap-2 text-status-warning font-medium text-xs">
               <AlertTriangle size={13} />
-              <span>SSE stream disconnected. Background worker may still be active.</span>
+              <span>{error || 'Lost the connection to the scan progress stream. The scan may still be running on the server.'}</span>
             </div>
           )}
         </div>

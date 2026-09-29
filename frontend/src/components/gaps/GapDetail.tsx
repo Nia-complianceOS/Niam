@@ -1,21 +1,24 @@
-import { useState } from 'react'
-import { CheckCircle2, Clock, ExternalLink, GitPullRequest, Sparkles, ArrowLeft, Scale } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { ArrowRight, CheckCircle2, Sparkles, ArrowLeft, Scale } from 'lucide-react'
 import type { Gap } from '@/types/api'
 import {
   dataTypeLabel,
+  gapStatusClasses,
+  gapStatusLabel,
   kindCopy,
   SEVERITY_LABELS,
   readableActionError,
-  GAP_STATUS_LABELS,
 } from '@/lib/gapLanguage'
+import { GapReviewStatus } from '@/components/reviews/GapReviewStatus'
 
 interface Props {
   gap: Gap | null
   fixLoading: boolean
-  prLoading: boolean
   actionError?: string | null
+  /** Set right after a draft was sent to review, for this gap. */
+  sentToReviewId?: string | null
   onGenerateFix: () => void
-  onOpenPR: () => void
   onBack: () => void
   isMobile: boolean
 }
@@ -29,14 +32,20 @@ const severityPillClasses: Record<string, string> = {
 export function GapDetail({
   gap,
   fixLoading,
-  prLoading,
   actionError,
+  sentToReviewId,
   onGenerateFix,
-  onOpenPR,
   onBack,
   isMobile,
 }: Props) {
   const [activeTab, setActiveTab] = useState(0)
+
+  // A newly selected finding opens on its first tab, not on whichever tab
+  // the previous finding was left on (which may not exist for this one).
+  const gapId = gap?.id
+  useEffect(() => {
+    setActiveTab(0)
+  }, [gapId])
 
   if (!gap) {
     return (
@@ -79,8 +88,8 @@ export function GapDetail({
             {copy.label}
           </span>
           {gap.status && (
-            <span className="px-1.5 py-0.2 rounded border border-border bg-bg text-text-tertiary uppercase">
-              {GAP_STATUS_LABELS[gap.status] ?? gap.status}
+            <span className={`px-1.5 py-0.2 rounded border uppercase ${gapStatusClasses(gap)}`}>
+              {gapStatusLabel(gap)}
             </span>
           )}
         </div>
@@ -145,8 +154,9 @@ export function GapDetail({
         </div>
       </Field>
 
-      {/* Remediation */}
-      {hasDrafts && (
+      {/* Remediation. Once a review exists, the review holds the wording
+          (legal may have edited it); this is the original AI draft. */}
+      {hasDrafts && !gap.review_id && (
         <Field label="03 // Drafted Remedial Amendment">
           <div className="flex overflow-x-auto border-b border-border mb-2.5 font-mono text-[11px]">
             {gap.remediation_drafts.map((draft, idx) => (
@@ -193,57 +203,51 @@ export function GapDetail({
           )
         })()}
 
-      {/* Action Footer */}
+      {/* Action footer. There is no direct "open a pull request" here: the
+          PR opens when the owner approves the legal-approved version. */}
       <div className="mt-auto pt-5 border-t border-border space-y-2.5">
+        {sentToReviewId && (
+          <div className="p-2.5 rounded border border-status-compliant/30 bg-status-compliant/10 text-xs text-text-primary flex items-center justify-between gap-2 flex-wrap" role="status">
+            <span className="flex items-center gap-2">
+              <CheckCircle2 size={14} className="text-status-compliant flex-shrink-0" aria-hidden />
+              Draft sent to legal review.
+            </span>
+            <Link to={`/reviews/${sentToReviewId}`} className="inline-flex items-center gap-1 font-medium underline-offset-4 hover:underline">
+              Open the review <ArrowRight size={12} aria-hidden />
+            </Link>
+          </div>
+        )}
         {gap.status === 'resolved' ? (
           <div className="p-2.5 rounded border border-status-compliant/30 bg-status-compliant/10 text-status-compliant text-xs font-medium flex items-center gap-2">
             <CheckCircle2 size={14} className="flex-shrink-0" />
             <span>Remediated — this statutory breach is no longer detected in repository code.</span>
           </div>
-        ) : gap.status === 'pr_opened' ? (
-          <div className="p-2.5 rounded border border-border bg-bg text-text-secondary text-xs flex items-center gap-2">
-            <Clock size={14} className="flex-shrink-0 text-text-tertiary" />
-            <span>
-              Pending Legal Review
-              {gap.pr_number ? ` · Pull Request #${gap.pr_number}` : ''}.
-            </span>
-          </div>
-        ) : !hasDrafts ? (
-          <button
-            onClick={onGenerateFix}
-            disabled={fixLoading}
-            className="w-full py-2 px-3 rounded bg-text-primary text-bg text-xs font-medium hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center justify-center gap-1.5 shadow-xs"
-          >
-            {fixLoading ? (
-              'Drafting Statutory Amendment…'
-            ) : (
-              <>
-                <Sparkles size={13} />
-                <span>Draft Remedial Policy Amendment</span>
-              </>
-            )}
-          </button>
+        ) : gap.review_id || gap.status === 'pr_opened' ? (
+          !sentToReviewId && <GapReviewStatus gap={gap} />
         ) : (
-          <button
-            onClick={onOpenPR}
-            disabled={prLoading}
-            className="w-full py-2 px-3 rounded bg-text-primary text-bg text-xs font-medium hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center justify-center gap-1.5 shadow-xs"
-          >
-            <GitPullRequest size={13} />
-            <span>{prLoading ? 'Submitting Pull Request…' : 'Submit for Legal Review via PR'}</span>
-          </button>
-        )}
-
-        {gap.pr_url && (
-          <a
-            href={gap.pr_url}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center justify-center gap-1 text-xs text-text-primary hover:underline underline-offset-4 font-medium pt-1"
-          >
-            <span>Inspect Pull Request on GitHub</span>
-            <ExternalLink size={12} />
-          </a>
+          <div className="space-y-1.5">
+            <button
+              onClick={onGenerateFix}
+              disabled={fixLoading}
+              aria-busy={fixLoading}
+              className="w-full py-2 px-3 rounded bg-text-primary text-bg text-xs font-medium hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center justify-center gap-1.5 shadow-xs"
+            >
+              {fixLoading ? (
+                'Drafting the amendment… this can take up to a minute'
+              ) : (
+                <>
+                  <Sparkles size={13} />
+                  <span>{hasDrafts ? 'Send draft to legal review' : 'Draft fix and send to legal review'}</span>
+                </>
+              )}
+            </button>
+            <p className="text-[11px] text-text-tertiary leading-relaxed">
+              {hasDrafts
+                ? 'The draft above was written before the approval workflow; this sends it to legal. '
+                : ''}
+              Legal reviews the wording first; the pull request opens only after owner approval.
+            </p>
+          </div>
         )}
       </div>
     </div>

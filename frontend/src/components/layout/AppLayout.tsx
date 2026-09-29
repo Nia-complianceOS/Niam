@@ -6,6 +6,9 @@ import { useState } from 'react'
 import { Menu, Bell } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '@/context/AuthContext'
+import { useBackendStatus } from '@/hooks/useHealth'
+import { NiamLogo, NiamMark } from '@/components/brand/NiamMark'
+import { WorkspaceSwitcher } from '@/components/team/WorkspaceSwitcher'
 
 export function AppLayout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
@@ -46,6 +49,7 @@ export function AppLayout() {
         <header className="hidden md:flex h-13 border-b border-border bg-bg/80 backdrop-blur-sm items-center justify-between px-8 flex-shrink-0 z-10">
           <Breadcrumbs />
           <div className="flex items-center gap-3">
+            <WorkspaceSwitcher />
             <div className="flex items-center gap-2 px-2.5 py-1 rounded border border-border bg-bg-subtle text-[11px] font-mono text-text-secondary">
               <span className="w-1.5 h-1.5 rounded-full bg-status-compliant" />
               <span>DPDP ACT 2023</span>
@@ -54,6 +58,7 @@ export function AppLayout() {
             <button 
               className="p-1.5 text-text-secondary hover:text-text-primary transition-colors relative rounded hover:bg-surface border border-transparent hover:border-border"
               title="Notifications coming soon"
+              aria-label="Notifications (coming soon)"
             >
               <Bell size={16} strokeWidth={1.75} />
             </button>
@@ -72,18 +77,19 @@ export function AppLayout() {
         <div className="flex-1 overflow-y-auto px-4 md:px-8 py-5 md:py-6 flex flex-col w-full min-w-0">
           {/* Mobile Top Bar */}
           <div className="md:hidden flex items-center justify-between pb-3 mb-4 border-b border-border flex-shrink-0">
+            <Link to="/dashboard" aria-label="Niam dashboard" className="rounded">
+              <NiamLogo size={20} />
+            </Link>
             <div className="flex items-center gap-2">
-              <span className="font-serif font-semibold text-lg text-text-primary tracking-tight">Niam</span>
-              <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded border border-border text-text-secondary bg-bg-subtle">
-                Ledger
-              </span>
+              <WorkspaceSwitcher />
+              <button
+                onClick={() => setIsMobileMenuOpen(true)}
+                aria-label="Open navigation"
+                className="p-1.5 text-text-secondary hover:text-text-primary transition-colors rounded border border-border"
+              >
+                <Menu size={18} />
+              </button>
             </div>
-            <button 
-              onClick={() => setIsMobileMenuOpen(true)} 
-              className="p-1.5 text-text-secondary hover:text-text-primary transition-colors rounded border border-border"
-            >
-              <Menu size={18} />
-            </button>
           </div>
           
           <div className="md:hidden mb-3">
@@ -108,7 +114,10 @@ export function AppLayout() {
           {/* Forensic Legal Ledger Footer */}
           <footer className="mt-16 pt-5 pb-6 border-t border-border flex flex-wrap items-center justify-between gap-4 text-xs text-text-tertiary">
             <div className="flex items-center gap-4">
-              <span className="font-serif font-medium text-text-secondary">Niam</span>
+              <span className="inline-flex items-center gap-1.5 font-serif font-medium text-text-secondary">
+                <NiamMark size={14} title="" />
+                Niam
+              </span>
               <span className="font-mono text-[11px]">DPDP Act 2023 Continuous Ledger</span>
               <div className="hidden sm:flex items-center gap-3 pl-2 border-l border-border">
                 <Link to="/dashboard" className="hover:text-text-primary transition-colors">Dashboard</Link>
@@ -118,10 +127,7 @@ export function AppLayout() {
               </div>
             </div>
             <div className="flex items-center gap-4 font-mono text-[11px]">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-status-compliant" />
-                Audit Engine Active
-              </span>
+              <BackendStatusIndicator />
               <a 
                 href="https://github.com/Nia-complianceOS/Niam" 
                 target="_blank" 
@@ -135,5 +141,24 @@ export function AppLayout() {
         </div>
       </div>
     </div>
+  )
+}
+
+function BackendStatusIndicator() {
+  const state = useBackendStatus()
+  const { dot, label, title } =
+    state.kind === 'ok'
+      ? { dot: 'bg-status-compliant', label: 'Backend connected', title: 'API, graph database and account database are reachable.' }
+      : state.kind === 'degraded'
+        ? { dot: 'bg-status-warning', label: 'Backend degraded', title: `Problems: ${state.problems.join('; ')}.` }
+        : state.kind === 'unreachable'
+          ? { dot: 'bg-status-gap', label: 'Backend unreachable', title: state.message }
+          : { dot: 'bg-status-neutral', label: 'Checking backend…', title: 'Checking /health' }
+
+  return (
+    <Link to="/settings" title={title} className="inline-flex items-center gap-1.5 hover:text-text-primary transition-colors">
+      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+      {label}
+    </Link>
   )
 }

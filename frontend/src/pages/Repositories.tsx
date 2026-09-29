@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, Loader2, Lock, Globe, GitBranch, ArrowRight } from 'lucide-react'
 import { GitHubAccountBar } from '@/components/repositories/GitHubAccountBar'
@@ -8,10 +8,12 @@ import { ScannedRepositories } from '@/components/repositories/ScannedRepositori
 import { useGitHubConnection } from '@/hooks/useGitHubConnection'
 import { useRepos } from '@/hooks/useRepos'
 import { useScannedRepositories } from '@/hooks/useScannedRepositories'
-import { useScan, type ScanEvent } from '@/hooks/useScan'
+import { useScan, type ScanEvent, type ScanStatus } from '@/hooks/useScan'
 import { useSEO } from '@/hooks/useSEO'
 import { describeConnectFailure } from '@/lib/githubMessages'
-import type { Repository } from '@/types/api'
+import { notifyDataChanged } from '@/lib/dataEvents'
+import { timeAgo } from '@/lib/workspaceMessages'
+import type { Repository, ScannedRepository } from '@/types/api'
 
 interface Banner {
   tone: 'success' | 'error'
@@ -42,10 +44,21 @@ export default function Repositories() {
   const [banner, setBanner] = useState<Banner | null>(null)
   const [params, setParams] = useSearchParams()
 
-  const refreshGraphData = useCallback(() => {
-    scanned.refetch()
-    repos.refetch()
-  }, [scanned.refetch, repos.refetch])
+  // Removing a repository changes the scanned list, the graph, the gaps
+  // and the sidebar badge. Every mounted data hook listens for this (see
+  // lib/dataEvents.ts); a completed scan sends the same signal from useScan.
+  const onRepositoryRemoved = useCallback(() => {
+    notifyDataChanged('repository_removed')
+  }, [])
+
+  // What this account has already scanned, keyed by `owner/repo`, so each
+  // GitHub repository card can say whether it has been scanned and what
+  // was found. /github/repos itself knows nothing about scans.
+  const scannedByName = useMemo(() => {
+    const map = new Map<string, ScannedRepository>()
+    for (const r of scanned.data?.repositories ?? []) map.set(r.repo.toLowerCase(), r)
+    return map
+  }, [scanned.data])
 
   useEffect(() => {
     const result = params.get('github')
@@ -56,7 +69,7 @@ export default function Repositories() {
         tone: 'success',
         title: 'GitHub authorization confirmed',
         message:
-          'Your repository access token is verified. Select a codebase below to initiate AST statutory analysis.',
+          'Your GitHub account is connected. Choose a repository below to scan it against the DPDP Act.',
         retryable: false,
       })
       refresh()
@@ -85,7 +98,7 @@ export default function Repositories() {
           </div>
           <h1 className="font-serif text-3xl font-medium tracking-tight text-text-primary">Source Repositories</h1>
           <p className="text-text-secondary text-xs mt-0.5">
-            Connect codebases, trigger AST static scans, and audit third-party data egress pipelines.
+            Connect codebases, scan them for personal data and third-party processors, and review what each scan found.
           </p>
         </div>
 
@@ -123,14 +136,13 @@ export default function Repositories() {
           <ScanPanel
             repositories={repos.data?.repositories}
             truncated={repos.data?.truncated}
-            onScanComplete={refreshGraphData}
           />
 
           <ScannedRepositories
             repositories={scanned.data?.repositories ?? []}
             loading={scanned.loading}
             error={scanned.error}
-            onRemoved={refreshGraphData}
+            onRemoved={onRepositoryRemoved}
           />
 
           <div className="pt-2">
@@ -148,6 +160,7 @@ export default function Repositories() {
 
             <RepoList
               repositories={repos.data?.repositories ?? []}
+              scannedByName={scannedByName}
               loading={repos.loading}
               error={repos.error}
             />
@@ -191,10 +204,12 @@ function ResultBanner({ banner, onRetry }: { banner: Banner; onRetry: () => void
 
 function RepoList({
   repositories,
+  scannedByName,
   loading,
   error,
 }: {
   repositories: Repository[]
+  scannedByName: Map<string, ScannedRepository>
   loading: boolean
   error: string | null
 }) {
@@ -234,19 +249,20 @@ function RepoList({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
       {repositories.map((repo) => (
-        <RepoItem key={repo.id} repo={repo} />
+        <RepoItem
+          key={repo.id}
+          repo={repo}
+          scanned={scannedByName.get(repo.full_name.toLowerCase()) ?? null}
+        />
       ))}
     </div>
   )
 }
 
-function RepoItem({ repo }: { repo: Repository }) {
-  const { status, logs, error, triggerScan } = useScan()
+function RepoItem({ repo, scanned }: { repo: Repository; scanned: ScannedRepository | null }) {
+  const { status, logs, error, reconnecting, triggerScan } = useScan()
   const busy = status === 'starting' || status === 'running'
-  const isScanned = Boolean(repo.last_scanned_at)
-  const score = typeof repo.score === 'number' ? repo.score : 0
-  const scoreCircumference = 2 * Math.PI * 13
-  const scoreOffset = scoreCircumference - (score / 100) * scoreCircumference
+  const scan = () => triggerScan(repo.full_name, repo.branch)
 
   return (
     <div className={`flex flex-col p-4 rounded border transition-colors bg-surface ${busy ? 'border-text-tertiary' : 'border-border hover:bg-surface-elevated/60'}`}>
@@ -265,52 +281,49 @@ function RepoItem({ repo }: { repo: Repository }) {
             <span className="flex items-center gap-1 truncate text-text-secondary">
               <GitBranch size={10} /> {repo.branch}
             </span>
-            <span>·</span>
-            <span className="truncate">
-              {repo.pushed_at ? `Updated ${formatWhen(repo.pushed_at)}` : (repo.last_scanned_at ? `Scanned ${formatWhen(repo.last_scanned_at)}` : 'Unscanned')}
-            </span>
+            {repo.pushed_at && (
+              <>
+                <span>·</span>
+                <span className="truncate">Pushed {formatWhen(repo.pushed_at)}</span>
+              </>
+            )}
           </div>
         </div>
       </div>
 
       <div className="mt-auto pt-3 border-t border-border/60 flex items-center justify-between gap-3">
-        {isScanned ? (
-          <div className="flex items-center gap-2.5 flex-1 w-full justify-between">
-            <div className="flex items-center gap-2">
-              <div className="relative w-7 h-7 flex items-center justify-center shrink-0" title={`DPDP Score: ${score}%`}>
-                <svg className="w-full h-full transform -rotate-90">
-                  <circle cx="14" cy="14" r="12" fill="transparent" stroke="currentColor" strokeWidth="2.5" className="text-border" />
-                  <circle 
-                    cx="14" cy="14" r="12" fill="transparent" stroke="currentColor" strokeWidth="2.5"
-                    strokeDasharray={scoreCircumference}
-                    strokeDashoffset={scoreOffset}
-                    strokeLinecap="round"
-                    className={score >= 70 ? 'text-status-compliant' : score >= 40 ? 'text-status-warning' : 'text-status-gap'}
-                  />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center font-mono text-[9px] text-text-primary font-medium">
-                  {score}
-                </div>
-              </div>
-              
-              {repo.status_detail && (
-                <span className="font-mono text-[10px] text-text-secondary truncate max-w-[120px]">
-                  {repo.status_detail}
+        {scanned ? (
+          <div className="flex items-center gap-2.5 flex-1 w-full justify-between min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0 font-mono text-[10px] text-text-secondary">
+              <CheckCircle2 size={11} className="text-status-compliant flex-shrink-0" />
+              <span className="truncate" title={scanned.last_scan ? new Date(scanned.last_scan).toLocaleString() : undefined}>
+                Scanned
+                {' · '}
+                <span className={scanned.gaps > 0 ? 'text-status-gap' : 'text-status-compliant'}>
+                  {scanned.gaps} {scanned.gaps === 1 ? 'finding' : 'findings'}
                 </span>
-              )}
+                {scanned.last_scan ? ` · last scan ${timeAgo(scanned.last_scan)}` : ' · loaded from the command line'}
+              </span>
             </div>
-            
+
             <button
-              onClick={() => triggerScan(repo.full_name, repo.branch)}
+              onClick={scan}
               disabled={busy}
-              className="px-2.5 py-1 rounded border border-border text-xs text-text-secondary hover:text-text-primary hover:bg-bg transition-colors disabled:opacity-40"
+              className="px-2.5 py-1 rounded border border-border text-xs text-text-secondary hover:text-text-primary hover:bg-bg transition-colors disabled:opacity-40 flex items-center gap-1.5 flex-shrink-0"
             >
-              Re-scan
+              {busy ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  <span>Scanning…</span>
+                </>
+              ) : (
+                'Re-scan'
+              )}
             </button>
           </div>
         ) : (
           <button
-            onClick={() => triggerScan(repo.full_name, repo.branch)}
+            onClick={scan}
             disabled={busy}
             className="w-full py-1.5 px-3 rounded text-xs font-medium text-bg bg-text-primary hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center justify-center gap-1.5 shadow-xs"
           >
@@ -327,20 +340,38 @@ function RepoItem({ repo }: { repo: Repository }) {
       </div>
 
       {status !== 'idle' && (
-        <ScanProgress status={status} logs={logs} error={error} />
+        <ScanProgress status={status} logs={logs} error={error} reconnecting={reconnecting} />
       )}
     </div>
   )
 }
 
-function ScanProgress({ status, logs, error }: { status: string, logs: ScanEvent[], error: string | null }) {
+function ScanProgress({
+  status,
+  logs,
+  error,
+  reconnecting,
+}: {
+  status: ScanStatus
+  logs: ScanEvent[]
+  error: string | null
+  reconnecting: { attempt: number } | null
+}) {
+  const isRunning = status === 'starting' || status === 'running'
+
   return (
     <div className="mt-3 pt-3 border-t border-border font-mono text-[11px]">
       <div className="space-y-1.5">
+        {status === 'starting' && logs.length === 0 && (
+          <div className="flex items-center gap-2 text-text-tertiary">
+            <Loader2 size={11} className="animate-spin" />
+            <span>Requesting scan…</span>
+          </div>
+        )}
+
         {logs.map((log, i) => {
           const isLast = i === logs.length - 1
-          const isRunning = status === 'starting' || status === 'running'
-          const showSpinner = isLast && isRunning
+          const showSpinner = isLast && isRunning && !reconnecting
           const msg = log.message || log.error || log.event
 
           return (
@@ -351,6 +382,13 @@ function ScanProgress({ status, logs, error }: { status: string, logs: ScanEvent
             </div>
           )
         })}
+
+        {isRunning && reconnecting && (
+          <div className="flex items-center gap-2 text-status-warning">
+            <Loader2 size={11} className="animate-spin" />
+            <span>Connection interrupted — reconnecting (attempt {reconnecting.attempt})…</span>
+          </div>
+        )}
 
         {status === 'completed' && (
           <div className="mt-2 pt-2 border-t border-border flex items-center justify-between text-status-compliant font-medium">
@@ -364,6 +402,20 @@ function ScanProgress({ status, logs, error }: { status: string, logs: ScanEvent
         {status === 'failed' && (
           <div className="mt-2 pt-2 border-t border-border text-status-gap">
             Scan failed: {error}
+          </div>
+        )}
+
+        {status === 'rejected' && (
+          <div className="mt-2 pt-2 border-t border-border text-status-warning flex items-start gap-1.5">
+            <AlertTriangle size={11} className="mt-0.5 flex-shrink-0" />
+            <span>{error || 'The server did not start this scan.'}</span>
+          </div>
+        )}
+
+        {status === 'connection_lost' && (
+          <div className="mt-2 pt-2 border-t border-border text-status-warning flex items-start gap-1.5">
+            <AlertTriangle size={11} className="mt-0.5 flex-shrink-0" />
+            <span>{error || 'Lost the connection to the scan progress stream.'}</span>
           </div>
         )}
       </div>

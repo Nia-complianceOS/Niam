@@ -1,8 +1,12 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { ShieldCheck, Mail, Lock, User, Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react'
+import { Mail, Lock, User, Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react'
 import { useSEO } from '@/hooks/useSEO'
+import { NiamMark } from '@/components/brand/NiamMark'
+import { GitHubSignInButton, OrDivider } from '@/components/auth/GitHubSignInButton'
+import { AuthNotice } from '@/components/auth/AuthNotice'
+import { useNextPath, withNext, type AuthPageState } from '@/lib/redirect'
 
 export default function Signup() {
   useSEO({
@@ -17,6 +21,9 @@ export default function Signup() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { signup } = useAuth()
+  const location = useLocation()
+  const next = useNextPath()
+  const notice = ((location.state ?? null) as AuthPageState | null)?.notice ?? null
 
   const calculateStrength = (pwd: string) => {
     let score = 0
@@ -46,7 +53,7 @@ export default function Signup() {
     setIsSubmitting(true)
     setError(null)
     try {
-      await signup(email, name, password)
+      await signup(email, name, password, next)
     } catch (err) {
       setError((err as Error).message || 'Could not create the workspace')
     } finally {
@@ -59,10 +66,8 @@ export default function Signup() {
       {/* LEFT COLUMN: Regulatory Briefing & Ledger Identity */}
       <div className="w-full md:w-[50%] lg:w-[48%] flex flex-col justify-between p-8 md:p-14 lg:p-18 border-b md:border-b-0 md:border-r border-border bg-bg-subtle/40">
         <div>
-          <Link to="/" className="inline-flex items-center gap-2.5 group mb-12">
-            <div className="w-8 h-8 rounded border border-border bg-surface flex items-center justify-center text-text-primary transition-colors group-hover:border-text-tertiary">
-              <ShieldCheck size={18} strokeWidth={1.75} />
-            </div>
+          <Link to="/" aria-label="Niam home" className="inline-flex items-center gap-2.5 group mb-12 rounded">
+            <NiamMark size={26} title="" className="text-text-primary flex-shrink-0" />
             <span className="font-serif font-semibold text-xl tracking-tight text-text-primary">Niam</span>
             <span className="text-[10px] font-mono text-text-tertiary px-1.5 py-0.5 rounded border border-border bg-bg">
               DPDP ACT 2023
@@ -74,7 +79,7 @@ export default function Signup() {
               Establish continuous statutory oversight before shipping.
             </h1>
             <p className="text-[14px] text-text-secondary leading-relaxed">
-              Connect your repositories to generate a comprehensive AST compliance graph, audit personal data egress, and receive automated remedial policy pull requests.
+              Connect your repositories to map where your code collects personal data and which vendors it sends it to, check that against the DPDP Act, and review drafted policy fixes as pull requests.
             </p>
 
             <div className="pt-6 space-y-3 font-mono text-xs text-text-secondary border-t border-border">
@@ -84,7 +89,7 @@ export default function Signup() {
               </div>
               <div className="flex items-center gap-2.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-status-compliant" />
-                <span>GitHub App Scoped Read Permissions</span>
+                <span>GitHub OAuth · repo scope, used to open fix PRs</span>
               </div>
               <div className="flex items-center gap-2.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-status-compliant" />
@@ -111,13 +116,26 @@ export default function Signup() {
             <p className="text-xs text-text-secondary">Set up your administrative account to initiate repository scans.</p>
           </div>
 
+          {notice && (
+            <AuthNotice tone={notice.tone ?? 'error'} title={notice.title}>
+              {notice.message}
+            </AuthNotice>
+          )}
+
           <div className="rounded border border-border bg-surface p-6 sm:p-7 shadow-sm">
             {error && (
-              <div className="mb-5 p-3 rounded border border-status-gap/30 bg-status-gap/10 text-status-gap text-xs leading-relaxed flex items-start gap-2 font-sans">
+              <div role="alert" className="mb-5 p-3 rounded border border-status-gap/30 bg-status-gap/10 text-status-gap text-xs leading-relaxed flex items-start gap-2 font-sans">
                 <span className="font-mono text-[11px] font-bold">ERR:</span>
                 <span>{error}</span>
               </div>
             )}
+
+            <GitHubSignInButton returnTo={next ?? '/repositories'} />
+            <p className="mt-2 text-[11px] leading-relaxed text-text-tertiary">
+              Creates your account with your verified GitHub email and lists your repositories straight away.
+            </p>
+
+            <OrDivider />
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
@@ -163,7 +181,7 @@ export default function Signup() {
               </div>
 
               <div className="space-y-1.5">
-                <label htmlFor="password" aria-label="Password" className="text-xs font-medium text-text-secondary">
+                <label htmlFor="password" className="text-xs font-medium text-text-secondary">
                   Password
                 </label>
                 <div className="relative">
@@ -233,7 +251,7 @@ export default function Signup() {
 
             <div className="mt-5 pt-4 border-t border-border text-center text-xs text-text-secondary">
               Already have an active workspace?{' '}
-              <Link to="/login" className="text-text-primary font-medium hover:underline underline-offset-4">
+              <Link to={withNext('/login', next)} className="text-text-primary font-medium hover:underline underline-offset-4">
                 Sign In
               </Link>
             </div>

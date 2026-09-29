@@ -172,7 +172,7 @@ export function GraphDetailPanel({ node, edges, nodes, onClose }: Props) {
         {(node.node_type === 'System' || node.node_type === 'DataType') && (
           <div className="p-3 border-t border-border bg-bg-subtle">
             <Link 
-              to={`/gaps${node.node_type === 'System' ? `?search=${encodeURIComponent(node.label)}` : ''}`} 
+              to={`/gaps?${node.node_type === 'System' ? 'system' : 'search'}=${encodeURIComponent(node.label)}`} 
               className="flex items-center justify-center gap-1.5 w-full py-1.5 bg-bg text-text-primary hover:bg-surface-elevated border border-border rounded text-xs font-medium transition-colors"
             >
               <span>Examine Related Findings</span>

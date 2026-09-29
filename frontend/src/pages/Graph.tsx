@@ -13,7 +13,7 @@ import type { GraphNode } from '@/types/api'
 export default function Graph() {
   useSEO({
     title: 'Compliance Knowledge Graph — Niam Statutory Ledger',
-    description: 'Direct AST directional graph mapping personal data from codebases to DPDP Act 2023 clauses.'
+    description: 'Directional graph mapping personal data found in your code to vendors and DPDP Act 2023 clauses.'
   })
   
   const { data: graph, loading, error } = useGraph()
@@ -47,7 +47,7 @@ export default function Graph() {
           <div>
             <div className="flex items-center gap-2 text-[11px] font-mono text-text-tertiary uppercase mb-1">
               <span className="w-1.5 h-1.5 rounded-full bg-entity-system" />
-              <span>TRAVERSING AST ONTOLOGY</span>
+              <span>LOADING COMPLIANCE GRAPH</span>
             </div>
             <h1 className="font-serif text-3xl font-medium tracking-tight text-text-primary">Compliance Graph</h1>
           </div>
@@ -69,7 +69,7 @@ export default function Graph() {
           </div>
           <h1 className="font-serif text-3xl font-medium tracking-tight text-text-primary">Compliance Knowledge Graph</h1>
           <p className="text-text-secondary text-xs mt-0.5">
-            Directional data flow traced from source AST tokens through third-party processors to statutory DPDP Act clauses.
+            Personal data traced from the repositories that collect it, through the third-party processors it is sent to, to the DPDP Act clauses that govern it.
           </p>
         </div>
         <GraphLegend />

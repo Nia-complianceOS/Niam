@@ -58,7 +58,7 @@ export default function Policies() {
       {!data || data.policies.length === 0 ? (
         <GetStartedState
           title="No Policy Documents Registered"
-          message="Connect a source repository to index repository privacy notices and data protection schedules. Niam correlates document commitments with AST data flows."
+          message="Connect a source repository to index repository privacy notices and data protection schedules. Niam compares what the documents promise with the data flows found in your code."
         />
       ) : (
         <Card className="overflow-hidden border-border bg-surface">
@@ -68,7 +68,7 @@ export default function Policies() {
                 <tr className="bg-surface-sunken border-b border-border text-[11px] font-mono text-text-muted uppercase tracking-wider">
                   <th className="px-5 py-3 font-medium">Statutory Schedule</th>
                   <th className="px-5 py-3 font-medium">Policy Scope & Commitments</th>
-                  <th className="px-5 py-3 font-medium">AST Alignment</th>
+                  <th className="px-5 py-3 font-medium">Code Alignment</th>
                   <th className="px-5 py-3 font-medium text-right">Audit Status</th>
                 </tr>
               </thead>
