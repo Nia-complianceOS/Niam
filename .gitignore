@@ -148,6 +148,7 @@ smoke/
 #
 # Keep them on disk. They are still the reference for this project.
 CODEBASE_AUDIT.md
+CODEBASE_AUDIT_*.md
 ACTION_PLAN.md
 KAMRAN_RUNBOOK.md
 SESSION_HANDOFF.md
